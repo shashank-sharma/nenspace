@@ -9,6 +9,7 @@ type Model interface {
 	IsNew() bool
 	SetId(id string)
 	GetId() string
+	HasId() bool
 	MarkAsNew()
 	MarkAsNotNew()
 	RefreshCreated()

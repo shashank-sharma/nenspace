@@ -16,11 +16,11 @@ var _ core.Model = (*Connector)(nil)
 type Workflow struct {
 	BaseModel
 
-	Name        string `db:"name" json:"name"`
-	Description string `db:"description" json:"description"`
-	Active      bool   `db:"active" json:"active"`
-	User        string `db:"user" json:"user"` // user ID
-	Config      *core.JSONField `db:"config" json:"config"`
+	Name        string        `db:"name" json:"name"`
+	Description string        `db:"description" json:"description"`
+	Active      bool          `db:"active" json:"active"`
+	User        string        `db:"user" json:"user"` // user ID
+	Config      types.JSONRaw `db:"config" json:"config"`
 }
 
 // WorkflowNode represents a single node in a workflow

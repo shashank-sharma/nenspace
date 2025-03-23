@@ -27,6 +27,20 @@ func FindById[T models.Model](id string) (T, error) {
 	return m, nil
 }
 
+func DeleteById[T models.Model](id string) error {
+	record, err := FindById[T](id)
+	if err == nil {
+		return err
+	}
+
+	err = store.GetDao().Delete(record)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func FindByFilter[T models.Model](filterStruct map[string]interface{}) (T, error) {
 	var m T
 	query := BaseModelQuery(m)
@@ -46,6 +60,15 @@ func FindByFilter[T models.Model](filterStruct map[string]interface{}) (T, error
 }
 
 func SaveRecord(model models.Model) error {
+	if model.IsNew() {
+		if !model.HasId() {
+			model.SetId(util.GenerateRandomId())
+		}
+		model.RefreshCreated()
+	}
+
+	model.RefreshUpdated()
+
 	if err := store.GetDao().Save(model); err != nil {
 		return err
 	}
@@ -57,12 +80,7 @@ func UpsertRecord[T models.Model](model T, filterStruct map[string]interface{}) 
 	if err == nil {
 		model.SetId(record.GetId())
 		model.MarkAsNotNew()
-	} else {
-		model.SetId(util.GenerateRandomId())
-		model.RefreshCreated()
 	}
-
-	model.RefreshUpdated()
 
 	if err := SaveRecord(model); err != nil {
 		return err

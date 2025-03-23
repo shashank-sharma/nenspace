@@ -79,9 +79,12 @@ func main() {
 		migratecmd.MustRegister(application.Pb, application.Pb.RootCmd, migratecmd.Config{
 			Automigrate: strings.HasPrefix(os.Args[0], os.TempDir()),
 		})
-		
-		application.Start(config.HttpAddr)
-		
+
+		if err := application.Start(config.HttpAddr); err != nil {
+			fmt.Println("Failed to start application", "error", err)
+			os.Exit(1)
+		}
+
 	case "migrate":
 		config, err := parseCommandFlags(os.Args[2:])
 		if err != nil {

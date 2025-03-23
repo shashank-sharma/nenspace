@@ -1,0 +1,55 @@
+arch: x86_64
+images:
+- location: "https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2"
+  arch: "x86_64"
+  digest: "sha256:6205ae0c524b4d1816dbd3573ce29b5c44ed26c9fbc874fbe48c41c89dd0bac2"
+- location: "https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/aarch64/images/Fedora-Cloud-Base-Generic-41-1.4.aarch64.qcow2"
+  arch: "aarch64"
+  digest: "sha256:085883b42c7e3b980e366a1fe006cd0ff15877f7e6e984426f3c6c67c7cc2faa"
+# Mount local project directory
+mounts:
+  - location: "~"
+  - location: "/tmp/lima"
+    writable: true
+containerd:
+  system: false
+  user: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      # Set up subuid
+      for f in /etc/subuid /etc/subgid; do
+          grep -qw "${LIMA_CIDATA_USER}" $f || echo "${LIMA_CIDATA_USER}:100000:65536" >>$f
+      done
+  # - mode: system
+  #   script: |
+  #     #!/bin/bash
+  #     apk update
+  #     apk update && apk add --no-cache gcc musl-dev libcap runc=1.2.2-r2 go=1.23.6-r0 netavark buildah passt
+  #     apk add --repository="http://dl-cdn.alpinelinux.org/alpine/edge/testing" criu=3.19-r1 || echo "criu package not found"
+  #     if command -v criu >/dev/null 2>&1; then
+  #       setcap cap_checkpoint_restore+eip $(which criu)
+  #     else
+  #       echo "criu not installed, skipping setcap command"
+  #     fi
+  #     # Set environment variables in profile
+  #     export GOOS=linux
+  #     export CGO_ENABLED=0
+
+portForwards:
+  - guestPort: 8090
+    hostPort: 8090
+  - guestPort: 9090
+    hostPort: 9090
+  - guestPort: 9091
+    hostPort: 9091
+  - guestPort: 3000
+    hostPort: 3000
+
+mountTypesUnsupported: ["9p"]
+
+
+
