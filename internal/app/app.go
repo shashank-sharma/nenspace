@@ -25,6 +25,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/services/memorysystem"
 	"github.com/shashank-sharma/backend/internal/services/providers"
 	"github.com/shashank-sharma/backend/internal/services/search"
+	"github.com/shashank-sharma/backend/internal/services/weather"
 	"github.com/shashank-sharma/backend/internal/services/workflow"
 	"github.com/shashank-sharma/backend/internal/store"
 )
@@ -40,6 +41,7 @@ type Application struct {
 	FeedService      *services.FeedService
 	ContainerService *container.ContainerService
 	SearchService    *search.FullTextSearchService
+	WeatherService   *weather.WeatherService
 	postInitHooks    []func()
 }
 
@@ -106,6 +108,7 @@ func (app *Application) initializeBaseServices() {
 	app.CalendarService = calendar.NewCalendarService()
 	app.MailService = mail.NewMailService()
 	app.WorkflowEngine = workflow.NewWorkflowEngine(app.Pb)
+	app.WeatherService = weather.NewWeatherService()
 }
 
 // initializeSearchService initializes the full-text search service
@@ -175,6 +178,7 @@ func (app *Application) configureRoutes(e *core.ServeEvent) {
 	routes.RegisterMailRoutes(apiRouter, "/mail", app.MailService)
 	routes.RegisterFoldRoutes(apiRouter, "/fold", app.FoldService)
 	routes.RegisterSSHRoutes(apiRouter, "/ssh")
+	routes.RegisterWeatherRoutes(apiRouter, "/weather", app.WeatherService)
 
 	// Register optional service routes
 	if app.ContainerService != nil {

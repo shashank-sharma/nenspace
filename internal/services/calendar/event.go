@@ -15,18 +15,27 @@ import (
 )
 
 func (cs *CalendarService) SyncEvents(calendarSync *models.CalendarSync) error {
+	logger.LogDebug("Syncing events right now")
+	query.UpdateRecord[*models.CalendarSync](calendarSync.Id, map[string]interface{}{
+		"in_progress": true,
+		"sync_status": "syncing",
+	})
 	client, err := cs.FetchClient(calendarSync.Token)
 	if err != nil {
+		logger.LogError("Failed fetching client", "error", err)
 		return err
 	}
+
+	logger.LogDebug("Fetched client")
 	calendarService, err := calendar.NewService(context.Background(), option.WithHTTPClient(client))
 
 	if err != nil {
-		logger.LogError("Unable to create calendar service")
+		logger.LogError("Unable to create calendar service", "error", err)
 		return err
 	}
 
 	request := calendarService.Events.List(calendarSync.Type)
+	logger.LogDebug("Request: ", request)
 	if calendarSync.SyncToken != "" {
 		request.SyncToken(calendarSync.SyncToken)
 	} else {
@@ -53,17 +62,26 @@ func (cs *CalendarService) SyncEvents(calendarSync *models.CalendarSync) error {
 
 	pageToken := ""
 	for {
+		logger.LogDebug("Starting here")
 		request.PageToken(pageToken)
 		events, err := request.SingleEvents(true).Do()
+		logger.LogDebug("Got events")
 		if err != nil {
 			if e, ok := err.(*googleapi.Error); ok && e.Code == 410 {
-				logger.LogError("Invalid sync token")
+				logger.LogError("Invalid sync token", "error", err)
 				return err
 			}
+			logger.LogError("Error fetching events", "error", err)
 			return err
 		}
 		if len(events.Items) == 0 {
-			logger.Debug.Println("No new events to sync")
+			logger.LogDebug("No new events to sync")
+			query.UpdateRecord[*models.CalendarSync](calendarSync.Id, map[string]any{
+				"sync_token":  events.NextSyncToken,
+				"last_synced": types.NowDateTime(),
+				"in_progress": false,
+				"sync_status": "no change",
+			})
 			break
 		}
 
@@ -73,9 +91,11 @@ func (cs *CalendarService) SyncEvents(calendarSync *models.CalendarSync) error {
 
 		pageToken = events.NextPageToken
 		if pageToken == "" {
-			query.UpdateRecord[*models.CalendarSync](calendarSync.Id, map[string]interface{}{
+			query.UpdateRecord[*models.CalendarSync](calendarSync.Id, map[string]any{
 				"sync_token":  events.NextSyncToken,
 				"last_synced": types.NowDateTime(),
+				"in_progress": false,
+				"sync_status": "added",
 			})
 			break
 		}
@@ -84,6 +104,7 @@ func (cs *CalendarService) SyncEvents(calendarSync *models.CalendarSync) error {
 	close(eventsChannel)
 	wg.Wait()
 
+	logger.LogDebug("Returning now")
 	return nil
 }
 

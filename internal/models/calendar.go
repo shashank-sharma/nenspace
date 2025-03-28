@@ -28,7 +28,9 @@ type CalendarSync struct {
 	Name       string         `db:"name" json:"name"`
 	Type       string         `db:"type" json:"type"`
 	SyncToken  string         `db:"sync_token" json:"sync_token"`
+	SyncStatus string         `db:"sync_status" json:"sync_status"`
 	IsActive   bool           `db:"is_active" json:"is_active"`
+	InProgress bool           `db:"in_progress" json:"in_progress"`
 	LastSynced types.DateTime `db:"last_synced" json:"last_synced"`
 }
 

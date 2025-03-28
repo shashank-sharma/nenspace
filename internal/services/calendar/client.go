@@ -39,7 +39,7 @@ func (cs *CalendarService) GetConfig() *oauth2.Config {
 }
 
 func (cs *CalendarService) FetchClient(calTokenId string) (*http.Client, error) {
-	calendarToken, err := query.FindById[*models.CalendarToken](calTokenId)
+	calendarToken, err := query.FindById[*models.Token](calTokenId)
 	if err != nil {
 		return nil, err
 	}

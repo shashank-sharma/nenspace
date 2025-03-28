@@ -47,6 +47,7 @@ func (ms *MailService) InitializeLabels(tokenId string, userId string) (*models.
 		return nil, fmt.Errorf("error marshaling labels: %v", err)
 	}
 
+	// Need a flow to handle 
 	mailSync := &models.MailSync{
 		User:     userId,
 		Token:    tokenId,
