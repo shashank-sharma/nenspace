@@ -21,6 +21,7 @@ type SearchHookConfig struct {
 func (app *Application) registerHooks() {
 	app.registerTerminationHooks()
 	app.registerTokenEncryptionHooks()
+	app.registerLocationCoordinateHooks()
 	
 	if app.SearchService != nil {
 		app.registerSearchHooks()
@@ -193,6 +194,57 @@ func (app *Application) registerSearchHooks() {
 	app.Pb.OnRecordDeleteRequest("_collections").BindFunc(func(e *core.RecordRequestEvent) error {
 		collectionName := e.Record.GetString("name")
 		_ = app.processCollectionFTSAction(collectionName, "delete")
+		return e.Next()
+	})
+}
+
+// registerLocationCoordinateHooks sets up hooks to fetch coordinates when a user's city is updated
+func (app *Application) registerLocationCoordinateHooks() {
+	if app.WeatherService == nil {
+		logger.LogDebug("Weather service not initialized, skipping location coordinate hooks")
+		return
+	}
+
+	processUserLocation := func(record *core.Record) error {
+		city := record.GetString("city")
+		if city == "" {
+			return nil
+		}
+
+		lat := record.GetFloat("lat")
+		lon := record.GetFloat("lon")
+		if lat != 0 && lon != 0 && record.Id != "" {
+			return nil
+		}
+
+		coords, err := app.WeatherService.GetCoordinates(city)
+		if err != nil {
+			logger.LogError("Failed to fetch coordinates for city %s: %v", city, err)
+			return nil
+		}
+
+		record.Set("lat", coords.Lat)
+		record.Set("lon", coords.Lon)
+
+		logger.LogInfo("Updated coordinates for user city: %s, lat: %f, lon: %f",
+			city, coords.Lat, coords.Lon)
+
+		return nil
+	}
+
+	app.Pb.OnRecordCreate("users").BindFunc(func(e *core.RecordEvent) error {
+		logger.LogInfo("Processing user location for record: %v", e.Record.Id)
+		if err := processUserLocation(e.Record); err != nil {
+			return err
+		}
+		return e.Next()
+	})
+
+	app.Pb.OnRecordUpdate("users").BindFunc(func(e *core.RecordEvent) error {
+		logger.LogInfo("Processing user location for record: %v", e.Record.Id)
+		if err := processUserLocation(e.Record); err != nil {
+			return err
+		}
 		return e.Next()
 	})
 }

@@ -15,11 +15,10 @@ import (
 func (ws *WeatherService) convertToWeatherData(userId, location string, response CurrentWeatherResponse) (*models.WeatherData, error) {
 	weatherData := &models.WeatherData{
 		User:          userId,
-		City:          response.Name,
+		City:          strings.ToLower(response.Name),
 		Lat:           response.Coord.Lat,
 		Lon:           response.Coord.Lon,
 		Country:       response.Sys.Country,
-		LocationQuery: strings.TrimSpace(strings.ToLower(location)),
 		LastUpdated:   types.NowDateTime(),
 		Pressure:      response.Main.Pressure,
 		Humidity:      response.Main.Humidity,
@@ -33,9 +32,14 @@ func (ws *WeatherService) convertToWeatherData(userId, location string, response
 		Visibility:    response.Visibility,
 		IsForecast:    false,
 	}
+	
+	if location != "" {
+		weatherData.LocationQuery = strings.TrimSpace(strings.ToLower(location))
+	} else {
+		weatherData.LocationQuery = fmt.Sprintf("%.4f,%.4f", response.Coord.Lat, response.Coord.Lon)
+	}
 
 	currentDate := time.Unix(response.Dt, 0)
-	currentDate = time.Date(currentDate.Year(), currentDate.Month(), currentDate.Day(), 0, 0, 0, 0, currentDate.Location())
 	weatherData.Date.Scan(currentDate)
 
 	sunrise := time.Unix(response.Sys.Sunrise, 0)
@@ -44,7 +48,7 @@ func (ws *WeatherService) convertToWeatherData(userId, location string, response
 	weatherData.Sunset.Scan(sunset)
 
 	if len(response.Weather) > 0 {
-		weatherData.Weather = response.Weather[0].Main
+		weatherData.Weather = strings.ToLower(response.Weather[0].Main)
 		weatherData.Description = response.Weather[0].Description
 		weatherData.Icon = response.Weather[0].Icon
 	}
@@ -56,13 +60,18 @@ func (ws *WeatherService) convertToWeatherData(userId, location string, response
 func (ws *WeatherService) convertToWeatherForecast(userId, location string, response ForecastResponse, days int) (*models.WeatherForecast, error) {
 	forecast := &models.WeatherForecast{
 		User:          userId,
-		City:          response.City.Name,
+		City:          strings.ToLower(response.City.Name),
 		Lat:           response.City.Coord.Lat,
 		Lon:           response.City.Coord.Lon,
 		Country:       response.City.Country,
 		DayCount:      days,
-		LocationQuery: strings.TrimSpace(strings.ToLower(location)),
 		LastUpdated:   types.NowDateTime(),
+	}
+	
+	if location != "" {
+		forecast.LocationQuery = strings.TrimSpace(strings.ToLower(location))
+	} else {
+		forecast.LocationQuery = fmt.Sprintf("%.4f,%.4f", response.City.Coord.Lat, response.City.Coord.Lon)
 	}
 
 	intervalForecasts := make([]map[string]interface{}, 0, len(response.List))
@@ -119,211 +128,6 @@ func (ws *WeatherService) convertToWeatherForecast(userId, location string, resp
 	forecast.ForecastData.Scan(forecastDataJSON)
 
 	return forecast, nil
-}
-
-// groupForecastsByDay groups 3-hour forecasts into daily forecasts
-func (ws *WeatherService) groupForecastsByDay(forecastList []ForecastListItem, days int) []map[string]interface{} {
-	dailyMap := make(map[string][]ForecastListItem)
-	
-	for _, item := range forecastList {
-		date := time.Unix(item.Dt, 0)
-		dateStr := date.Format("2006-01-02")
-		dailyMap[dateStr] = append(dailyMap[dateStr], item)
-	}
-
-	dailyForecasts := make([]map[string]interface{}, 0, len(dailyMap))
-	for dateStr, items := range dailyMap {
-		var tempSum, tempMin, tempMax, humiditySum, windSpeedSum float64
-		var pop float64
-		var icon, condition, description string
-		
-		tempMin = 1000.0
-		tempMax = -1000.0
-		
-		midDayItem := items[0]
-		
-		for _, item := range items {
-			date := time.Unix(item.Dt, 0)
-			hour := date.Hour()
-			
-			if item.Main.Temp < tempMin {
-				tempMin = item.Main.Temp
-			}
-			if item.Main.Temp > tempMax {
-				tempMax = item.Main.Temp
-			}
-			
-			tempSum += item.Main.Temp
-			humiditySum += float64(item.Main.Humidity)
-			windSpeedSum += item.Wind.Speed
-			
-			if item.Pop > pop {
-				pop = item.Pop
-			}
-			
-			if hour >= 11 && hour <= 14 {
-				midDayItem = item
-			}
-		}
-		
-		if len(midDayItem.Weather) > 0 {
-			condition = midDayItem.Weather[0].Main
-			description = midDayItem.Weather[0].Description
-			icon = midDayItem.Weather[0].Icon
-		}
-		
-		avgTemp := tempSum / float64(len(items))
-		avgHumidity := humiditySum / float64(len(items))
-		avgWindSpeed := windSpeedSum / float64(len(items))
-		
-		dailyForecasts = append(dailyForecasts, map[string]interface{}{
-			"date":        dateStr,
-			"dt":          midDayItem.Dt,
-			"day_of_week": time.Unix(midDayItem.Dt, 0).Weekday().String(),
-			"weather": map[string]interface{}{
-				"condition":   condition,
-				"description": description,
-				"icon":        icon,
-				"icon_url":    fmt.Sprintf("https://openweathermap.org/img/wn/%s@2x.png", icon),
-			},
-			"temperature": map[string]interface{}{
-				"avg": avgTemp,
-				"min": tempMin,
-				"max": tempMax,
-				"unit": ws.getTemperatureUnit(),
-			},
-			"humidity":       avgHumidity,
-			"wind_speed":     avgWindSpeed,
-			"wind_direction": ws.formatWindDirection(midDayItem.Wind.Deg),
-			"clouds":         midDayItem.Clouds.All,
-			"probability_of_precipitation": pop * 100,
-		})
-	}
-	
-	sort.Slice(dailyForecasts, func(i, j int) bool {
-		return dailyForecasts[i]["date"].(string) < dailyForecasts[j]["date"].(string)
-	})
-	
-	if len(dailyForecasts) > days {
-		dailyForecasts = dailyForecasts[:days]
-	}
-	
-	return dailyForecasts
-}
-
-// convertForecastToWeatherData converts a forecast item to a WeatherData model
-func (ws *WeatherService) convertForecastToWeatherData(userId, location string, city string, country string, forecastItem map[string]interface{}) (*models.WeatherData, error) {
-	weatherData := &models.WeatherData{
-		User:          userId,
-		City:          city,
-		Country:       country,
-		LocationQuery: strings.TrimSpace(strings.ToLower(location)),
-		LastUpdated:   types.NowDateTime(),
-		IsForecast:    true,
-	}
-	
-	if lat, ok := forecastItem["lat"].(float64); ok {
-		weatherData.Lat = lat
-	}
-	if lon, ok := forecastItem["lon"].(float64); ok {
-		weatherData.Lon = lon
-	}
-	
-	var forecastTime time.Time
-	var timeSet bool
-	
-	if timestamp, ok := forecastItem["timestamp"].(int64); ok {
-		forecastTime = time.Unix(timestamp, 0)
-		timeSet = true
-	} else if timestamp, ok := forecastItem["timestamp"].(float64); ok {
-		forecastTime = time.Unix(int64(timestamp), 0)
-		timeSet = true
-	}
-	
-	if !timeSet {
-		dateStr, _ := forecastItem["date"].(string)
-		timeStr, _ := forecastItem["time"].(string)
-		
-		if dateStr != "" && timeStr != "" {
-			parsedTime, err := time.Parse("2006-01-02 15:04", dateStr+" "+timeStr)
-			if err == nil {
-				forecastTime = parsedTime
-				timeSet = true
-			}
-		}
-	}
-	
-	if timeSet {
-		weatherData.Date.Scan(forecastTime)
-	}
-	
-	if weather, ok := forecastItem["weather"].(map[string]interface{}); ok {
-		if condition, ok := weather["condition"].(string); ok {
-			weatherData.Weather = condition
-		}
-		if description, ok := weather["description"].(string); ok {
-			weatherData.Description = description
-		}
-		if icon, ok := weather["icon"].(string); ok {
-			weatherData.Icon = icon
-		}
-	}
-	
-	// Extract temperature data
-	if temp, ok := forecastItem["temperature"].(map[string]interface{}); ok {
-		if current, ok := temp["current"].(float64); ok {
-			weatherData.Temperature = current
-		} else if avg, ok := temp["avg"].(float64); ok {
-			weatherData.Temperature = avg
-		}
-		
-		if feelsLike, ok := temp["feels_like"].(float64); ok {
-			weatherData.FeelsLike = feelsLike
-		}
-		
-		if min, ok := temp["min"].(float64); ok {
-			weatherData.TempMin = min
-		}
-		if max, ok := temp["max"].(float64); ok {
-			weatherData.TempMax = max
-		}
-	}
-	
-	extractIntValue := func(item map[string]interface{}, key string) (int, bool) {
-		if val, ok := item[key].(int); ok {
-			return val, true
-		} else if fVal, ok := item[key].(float64); ok {
-			return int(fVal), true
-		}
-		return 0, false
-	}
-	
-	extractFloatValue := func(item map[string]interface{}, key string) (float64, bool) {
-		if val, ok := item[key].(float64); ok {
-			return val, true
-		} else if iVal, ok := item[key].(int); ok {
-			return float64(iVal), true
-		}
-		return 0, false
-	}
-	
-	if humidity, ok := extractIntValue(forecastItem, "humidity"); ok {
-		weatherData.Humidity = humidity
-	}
-	
-	if windSpeed, ok := extractFloatValue(forecastItem, "wind_speed"); ok {
-		weatherData.WindSpeed = windSpeed
-	}
-	
-	if windDir, ok := forecastItem["wind_direction"].(string); ok {
-		weatherData.WindDeg = ws.cardinalToWindDegrees(windDir)
-	}
-	
-	if clouds, ok := extractIntValue(forecastItem, "clouds"); ok {
-		weatherData.Clouds = clouds
-	}
-	
-	return weatherData, nil
 }
 
 // cardinalToWindDegrees converts a cardinal direction to approximate degrees

@@ -6,18 +6,20 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/pocketbase/pocketbase/tools/types"
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/models"
+	"github.com/shashank-sharma/backend/internal/query"
 )
 
 const (
 	baseURL            = "https://api.openweathermap.org/data/2.5"
-	defaultCacheTTL    = 30 * time.Minute  // Cache current weather for 30 minutes
-	forecastCacheTTL   = 3 * time.Hour     // Cache forecast for 3 hours
+	defaultCacheTTL    = 10 * time.Minute  // Cache current weather for 30 minutes
+	forecastCacheTTL   = 24 * time.Hour     // Cache forecast for 3 hours
 	geocodingURL       = "https://api.openweathermap.org/geo/1.0/direct"
 	defaultUnits       = "metric"
 	defaultLang        = "en"
@@ -45,46 +47,44 @@ func NewWeatherService() *WeatherService {
 	}
 }
 
-// SetUnits sets the units for temperature (metric, imperial, standard)
-func (ws *WeatherService) SetUnits(units string) {
-	if units == "metric" || units == "imperial" || units == "standard" {
-		ws.units = units
-	}
-}
-
-// SetLanguage sets the language for weather descriptions
-func (ws *WeatherService) SetLanguage(lang string) {
-	ws.lang = lang
-}
-
-// GetCurrentWeather gets the current weather for a location
-func (ws *WeatherService) GetCurrentWeather(userId, location string) (*models.WeatherData, error) {
+// GetCurrentWeather gets the current weather for a user
+func (ws *WeatherService) GetCurrentWeather(userId string) (*models.WeatherData, error) {
 	if ws.apiKey == "" {
 		return nil, fmt.Errorf("OpenWeatherMap API key is not set")
 	}
 
-	cachedData, err := ws.getCachedWeatherData(userId, location)
+	user, err := query.FindById[*models.Users](userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	
+	if user.Lat == 0 && user.Lon == 0 {
+		return nil, fmt.Errorf("user has no coordinates set")
+	}
+	
+	lat := user.Lat
+	lon := user.Lon
+
+	cachedData, err := ws.getLatestWeatherByCity(userId, user.City)
 	if err == nil && cachedData != nil {
 		if ws.isCacheValid(cachedData.LastUpdated.Time(), defaultCacheTTL) {
-			logger.LogInfo("Using cached weather data for %s", location)
+			logger.LogDebug("Using cached weather data for user %s", userId)
 			return cachedData, nil
 		}
 	}
 
-	coords, err := ws.getCoordinates(location)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get coordinates for %s: %w", location, err)
-	}
-
-	weatherResponse, err := ws.fetchCurrentWeather(coords.Lat, coords.Lon)
+	weatherResponse, err := ws.fetchCurrentWeather(lat, lon)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch weather data: %w", err)
 	}
 
-	weatherData, err := ws.convertToWeatherData(userId, location, *weatherResponse)
+	weatherData, err := ws.convertToWeatherData(userId, "", *weatherResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert response to model: %w", err)
 	}
+
+	weatherData.Lat = lat
+	weatherData.Lon = lon
 
 	err = ws.saveWeatherData(weatherData)
 	if err != nil {
@@ -94,46 +94,52 @@ func (ws *WeatherService) GetCurrentWeather(userId, location string) (*models.We
 	return weatherData, nil
 }
 
-// GetForecast gets the weather forecast for multiple days
-func (ws *WeatherService) GetForecast(userId, location string, days int) (*models.WeatherForecast, error) {
+// GetForecast gets the weather forecast for a user (always 5 days)
+func (ws *WeatherService) GetForecast(userId string) (*models.WeatherForecast, error) {
 	if ws.apiKey == "" {
 		return nil, fmt.Errorf("OpenWeatherMap API key is not set")
 	}
 
-	if days <= 0 {
-		days = 5
-	} else if days > 5 {
-		days = 5 // Free API only supports 5 days
+	user, err := query.FindById[*models.Users](userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
+	
+	if user.Lat == 0 && user.Lon == 0 {
+		return nil, fmt.Errorf("user has no coordinates set")
+	}
+	
+	lat := user.Lat
+	lon := user.Lon
 
-	cachedForecast, err := ws.getCachedForecast(userId, location, days)
+	days := 5
+
+	cachedForecast, err := ws.getLatestForecastByCity(userId, days, user.City)
 	if err == nil && cachedForecast != nil {
 		if ws.isCacheValid(cachedForecast.LastUpdated.Time(), forecastCacheTTL) {
-			logger.LogInfo("Using cached forecast data for %s", location)
+			logger.LogDebug("Using cached forecast data for user %s", userId)
 			return cachedForecast, nil
 		}
 	}
 
-	coords, err := ws.getCoordinates(location)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get coordinates for %s: %w", location, err)
-	}
-
-	forecastResponse, err := ws.fetchForecastData(coords.Lat, coords.Lon)
+	forecastResponse, err := ws.fetchForecastData(lat, lon)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch forecast data: %w", err)
 	}
 
-	forecast, err := ws.convertToWeatherForecast(userId, location, *forecastResponse, days)
+	forecast, err := ws.convertToWeatherForecast(userId, "", *forecastResponse, days)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert response to model: %w", err)
 	}
+
+	forecast.Lat = lat
+	forecast.Lon = lon
 
 	if err := ws.saveForecastData(forecast); err != nil {
 		logger.LogError("Failed to save forecast data: %v", err)
 	}
 
-	if err := ws.saveForecastIntervals(userId, location, forecast); err != nil {
+	if err := ws.saveForecastIntervals(userId, "", forecast); err != nil {
 		logger.LogError("Failed to save forecast intervals: %v", err)
 	}
 
@@ -148,21 +154,26 @@ func (ws *WeatherService) saveForecastIntervals(userId, location string, forecas
 		return fmt.Errorf("failed to unmarshal forecast data: %w", err)
 	}
 	
+	locationQuery := location
+	if locationQuery == "" {
+		locationQuery = forecast.LocationQuery
+	}
+	
 	for _, interval := range forecastData {
 		weatherData := &models.WeatherData{
 			User:          userId,
-			City:          forecast.City,
+			City:          strings.ToLower(forecast.City),
 			Country:       forecast.Country,
 			Lat:           forecast.Lat,
 			Lon:           forecast.Lon,
-			LocationQuery: strings.TrimSpace(strings.ToLower(location)),
+			LocationQuery: locationQuery,
 			LastUpdated:   types.NowDateTime(),
 			IsForecast:    true,
 		}
 
 		if weather, ok := interval["weather"].(map[string]interface{}); ok {
 			if condition, ok := weather["condition"].(string); ok {
-				weatherData.Weather = condition
+				weatherData.Weather = strings.ToLower(condition)
 			}
 			if description, ok := weather["description"].(string); ok {
 				weatherData.Description = description
@@ -228,4 +239,43 @@ func (ws *WeatherService) setForecastTime(weatherData *models.WeatherData, inter
 			}
 		}
 	}
-} 
+}
+
+// GetHistoricForecastData gets historic forecast data for a specific date
+func (ws *WeatherService) GetHistoricForecastData(userId string, date time.Time) ([]*models.WeatherData, error) {
+	user, err := query.FindById[*models.Users](userId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	
+	dateStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	dateEnd := time.Date(date.Year(), date.Month(), date.Day(), 23, 59, 59, 999999999, date.Location())
+	
+	filter := map[string]interface{}{
+		"user":        userId,
+		"is_forecast": false,
+		"date": map[string]interface{}{
+			"gte": dateStart,
+			"lte": dateEnd,
+		},
+	}
+	
+	if user.City != "" {
+		filter["city"] = user.City
+	}
+	
+	results, err := query.FindAllByFilter[*models.WeatherData](filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query historic forecast data: %w", err)
+	}
+	
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no historic forecast data found for date %s", dateStart.Format("2006-01-02"))
+	}
+	
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Date.Time().Before(results[j].Date.Time())
+	})
+	
+	return results, nil
+}

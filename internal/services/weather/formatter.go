@@ -119,14 +119,60 @@ func (ws *WeatherService) formatWindDirection(degrees int) string {
 	return directions[index]
 }
 
-// getTemperatureUnit returns the temperature unit based on the units setting
+// getTemperatureUnit returns the temperature unit (always Celsius)
 func (ws *WeatherService) getTemperatureUnit() string {
-	switch ws.units {
-	case "metric":
-		return "°C"
-	case "imperial":
-		return "°F"
-	default:
-		return "K"
+	return "°C"
+}
+
+// FormatHistoricForecastData formats multiple weather data records for display
+func (ws *WeatherService) FormatHistoricForecastData(weatherDataList []*models.WeatherData) map[string]interface{} {
+	if len(weatherDataList) == 0 {
+		return map[string]interface{}{
+			"error": "No data available",
+		}
+	}
+
+	first := weatherDataList[0]
+	intervals := make([]map[string]interface{}, len(weatherDataList))
+	
+	for i, data := range weatherDataList {
+		dateTime := data.Date.Time()
+		
+		intervals[i] = map[string]interface{}{
+			"date":      dateTime.Format("2006-01-02"),
+			"time":      dateTime.Format("15:04"),
+			"timestamp": dateTime.Unix(),
+			"weather": map[string]interface{}{
+				"condition":   data.Weather,
+				"description": data.Description,
+				"icon":        data.Icon,
+				"icon_url":    fmt.Sprintf("https://openweathermap.org/img/wn/%s@2x.png", data.Icon),
+			},
+			"temperature": map[string]interface{}{
+				"current":    data.Temperature,
+				"feels_like": data.FeelsLike,
+				"min":        data.TempMin,
+				"max":        data.TempMax,
+				"unit":       ws.getTemperatureUnit(),
+			},
+			"details": map[string]interface{}{
+				"humidity":      data.Humidity,
+				"wind_speed":    data.WindSpeed,
+				"wind_direction": ws.formatWindDirection(data.WindDeg),
+				"clouds":        data.Clouds,
+			},
+		}
+	}
+
+	return map[string]interface{}{
+		"location": map[string]interface{}{
+			"city":    first.City,
+			"country": first.Country,
+			"lat":     first.Lat,
+			"lon":     first.Lon,
+		},
+		"date":      first.Date.Time().Format("2006-01-02"),
+		"intervals": intervals,
+		"count":     len(weatherDataList),
 	}
 } 

@@ -2,8 +2,9 @@ package routes
 
 import (
 	"net/http"
-	"strconv"
+	"time"
 
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 	"github.com/shashank-sharma/backend/internal/logger"
@@ -13,13 +14,14 @@ import (
 
 // RegisterWeatherRoutes registers the weather API routes
 func RegisterWeatherRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path string, weatherService *weather.WeatherService) {
-	weatherRouter := apiRouter.Group(path)
+	weatherRouter := apiRouter.Group(path).Bind(apis.RequireAuth())
 	
 	weatherRouter.GET("/current", GetCurrentWeatherHandler(weatherService))
 	weatherRouter.GET("/forecast", GetForecastHandler(weatherService))
+	weatherRouter.GET("/historic", GetHistoricForecastHandler(weatherService))
 }
 
-// GetCurrentWeatherHandler returns the current weather for a location
+// GetCurrentWeatherHandler returns the current weather for a user
 func GetCurrentWeatherHandler(weatherService *weather.WeatherService) func(e *core.RequestEvent) error {
 	return func(e *core.RequestEvent) error {
 		token := e.Request.Header.Get("Authorization")
@@ -30,24 +32,7 @@ func GetCurrentWeatherHandler(weatherService *weather.WeatherService) func(e *co
 			})
 		}
 
-		location := e.Request.URL.Query().Get("location")
-		if location == "" {
-			return e.JSON(http.StatusBadRequest, map[string]interface{}{
-				"error": "Location parameter is required",
-			})
-		}
-
-		units := e.Request.URL.Query().Get("units")
-		if units != "" {
-			weatherService.SetUnits(units)
-		}
-
-		lang := e.Request.URL.Query().Get("lang")
-		if lang != "" {
-			weatherService.SetLanguage(lang)
-		}
-
-		weatherData, err := weatherService.GetCurrentWeather(userId, location)
+		weatherData, err := weatherService.GetCurrentWeather(userId)
 		if err != nil {
 			logger.LogError("Failed to get weather data: %v", err)
 			return e.JSON(http.StatusInternalServerError, map[string]interface{}{
@@ -60,7 +45,7 @@ func GetCurrentWeatherHandler(weatherService *weather.WeatherService) func(e *co
 	}
 }
 
-// GetForecastHandler returns the weather forecast for a location
+// GetForecastHandler returns the weather forecast for a user
 func GetForecastHandler(weatherService *weather.WeatherService) func(e *core.RequestEvent) error {
 	return func(e *core.RequestEvent) error {
 		token := e.Request.Header.Get("Authorization")
@@ -71,33 +56,7 @@ func GetForecastHandler(weatherService *weather.WeatherService) func(e *core.Req
 			})
 		}
 
-		location := e.Request.URL.Query().Get("location")
-		if location == "" {
-			return e.JSON(http.StatusBadRequest, map[string]interface{}{
-				"error": "Location parameter is required",
-			})
-		}
-
-		days := 5 // Default to 5 days
-		daysStr := e.Request.URL.Query().Get("days")
-		if daysStr != "" {
-			parsedDays, err := strconv.Atoi(daysStr)
-			if err == nil && parsedDays > 0 {
-				days = parsedDays
-			}
-		}
-
-		units := e.Request.URL.Query().Get("units")
-		if units != "" {
-			weatherService.SetUnits(units)
-		}
-
-		lang := e.Request.URL.Query().Get("lang")
-		if lang != "" {
-			weatherService.SetLanguage(lang)
-		}
-
-		forecast, err := weatherService.GetForecast(userId, location, days)
+		forecast, err := weatherService.GetForecast(userId)
 		if err != nil {
 			logger.LogError("Failed to get forecast data: %v", err)
 			return e.JSON(http.StatusInternalServerError, map[string]interface{}{
@@ -106,6 +65,44 @@ func GetForecastHandler(weatherService *weather.WeatherService) func(e *core.Req
 		}
 
 		formattedData := weatherService.FormatForecastData(forecast)
+		return e.JSON(http.StatusOK, formattedData)
+	}
+}
+
+// GetHistoricForecastHandler returns historic forecast data for a specific date
+func GetHistoricForecastHandler(weatherService *weather.WeatherService) func(e *core.RequestEvent) error {
+	return func(e *core.RequestEvent) error {
+		token := e.Request.Header.Get("Authorization")
+		userId, err := util.GetUserId(token)
+		if err != nil {
+			return e.JSON(http.StatusUnauthorized, map[string]interface{}{
+				"error": "Unauthorized",
+			})
+		}
+
+		dateParam := e.Request.URL.Query().Get("date")
+		if dateParam == "" {
+			return e.JSON(http.StatusBadRequest, map[string]interface{}{
+				"error": "Date parameter is required (format: YYYY-MM-DD)",
+			})
+		}
+
+		date, err := time.Parse("2006-01-02", dateParam)
+		if err != nil {
+			return e.JSON(http.StatusBadRequest, map[string]interface{}{
+				"error": "Invalid date format. Use YYYY-MM-DD",
+			})
+		}
+
+		historicData, err := weatherService.GetHistoricForecastData(userId, date)
+		if err != nil {
+			logger.LogError("Failed to get historic forecast data: %v", err)
+			return e.JSON(http.StatusInternalServerError, map[string]interface{}{
+				"error": "Failed to get historic forecast data: " + err.Error(),
+			})
+		}
+
+		formattedData := weatherService.FormatHistoricForecastData(historicData)
 		return e.JSON(http.StatusOK, formattedData)
 	}
 }

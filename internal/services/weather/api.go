@@ -8,7 +8,7 @@ import (
 )
 
 // getCoordinates gets the coordinates (lat, lon) for a location
-func (ws *WeatherService) getCoordinates(location string) (*Coordinates, error) {
+func (ws *WeatherService) GetCoordinates(location string) (*Coordinates, error) {
 	query := url.QueryEscape(location)
 	
 	url := fmt.Sprintf("%s?q=%s&limit=1&appid=%s", geocodingURL, query, ws.apiKey)

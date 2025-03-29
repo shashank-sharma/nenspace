@@ -14,6 +14,8 @@ type Model interface {
 	MarkAsNotNew()
 	RefreshCreated()
 	RefreshUpdated()
+	SetCreated(created types.DateTime)
+	GetCreated() types.DateTime
 }
 
 type BaseModel struct {
@@ -81,4 +83,12 @@ func (m *BaseModel) RefreshCreated() {
 // RefreshUpdated updates the model Updated field with the current datetime.
 func (m *BaseModel) RefreshUpdated() {
 	m.Updated = types.NowDateTime()
+}
+
+func (m *BaseModel) SetCreated(created types.DateTime) {
+	m.Created = created
+}
+
+func (m *BaseModel) GetCreated() types.DateTime {
+	return m.Created
 }

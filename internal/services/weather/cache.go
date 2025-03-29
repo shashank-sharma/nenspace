@@ -1,6 +1,7 @@
 package weather
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -24,23 +25,6 @@ func (ws *WeatherService) getCachedWeatherData(userId, location string) (*models
 	}
 
 	return weatherData, nil
-}
-
-// getCachedForecast retrieves cached forecast data from the database
-func (ws *WeatherService) getCachedForecast(userId, location string, days int) (*models.WeatherForecast, error) {
-	locationQuery := strings.TrimSpace(strings.ToLower(location))
-	
-	forecast, err := query.FindByFilter[*models.WeatherForecast](map[string]interface{}{
-		"user":           userId,
-		"location_query": locationQuery,
-		"day_count":      days,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return forecast, nil
 }
 
 // saveWeatherData saves weather data to the database
@@ -76,33 +60,46 @@ func (ws *WeatherService) saveForecastData(forecast *models.WeatherForecast) err
 	return nil
 }
 
-// saveForecastAsWeatherData saves each forecast day as an individual WeatherData record
-func (ws *WeatherService) saveForecastAsWeatherData(userId, location string, city string, country string, lat, lon float64, forecastItems []map[string]interface{}) error {
-	for _, item := range forecastItems {
-		if _, ok := item["lat"].(float64); !ok {
-			item["lat"] = lat
-		}
-		if _, ok := item["lon"].(float64); !ok {
-			item["lon"] = lon
-		}
-		
-		weatherData, err := ws.convertForecastToWeatherData(userId, location, city, country, item)
-		if err != nil {
-			logger.LogError("Failed to convert forecast to weather data: %v", err)
-			continue
-		}
-		
-		err = ws.saveWeatherData(weatherData)
-		if err != nil {
-			logger.LogError("Failed to save forecast as weather data: %v", err)
-		}
-	}
-	
-	return nil
-}
-
 // isCacheValid checks if the cached data is still valid
 func (ws *WeatherService) isCacheValid(lastUpdated time.Time, cacheTTL time.Duration) bool {
 	expiryTime := lastUpdated.Add(cacheTTL)
 	return time.Now().Before(expiryTime)
+}
+
+// getLatestWeatherByCity retrieves cached weather data from the database using city
+func (ws *WeatherService) getLatestWeatherByCity(userId string, city string) (*models.WeatherData, error) {
+	if city == "" {
+		return nil, fmt.Errorf("city is required")
+	}
+	
+	weatherData, err := query.FindLatestByColumn[*models.WeatherData]("last_updated", map[string]interface{}{
+		"user":        userId,
+		"is_forecast": false,
+		"city":        strings.ToLower(city),
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("no cached weather data found: %w", err)
+	}
+
+	return weatherData, nil
+}
+
+// getLatestForecastByCity retrieves cached forecast data from the database using coordinates
+func (ws *WeatherService) getLatestForecastByCity(userId string, days int, city string) (*models.WeatherForecast, error) {
+	if city == "" {
+		return nil, fmt.Errorf("city is required")
+	}
+	
+	forecast, err := query.FindLatestByColumn[*models.WeatherForecast]("last_updated", map[string]interface{}{
+		"user":      userId,
+		"day_count": days,
+		"city":      strings.ToLower(city),
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("no cached forecast data found: %w", err)
+	}
+
+	return forecast, nil
 } 

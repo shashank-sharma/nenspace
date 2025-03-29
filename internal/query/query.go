@@ -80,6 +80,7 @@ func UpsertRecord[T models.Model](model T, filterStruct map[string]interface{}) 
 	if err == nil {
 		model.SetId(record.GetId())
 		model.MarkAsNotNew()
+		model.SetCreated(record.GetCreated())
 	}
 
 	if err := SaveRecord(model); err != nil {
@@ -134,9 +135,11 @@ func FindAllByFilter[T models.Model](filterStruct map[string]interface{}) ([]T, 
 		case map[string]interface{}:
 			for op, actualVal := range v {
 				if op == "gte" {
-					query = query.AndWhere(dbx.NewExp(field+" >= {:"+field+"}", dbx.Params{field: actualVal}))
+					paramName := field + "_gte"
+					query = query.AndWhere(dbx.NewExp(field+" >= {:" + paramName + "}", dbx.Params{paramName: actualVal}))
 				} else if op == "lte" {
-					query = query.AndWhere(dbx.NewExp(field+" <= {:"+field+"}", dbx.Params{field: actualVal}))
+					paramName := field + "_lte"
+					query = query.AndWhere(dbx.NewExp(field+" <= {:" + paramName + "}", dbx.Params{paramName: actualVal}))
 				}
 			}
 		default:
@@ -163,9 +166,11 @@ func FindAllByFilterWithPagination[T models.Model](filterStruct map[string]inter
 		case map[string]interface{}:
 			for op, actualVal := range v {
 				if op == "gte" {
-					query = query.AndWhere(dbx.NewExp(field+" >= {:"+field+"}", dbx.Params{field: actualVal}))
+					paramName := field + "_gte"
+					query = query.AndWhere(dbx.NewExp(field+" >= {:" + paramName + "}", dbx.Params{paramName: actualVal}))
 				} else if op == "lte" {
-					query = query.AndWhere(dbx.NewExp(field+" <= {:"+field+"}", dbx.Params{field: actualVal}))
+					paramName := field + "_lte"
+					query = query.AndWhere(dbx.NewExp(field+" <= {:" + paramName + "}", dbx.Params{paramName: actualVal}))
 				}
 			}
 		default:

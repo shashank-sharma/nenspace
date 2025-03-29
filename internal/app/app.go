@@ -82,12 +82,14 @@ func New(configFlags config.ConfigFlags) *Application {
 		}
 
 		logger.LogInfo("All application services initialized")
+
+		app.registerHooks()
+		logger.LogInfo("Hooks registered")
 		app.RunPostInitHooks()
 
 		return e.Next()
 	})
 
-	app.registerHooks()
 	return app
 }
 
