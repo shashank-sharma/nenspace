@@ -1,17 +1,18 @@
 import { writable, get } from 'svelte/store';
 import { MailService } from '../services';
-import type { MailState } from '../types';
+import type { MailState, SyncStatus } from '../types';
 import { toast } from 'svelte-sonner';
 import { pb } from '$lib/config/pocketbase';
+import { browser } from '$app/environment';
 
 function createMailStore() {
-    const { subscribe, set, update } = writable<MailState>({
+    const { subscribe, update } = writable<MailState>({
         isAuthenticated: false,
         isLoading: false,
         isAuthenticating: false,
         syncStatus: null,
         lastChecked: null,
-        syncAvailable: false // Add flag for sync availability
+        syncAvailable: false
     });
 
     const STATUS_CHECK_INTERVAL = 30000;
@@ -20,6 +21,8 @@ function createMailStore() {
         subscribe,
         
         checkStatus: async (force = false) => {
+            if (!browser) return null;
+
             const currentState = get({ subscribe });
             const now = Date.now();
 
@@ -46,8 +49,8 @@ function createMailStore() {
                     syncAvailable: true
                 }));
                 return status;
-            } catch (error) {
-                const is404 = error.status === 404;
+            } catch (error: any) {
+                const is404 = error?.status === 404;
                 update(state => ({ 
                     ...state, 
                     isLoading: false,
@@ -63,6 +66,8 @@ function createMailStore() {
         },
 
         startAuth: async () => {
+            if (!browser) return null;
+
             update(state => ({ ...state, isAuthenticating: true }));
             try {
                 const url = await MailService.startAuth();
@@ -79,6 +84,8 @@ function createMailStore() {
         },
 
         completeAuth: async (code: string) => {
+            if (!browser) return false;
+
             try {
                 update(state => ({ ...state, isAuthenticating: true }));
                 
@@ -109,16 +116,21 @@ function createMailStore() {
         getState: () => get({ subscribe }),
 
         subscribeToChanges: () => {
+            if (!browser) return;
+
             const currentState = get({ subscribe });
-            // Only subscribe if sync is available
-            if (currentState.syncAvailable) {
+            // Only subscribe if sync is available and we have a sync status
+            if (currentState.syncAvailable && currentState.syncStatus?.id) {
                 try {
                     pb.collection('mail_sync').subscribe(currentState.syncStatus.id, (e) => {
+                        const record = e.record;
                         update(state => ({
                             ...state, 
                             syncStatus: {
-                                status: e.record.sync_status,
-                                last_synced: e.record.last_synced
+                                id: record.id,
+                                status: record.sync_status,
+                                last_synced: record.last_synced,
+                                message_count: record.message_count || 0
                             },
                             lastChecked: Date.now(),
                         }));
@@ -130,6 +142,8 @@ function createMailStore() {
         },
 
         unsubscribe: () => {
+            if (!browser) return;
+
             const currentState = get({ subscribe });
             // Only attempt to unsubscribe if sync was available
             if (currentState.syncAvailable) {
@@ -139,7 +153,25 @@ function createMailStore() {
                     console.error('Error unsubscribing from mail changes:', error);
                 }
             }
-        }
+        },
+
+        setAuthenticated: (isAuthenticated: boolean) =>
+            update((state) => ({ ...state, isAuthenticated })),
+        setLoading: (isLoading: boolean) =>
+            update((state) => ({ ...state, isLoading })),
+        setAuthenticating: (isAuthenticating: boolean) =>
+            update((state) => ({ ...state, isAuthenticating })),
+        setSyncStatus: (syncStatus: SyncStatus | null) =>
+            update((state) => ({ ...state, syncStatus })),
+        reset: () =>
+            update(() => ({
+                isAuthenticated: false,
+                isLoading: false,
+                isAuthenticating: false,
+                syncStatus: null,
+                lastChecked: null,
+                syncAvailable: false
+            }))
     };
 
     return store;

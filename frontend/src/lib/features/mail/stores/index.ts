@@ -1,2 +1,2 @@
 export { mailStore } from './mail.store';
-export { mailMessagesStore, createMailMessagesStore } from './mail-messages.store';
+export { mailMessagesStore } from './mail-messages.store';

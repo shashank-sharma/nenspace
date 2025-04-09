@@ -11,19 +11,50 @@
         TableHeader,
         TableRow,
     } from "$lib/components/ui/table";
-    import { RefreshCw, Star, Mail, MailOpen } from "lucide-svelte";
-    import { format } from "date-fns";
+    import {
+        RefreshCw,
+        Star,
+        Mail,
+        MailOpen,
+        Inbox,
+        Loader2,
+    } from "lucide-svelte";
+    import { format, formatDistanceToNow } from "date-fns";
+    import { page } from "$app/stores";
+    import { Checkbox } from "$lib/components/ui/checkbox";
+    import { cn } from "$lib/utils";
+    import { fade, slide } from "svelte/transition";
+    import type { MailMessage } from "../types";
 
     let searchQuery = "";
 
-    function formatDate(dateStr: string) {
-        const date = new Date(dateStr);
-        const now = new Date();
-        const isToday = date.toDateString() === now.toDateString();
-        return isToday ? format(date, "HH:mm") : format(date, "MMM d");
+    function formatEmailString(str: string) {
+        const [email] = str.split("<");
+        return email?.trim() || str;
     }
 
-    function handleRowClick(mail) {
+    function formatEmailDate(date: string) {
+        const messageDate = new Date(date);
+        const now = new Date();
+
+        // If it's today, show the time
+        if (messageDate.toDateString() === now.toDateString()) {
+            return format(messageDate, "h:mm a");
+        }
+
+        // If it's this year but not today, show the month and day
+        if (messageDate.getFullYear() === now.getFullYear()) {
+            return format(messageDate, "MMM d");
+        }
+
+        // If it's a different year, include the year
+        return format(messageDate, "MMM d, yyyy");
+    }
+
+    function handleMailSelect(mail: MailMessage) {
+        if (mail.is_unread) {
+            mailMessagesStore.markAsRead(mail.id);
+        }
         mailMessagesStore.selectMail(mail);
     }
 
@@ -31,169 +62,129 @@
         mailMessagesStore.refreshMails();
     }
 
-    function handlePrevPage(e: Event) {
-        e.preventDefault();
-        if ($mailMessagesStore.page > 1) {
-            mailMessagesStore.fetchMails($mailMessagesStore.page - 1);
-        }
-    }
-
-    function handleNextPage(e: Event) {
-        e.preventDefault();
-        if (
-            $mailMessagesStore.page * $mailMessagesStore.perPage <
-            $mailMessagesStore.totalItems
-        ) {
-            mailMessagesStore.fetchMails($mailMessagesStore.page + 1);
-        }
-    }
-
     // Check if sync is in progress
     $: isSyncing = $mailStore.syncStatus?.status === "in-progress";
+    $: isLoading = $mailMessagesStore.isLoading;
+    $: hasEmails =
+        $mailMessagesStore.messages && $mailMessagesStore.messages.length > 0;
 
     onMount(() => {
         mailMessagesStore.fetchMails();
-        mailMessagesStore.subscribeToChanges();
-    });
-
-    onDestroy(() => {
-        mailMessagesStore.unsubscribe();
     });
 </script>
 
-<div class="space-y-4">
-    <div class="flex items-center justify-between">
-        <Input
-            type="search"
-            placeholder="Search emails..."
-            class="w-[300px]"
-            bind:value={searchQuery}
-        />
-        <div class="flex items-center gap-4">
-            {#if $mailStore.syncStatus}
-                <div class="text-sm text-muted-foreground flex flex-col">
-                    <span
-                        >Last synced: {new Date(
-                            $mailStore.syncStatus.last_synced,
-                        ).toLocaleString()}</span
-                    >
-                    <span class="text-right"
-                        >Status: {$mailStore.syncStatus.status}</span
-                    >
-                </div>
-            {/if}
+<div class="flex h-full flex-col">
+    <div
+        class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700"
+    >
+        <div class="flex items-center space-x-2">
             <Button
-                variant="outline"
-                size="icon"
+                variant="ghost"
+                size="sm"
+                class="text-slate-600 dark:text-slate-400"
                 on:click={handleRefresh}
                 disabled={isSyncing}
-                class={isSyncing ? "opacity-50" : ""}
             >
-                <RefreshCw class="h-4 w-4 {isSyncing ? 'animate-spin' : ''}" />
+                <RefreshCw
+                    class={cn("h-4 w-4 mr-2", isSyncing && "animate-spin")}
+                />
+                <span>{isSyncing ? "Syncing..." : "Refresh"}</span>
             </Button>
         </div>
     </div>
 
-    <div class="border rounded-md">
-        <Table>
-            <TableHeader>
-                <TableRow>
-                    <TableHead class="w-12" />
-                    <TableHead>From</TableHead>
-                    <TableHead>Subject</TableHead>
-                    <TableHead class="text-right">Date</TableHead>
-                </TableRow>
-            </TableHeader>
-            <TableBody>
-                {#if $mailMessagesStore.isLoading}
+    {#if isLoading}
+        <div
+            class="flex flex-col items-center justify-center flex-1 p-8"
+            in:fade={{ duration: 150 }}
+        >
+            <Loader2 class="h-8 w-8 animate-spin text-slate-400 mb-4" />
+            <p class="text-sm text-slate-500 dark:text-slate-400">
+                Loading emails...
+            </p>
+        </div>
+    {:else if !hasEmails}
+        <div
+            class="flex flex-col items-center justify-center flex-1 p-8"
+            in:fade={{ duration: 150 }}
+        >
+            <div
+                class="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4"
+            >
+                <Inbox class="h-8 w-8 text-slate-400" />
+            </div>
+            <h3 class="text-lg font-medium text-slate-900 dark:text-white mb-2">
+                No emails found
+            </h3>
+            <p
+                class="text-sm text-slate-500 dark:text-slate-400 text-center max-w-xs mb-4"
+            >
+                Your inbox is empty or emails are still loading. Try refreshing
+                or checking back later.
+            </p>
+            <Button
+                variant="outline"
+                size="sm"
+                on:click={handleRefresh}
+                disabled={isSyncing}
+            >
+                <RefreshCw
+                    class={cn("h-4 w-4 mr-2", isSyncing && "animate-spin")}
+                />
+                <span>Refresh</span>
+            </Button>
+        </div>
+    {:else}
+        <div class="overflow-auto flex-1">
+            <Table>
+                <TableHeader
+                    class="bg-slate-50 dark:bg-slate-800/50 sticky top-0"
+                >
                     <TableRow>
-                        <TableCell colspan="4" class="text-center py-8">
-                            <RefreshCw class="h-5 w-5 animate-spin mx-auto" />
-                        </TableCell>
+                        <TableHead class="w-10 px-4"></TableHead>
+                        <TableHead>From</TableHead>
+                        <TableHead>Subject</TableHead>
+                        <TableHead class="text-right w-24">Date</TableHead>
                     </TableRow>
-                {:else if $mailMessagesStore.messages.length === 0}
-                    <TableRow>
-                        <TableCell colspan="4" class="text-center py-8">
-                            No emails found
-                        </TableCell>
-                    </TableRow>
-                {:else}
-                    {#each $mailMessagesStore.messages as mail}
+                </TableHeader>
+                <TableBody>
+                    {#each $mailMessagesStore.messages as mail (mail.id)}
                         <TableRow
-                            class="cursor-pointer"
-                            on:click={() => handleRowClick(mail)}
+                            class={cn(
+                                "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors",
+                                $mailMessagesStore.selectedMail?.id ===
+                                    mail.id &&
+                                    "bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-50 dark:hover:bg-blue-900/20",
+                                mail.is_unread && "font-medium",
+                            )}
+                            on:click={() => handleMailSelect(mail)}
                         >
-                            <TableCell>
-                                <div class="flex items-center gap-2">
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        class={mail.is_starred
-                                            ? "text-yellow-400"
-                                            : ""}
-                                    >
-                                        <Star
-                                            size={16}
-                                            fill={mail.is_starred
-                                                ? "currentColor"
-                                                : "none"}
-                                        />
-                                    </Button>
+                            <TableCell class="w-10 px-4">
+                                <div in:fade={{ duration: 200 }}>
+                                    {#if mail.is_unread}
+                                        <div
+                                            class="w-2 h-2 rounded-full bg-blue-500"
+                                        ></div>
+                                    {/if}
                                 </div>
                             </TableCell>
                             <TableCell class="font-medium">
-                                <div class="flex items-center gap-2">
-                                    {#if mail.is_unread}
-                                        <Mail class="h-4 w-4" />
-                                    {:else}
-                                        <MailOpen
-                                            class="h-4 w-4 text-muted-foreground"
-                                        />
-                                    {/if}
-                                    <span
-                                        class={mail.is_unread
-                                            ? "font-semibold"
-                                            : ""}
-                                    >
-                                        {mail.from}
-                                    </span>
+                                <div class="flex items-center">
+                                    <span>{formatEmailString(mail.from)}</span>
                                 </div>
                             </TableCell>
-                            <TableCell
-                                class={mail.is_unread ? "font-semibold" : ""}
-                            >
-                                {mail.subject}
+                            <TableCell>
+                                <div class="line-clamp-1">{mail.subject}</div>
                             </TableCell>
-                            <TableCell class="text-right">
-                                {formatDate(mail.received_date)}
+                            <TableCell
+                                class="text-right text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap"
+                            >
+                                {formatEmailDate(mail.received_date)}
                             </TableCell>
                         </TableRow>
                     {/each}
-                {/if}
-            </TableBody>
-        </Table>
-    </div>
-
-    {#if $mailMessagesStore.totalItems > $mailMessagesStore.perPage}
-        <div class="flex justify-end gap-2">
-            <Button
-                variant="outline"
-                size="sm"
-                on:click={handlePrevPage}
-                disabled={$mailMessagesStore.page === 1}
-            >
-                Previous
-            </Button>
-            <Button
-                variant="outline"
-                size="sm"
-                on:click={handleNextPage}
-                disabled={$mailMessagesStore.page *
-                    $mailMessagesStore.perPage >=
-                    $mailMessagesStore.totalItems}
-            >
-                Next
-            </Button>
+                </TableBody>
+            </Table>
         </div>
     {/if}
 </div>

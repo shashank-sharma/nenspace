@@ -2,6 +2,7 @@ export interface SyncStatus {
     last_synced: string;
     message_count: number;
     status: string;
+    id?: string;
 }
 
 export interface MailMessage {
@@ -32,6 +33,8 @@ export interface MailState {
     isLoading: boolean;
     isAuthenticating: boolean;
     syncStatus: SyncStatus | null;
+    lastChecked: number | null;
+    syncAvailable: boolean;
 }
 
 export interface MailMessagesState {

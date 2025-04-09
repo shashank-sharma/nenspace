@@ -46,7 +46,7 @@
     "formsnap": "^1.0.1",
     "isomorphic-dompurify": "^2.19.0",
     "layerchart": "^0.60.3",
-    "lucide-svelte": "^0.475.0",
+    "lucide-svelte": "^0.483.0",
     "markdown-it": "^14.1.0",
     "mode-watcher": "^0.4.1",
     "pocketbase": "^0.18.0",

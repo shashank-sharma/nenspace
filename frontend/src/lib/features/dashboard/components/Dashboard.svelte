@@ -5,6 +5,7 @@
     import { toast } from "svelte-sonner";
     import StatsGrid from "./StatsGrid.svelte";
     import RecentActivity from "./RecentActivity.svelte";
+    import StatusIndicator from "$lib/components/StatusIndicator.svelte";
 
     onMount(async () => {
         try {
@@ -19,7 +20,11 @@
     });
 </script>
 
-<div class="space-y-6">
-    <StatsGrid />
-    <RecentActivity />
+<StatusIndicator />
+
+<div class="container mx-auto p-4">
+    <div class="space-y-6">
+        <StatsGrid />
+        <RecentActivity />
+    </div>
 </div>

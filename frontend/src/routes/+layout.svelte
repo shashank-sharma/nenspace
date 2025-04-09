@@ -7,158 +7,127 @@
     import { theme } from "$lib/stores/theme.store";
     import "../app.css";
     import ThemeInitializer from "$lib/components/ThemeInitializer.svelte";
-    import {
-        initPwa,
-        isDebugModeEnabled,
-        disableServiceWorkerCaching,
-        enableServiceWorkerCaching,
-        isServiceWorkerCachingDisabled,
-    } from "$lib/features/pwa/services";
+    import { initPwa } from "$lib/features/pwa/services";
     import { Button } from "$lib/components/ui/button";
     import { RefreshCw } from "lucide-svelte";
     import { browser } from "$app/environment";
     import UpdateDetector from "$lib/features/pwa/components/UpdateDetector.svelte";
+    import OfflineIndicator from "$lib/features/pwa/components/OfflineIndicator.svelte";
     import { toast } from "svelte-sonner";
+    import BottomRightControls from "$lib/components/BottomRightControls.svelte";
+    import ShortcutsHelpPanel from "$lib/components/ShortcutsHelpPanel.svelte";
+    import DebugLauncher from "$lib/components/debug/DebugLauncher.svelte";
+    import { ensureWeatherData } from "$lib/features/chronicles/utils/weather.utils";
+    import { ensureCalendarData } from "$lib/features/calendar/utils/event.utils";
     let isLoading = true;
     let isDebugMode = false;
-    let isCachingDisabled = false;
+    let showShortcuts = false;
 
     setContext("theme", {
-        theme,
-        toggleTheme: theme.toggleTheme,
+        current: theme,
     });
 
-    async function handleFreshReload() {
-        toast.loading("Clearing caches and reloading...");
-        // Force clear caches - this is more thorough than just disabling caching
-        try {
-            if (browser && "caches" in window) {
-                const cacheKeys = await window.caches.keys();
-                await Promise.all(
-                    cacheKeys.map((key) => window.caches.delete(key)),
-                );
+    // PWA initialization
+    let pwaInitFinished = false;
+    let pwaUpdateAvailable = false;
 
-                await disableServiceWorkerCaching();
-                isCachingDisabled = true;
+    onMount(async () => {
+        if (browser) {
+            // Initialize PWA service
+            console.log("PWA Debug Mode:", isDebugMode);
 
-                const timestamp = new Date().getTime();
-                const url = new URL(window.location.href);
-                url.searchParams.set("_t", timestamp.toString());
-
-                window.location.href = url.toString();
-            } else {
-                window.location.reload();
+            try {
+                await initPwa();
+                console.log("Service Worker registered");
+                pwaInitFinished = true;
+            } catch (err) {
+                console.error("Failed to initialize PWA:", err);
             }
-        } catch (error) {
-            console.error("[PWA] Error during cache clearing:", error);
+
+            // Initialize data early to avoid multiple fetches later
+            ensureWeatherData();
+
+            // Initialize calendar data early
+            ensureCalendarData();
+        }
+
+        // Page fully loaded
+        setTimeout(() => {
+            isLoading = false;
+        }, 300);
+    });
+
+    function handlePwaUpdateAvailable() {
+        pwaUpdateAvailable = true;
+    }
+
+    function reload() {
+        if (browser) {
             window.location.reload();
         }
     }
 
-    async function toggleCaching() {
-        if (isCachingDisabled) {
-            toast.loading("Enabling caching...");
-            const success = await enableServiceWorkerCaching();
-            if (success) {
-                toast.success("Caching enabled");
-                isCachingDisabled = false;
-            } else {
-                toast.error("Failed to enable caching");
-            }
-        } else {
-            toast.loading("Disabling caching...");
-            const success = await disableServiceWorkerCaching();
-            if (success) {
-                toast.success(
-                    "Caching disabled - all content will be fetched fresh",
-                );
-                isCachingDisabled = true;
-            } else {
-                toast.error("Failed to disable caching");
-            }
-        }
+    function handleShowShortcuts() {
+        showShortcuts = true;
     }
 
-    onMount(async () => {
-        setTimeout(() => {
-            isLoading = false;
-        }, 500);
-
-        if (browser) {
-            isDebugMode = isDebugModeEnabled();
-
-            if (isDebugMode) {
-                try {
-                    isCachingDisabled = await isServiceWorkerCachingDisabled();
-                    console.log(
-                        "[PWA] Service Worker caching is disabled:",
-                        isCachingDisabled,
-                    );
-                } catch (error) {
-                    console.error(
-                        "[PWA] Error checking caching status:",
-                        error,
-                    );
-                }
-            }
-
-            initPwa();
-        }
-    });
+    function handleCloseShortcuts() {
+        showShortcuts = false;
+    }
 </script>
 
 <ThemeInitializer />
 
-{#if isLoading || $navigating}
-    <Loading />
+{#if browser && pwaInitFinished}
+    <UpdateDetector on:update-available={handlePwaUpdateAvailable} />
 {/if}
 
-<!-- PWA Install Banner -->
-{#if browser}
-    <!-- Service Worker Update Detector -->
-    <UpdateDetector />
+<!-- Offline indicator -->
+<OfflineIndicator />
 
-    <!-- Add cache toggle button to the dev tools section -->
-    {#if isDebugMode}
-        <div class="fixed top-4 left-4 z-50 flex gap-2">
-            <Button
-                variant="destructive"
-                size="sm"
-                class="shadow-lg gap-1"
-                on:click={handleFreshReload}
-            >
-                <RefreshCw class="h-4 w-4" /> Force Refresh
-            </Button>
-
-            <!-- Add a new button to toggle caching -->
-            <Button
-                variant={isCachingDisabled ? "default" : "outline"}
-                size="sm"
-                class="shadow-lg gap-1"
-                on:click={toggleCaching}
-            >
-                {#if isCachingDisabled}
-                    <span>Caching Disabled</span>
-                {:else}
-                    <span>Disable Caching</span>
-                {/if}
-            </Button>
-        </div>
-    {/if}
+<!-- PWA update notification -->
+{#if pwaUpdateAvailable}
+    <div
+        transition:fade={{ duration: 200 }}
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-full bg-card border rounded-lg shadow-lg p-4 flex items-center justify-between"
+    >
+        <span>A new version is available!</span>
+        <Button variant="outline" size="sm" on:click={reload}>
+            <RefreshCw class="mr-2 h-4 w-4" />
+            Update Now
+        </Button>
+    </div>
 {/if}
 
-<div
-    class="app-container"
-    in:fade={{ duration: 300 }}
-    class:pointer-events-none={$navigating}
-    class:opacity-50={$navigating}
->
-    <Toaster />
+{#if $navigating}
+    <div
+        class="fixed inset-0 bg-background/30 backdrop-blur-sm flex items-center justify-center z-50"
+    >
+        <Loading />
+    </div>
+{/if}
 
-    <main class="">
-        <slot />
-    </main>
+{#if isLoading}
+    <div
+        class="fixed inset-0 bg-background flex items-center justify-center z-50"
+        transition:fade={{ duration: 300 }}
+    >
+        <Loading />
+    </div>
+{/if}
+
+<Toaster />
+
+<!-- Bottom right controls -->
+<BottomRightControls on:show-shortcuts={handleShowShortcuts} />
+<div class="fixed bottom-4 right-4 z-50">
+    <DebugLauncher />
 </div>
+<ShortcutsHelpPanel visible={showShortcuts} on:close={handleCloseShortcuts} />
+
+<main class="">
+    <slot />
+</main>
 
 <style>
     @font-face {
@@ -176,5 +145,18 @@
         min-height: 100vh;
         background-color: hsl(var(--background));
         color: hsl(var(--foreground));
+    }
+
+    :global(body) {
+        height: 100%;
+        min-height: 100%;
+        overflow-x: hidden;
+    }
+
+    main {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 100vh;
     }
 </style>

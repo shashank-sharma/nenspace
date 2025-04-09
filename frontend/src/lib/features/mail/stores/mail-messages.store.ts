@@ -1,43 +1,97 @@
 import { writable, get } from 'svelte/store';
-import type { MailMessagesState, MailMessage } from '../types';
+import type { MailMessage, MailMessagesState } from '../types';
 import { toast } from 'svelte-sonner';
 import { pb } from '$lib/config/pocketbase';
 import { mailStore } from './mail.store';
+import { MailService } from '../services';
+import { browser } from '$app/environment';
 
-export function createMailMessagesStore() {
-    const { subscribe, set, update } = writable<MailMessagesState>({
+function createMailMessagesStore() {
+    const { subscribe, update } = writable<MailMessagesState>({
         messages: [],
         isLoading: false,
         totalItems: 0,
         page: 1,
-        perPage: 25,
+        perPage: 20,
         selectedMail: null
     });
 
     const store = {
         subscribe,
-        fetchMails: async (page = 1) => {
-            update(s => ({ ...s, isLoading: true }));
+        setMessages: (messages: MailMessage[]) =>
+            update((state) => ({ ...state, messages })),
+        setLoading: (isLoading: boolean) =>
+            update((state) => ({ ...state, isLoading })),
+        setTotalItems: (totalItems: number) =>
+            update((state) => ({ ...state, totalItems })),
+        setPage: (page: number) => update((state) => ({ ...state, page })),
+        selectMail: (mail: MailMessage) =>
+            update((state) => ({ ...state, selectedMail: mail })),
+        reset: () =>
+            update(() => ({
+                messages: [],
+                isLoading: false,
+                totalItems: 0,
+                page: 1,
+                perPage: 20,
+                selectedMail: null
+            })),
+        getState: () => get({ subscribe }),
+        
+        async fetchMails(page?: number) {
+            if (!browser) return;
 
+            const currentState = get({ subscribe });
+            update(state => ({ ...state, isLoading: true }));
+            
             try {
-                const result = await pb.collection('mail_messages').getList(page, store.getState().perPage, {
-                    sort: '-received_date',
-                });
-
-                update(s => ({
-                    ...s,
-                    messages: result.items as MailMessage[],
+                const result = await MailService.fetchMails(page || currentState.page);
+                update(state => ({
+                    ...state,
+                    messages: result.items,
                     totalItems: result.totalItems,
-                    page,
+                    page: page || currentState.page,
                     isLoading: false
                 }));
             } catch (error) {
-                toast.error('Failed to fetch emails');
-                update(s => ({ ...s, isLoading: false }));
+                console.error('Error fetching mails:', error);
+                update(state => ({ ...state, isLoading: false }));
             }
         },
-
+        
+        async searchMails(query: string) {
+            if (!browser || !query.trim()) return;
+            
+            update(state => ({ ...state, isLoading: true }));
+            
+            try {
+                // Use the pb client to search for emails matching the query
+                const result = await pb.collection('mail_messages').getList(1, 20, {
+                    filter: `subject~"${query}" || sender~"${query}" || body~"${query}"`,
+                    sort: '-date'
+                });
+                
+                update(state => ({
+                    ...state,
+                    messages: result.items as unknown as MailMessage[],
+                    totalItems: result.totalItems,
+                    page: 1,
+                    isLoading: false
+                }));
+                
+                if (result.items.length === 0) {
+                    toast.info(`No emails found matching "${query}"`);
+                }
+            } catch (error) {
+                console.error('Error searching mails:', error);
+                toast.error('Failed to search emails');
+                update(state => ({ ...state, isLoading: false }));
+            }
+        },
+        
         markAsRead: async (messageId: string) => {
+            if (!browser) return;
+
             try {
                 await pb.collection('mail_messages').update(messageId, {
                     is_unread: false
@@ -53,15 +107,10 @@ export function createMailMessagesStore() {
                 toast.error('Failed to mark email as read');
             }
         },
-
-        selectMail: (mail: MailMessage | null) => {
-            update(state => ({ ...state, selectedMail: mail }));
-            if (mail?.is_unread) {
-                store.markAsRead(mail.id);
-            }
-        },
-
+        
         refreshMails: async () => {
+            if (!browser) return;
+
             try {
                 await pb.send('/api/mail/sync', { method: 'POST' });
                 toast.success('Mail sync initiated');
@@ -71,8 +120,10 @@ export function createMailMessagesStore() {
                 toast.error('Failed to sync emails');
             }
         },
-
+        
         subscribeToChanges: () => {
+            if (!browser) return;
+
             // Check mail store sync availability before subscribing
             const mailState = get(mailStore);
             if (mailState.syncAvailable) {
@@ -85,8 +136,10 @@ export function createMailMessagesStore() {
                 }
             }
         },
-
+        
         unsubscribe: () => {
+            if (!browser) return;
+
             const mailState = get(mailStore);
             if (mailState.syncAvailable) {
                 try {
@@ -95,9 +148,7 @@ export function createMailMessagesStore() {
                     console.error('Error unsubscribing from mail messages:', error);
                 }
             }
-        },
-
-        getState: () => get({ subscribe })
+        }
     };
 
     return store;

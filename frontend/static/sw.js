@@ -16,7 +16,8 @@ const ASSETS_TO_CACHE = [
   '/icons/apple-icon-180.png',
   '/icons/manifest-icon-192.maskable.png',
   '/icons/manifest-icon-512.maskable.png',
-  '/fonts/Gilroy.woff2'
+  '/fonts/Gilroy.woff2',
+  '/offline.html'  // Add offline fallback page
 ];
 
 console.log(`[ServiceWorker] Running version ${CACHE_VERSION}, caching ${disableCaching ? 'DISABLED' : 'ENABLED'}`);
@@ -226,6 +227,27 @@ const cacheFirst = async (request) => {
   }
 };
 
+// Create a separate offline page handler
+const handleOfflineFallback = async (request) => {
+  // Check if this is a navigation request (HTML page)
+  if (request.mode === 'navigate' || (request.method === 'GET' && request.headers.get('accept').includes('text/html'))) {
+    try {
+      // Try the network first
+      return await fetch(request);
+    } catch (error) {
+      devLog('Navigation request failed, serving offline page');
+      // If network fails, return the offline page
+      const cache = await caches.open(CACHE_NAME);
+      const cachedResponse = await cache.match('/offline.html');
+      return cachedResponse || new Response('You are offline and the offline page is not cached.', 
+        { headers: { 'Content-Type': 'text/html' } });
+    }
+  }
+  
+  // For non-navigation requests, use network-first strategy
+  return networkFirst(request);
+};
+
 // Fetch event - intelligent caching strategy
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
@@ -246,6 +268,14 @@ self.addEventListener('fetch', (event) => {
   if (disableCaching) {
     devLog(`Caching disabled, bypassing cache for: ${url.pathname}`);
     return; // Let the browser handle the request normally
+  }
+  
+  // Check if this is a navigation request first and handle specially for offline
+  if (event.request.mode === 'navigate' || 
+      (event.request.method === 'GET' && 
+       event.request.headers.get('accept')?.includes('text/html'))) {
+    event.respondWith(handleOfflineFallback(event.request));
+    return;
   }
   
   // If simulating offline mode in development, return offline response

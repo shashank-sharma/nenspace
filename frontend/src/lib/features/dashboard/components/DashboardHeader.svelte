@@ -4,7 +4,6 @@
     import { Input } from "$lib/components/ui/input";
     import { Search, Bell, Settings, Sun, Moon } from "lucide-svelte";
     import CommandPalette from "$lib/components/CommandPalette.svelte";
-    import SettingsModal from "$lib/components/SettingsModal.svelte";
     import type { Writable } from "svelte/store";
     import NotificationCenter from "$lib/features/notifications/components/NotificationCenter.svelte";
 
@@ -35,16 +34,15 @@
         </div>
 
         <div class="flex items-center gap-2">
-            <Button variant="ghost" size="icon" on:click={toggleTheme}>
+            <!-- <Button variant="ghost" size="icon" on:click={toggleTheme}>
                 <svelte:component
                     this={$theme === "dark" ? Sun : Moon}
                     class="h-5 w-5"
                 />
                 <span class="sr-only">Toggle theme</span>
-            </Button>
+            </Button> -->
 
             <NotificationCenter />
-            <SettingsModal />
         </div>
     </div>
 

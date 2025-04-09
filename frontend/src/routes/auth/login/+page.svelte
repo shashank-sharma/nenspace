@@ -25,6 +25,11 @@
 		// Check if user is already logged in
 		if (authIsValid()) {
 			goto("/dashboard"); // or wherever your home page is
+		} else {
+			if ($currentUser) {
+				logout();
+				goto("/auth/login");
+			}
 		}
 	});
 

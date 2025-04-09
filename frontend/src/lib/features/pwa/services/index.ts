@@ -1,24 +1,39 @@
-// Core PWA functionality
-export {
+// Export all PWA services and hooks
+import {
   initPwa,
-  isPwaInstalled,
-  installPrompt,
   showInstallPrompt,
-  promptUnavailableReason,
-  isDebugModeEnabled,
-  checkInstallStatus,
   registerServiceWorker,
-  detectPromptUnavailabilityReason
+  checkInstallStatus,
+  installPrompt,
+  isPwaInstalled,
+  promptUnavailableReason,
+  isOffline
 } from './core';
 
-// Development tools
-export {
+import {
   devControls,
   triggerInstallBanner,
   resetInstallBanner,
   toggleInstalledState,
   toggleOfflineMode
 } from './dev-tools';
+
+export {
+  initPwa,
+  showInstallPrompt,
+  registerServiceWorker,
+  checkInstallStatus,
+  installPrompt,
+  isPwaInstalled,
+  promptUnavailableReason,
+  isOffline,
+  // Dev tools
+  devControls,
+  triggerInstallBanner,
+  resetInstallBanner,
+  toggleInstalledState,
+  toggleOfflineMode
+};
 
 // Add functions to control service worker caching for testing
 

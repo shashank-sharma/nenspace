@@ -1,5 +1,6 @@
 export const PROVIDERS = [
     { value: "google", label: "Google" },
+    { value: "google_calendar", label: "Google Calendar" },
     { value: "coolify", label: "Coolify" },
     { value: "github", label: "GitHub" },
     { value: "gitlab", label: "GitLab" }

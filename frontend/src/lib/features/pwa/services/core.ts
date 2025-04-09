@@ -4,11 +4,7 @@ import { browser } from '$app/environment';
 export const installPrompt = writable<Event | null>(null);
 export const isPwaInstalled = writable<boolean>(false);
 export const promptUnavailableReason = writable<string | null>(null);
-
-export function isDebugModeEnabled(): boolean {
-  if (!browser) return false;
-  return localStorage.getItem('pwa-debug-mode') === 'true';
-}
+export const isOffline = writable<boolean>(false);
 
 export const checkInstallStatus = () => {
   if (!browser) return false;
@@ -61,11 +57,25 @@ export const initPwa = () => {
   
   console.log('[PWA] Initializing PWA functionality');
   
-  // Register service worker
+  // Register service worker for all users (not just PWA installs)
   registerServiceWorker();
   
   // Check if already installed
   checkInstallStatus();
+  
+  // Monitor online/offline status
+  const updateOnlineStatus = () => {
+    const connectionStatus = navigator.onLine;
+    isOffline.set(!connectionStatus);
+    console.log(`[PWA] Connection status: ${connectionStatus ? 'online' : 'offline'}`);
+  };
+  
+  // Initial check
+  updateOnlineStatus();
+  
+  // Add listeners
+  window.addEventListener('online', updateOnlineStatus);
+  window.addEventListener('offline', updateOnlineStatus);
   
   // Listen for the beforeinstallprompt event
   window.addEventListener('beforeinstallprompt', (e) => {

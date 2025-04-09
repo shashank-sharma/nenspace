@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { browser } from "$app/environment";
     import { Card } from "$lib/components/ui/card";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
@@ -16,11 +17,23 @@
     import { Carta, MarkdownEditor } from "carta-md";
     import ChronicleMetadata from "./ChronicleMetadata.svelte";
     import ChronicleTimeline from "./ChronicleTimeline.svelte";
+    import ChronicleBackground from "./ChronicleBackground.svelte";
+    import WeatherDisplay from "./WeatherDisplay.svelte";
     import "carta-md/default.css";
     import DOMPurify from "isomorphic-dompurify";
     import { getContext } from "svelte";
+    import { chroniclesStore, weatherStore } from "../stores";
+    import ChronicleJournalFlow from "./ChronicleJournalFlow.svelte";
+    import ChroniclePreview from "./ChroniclePreview.svelte";
+    import { Sparkles, Calendar, Edit, Eye, Code } from "lucide-svelte";
+    import * as Tabs from "$lib/components/ui/tabs";
+    import { fade, fly, slide } from "svelte/transition";
+    import { page } from "$app/stores";
+    import type { Weather, WeatherState } from "../types";
+    import { Checkbox } from "$lib/components/ui/checkbox";
+    import { ensureWeatherData } from "../utils/weather.utils";
 
-    const { theme } = getContext("theme");
+    const theme = getContext("theme") as { theme: string };
 
     let date = new Date();
     let selectedDate = date;
@@ -41,44 +54,121 @@
 
     let carta = new Carta({
         sanitizer: DOMPurify.sanitize,
-        plugins: [
-            "heading",
-            "bold",
-            "italic",
-            "strikethrough",
-            "link",
-            "list",
-            "table",
-            "image",
-            "code",
-            "blockquote",
-        ],
-        theme: $theme === "dark" ? "github-dark" : "github-light",
+        theme: theme.theme === "dark" ? "github-dark" : "github-light",
     });
 
-    async function loadJournalEntry(selectedDate: Date) {
-        try {
-            const record = await pb
-                .collection("journal_entries")
-                .getFirstListItem(
-                    `date = "${selectedDate.toISOString().split("T")[0]}" && user = "${pb.authStore.model.id}"`,
-                );
+    // Add state for the current weather theme
+    let currentWeather: Weather = "partly-cloudy";
 
-            if (record) {
-                content = record.content;
-                mood = record.mood;
-                tags = record.tags;
-            } else {
-                content = "";
-                mood = "neutral";
-                tags = "";
+    // Listen for weather changes from debug panel
+    onMount(() => {
+        // Initialize weather data using the centralized utility function
+        ensureWeatherData();
+
+        // Subscribe to weather store to update background
+        const weatherUnsubscribe = weatherStore.subscribe((state) => {
+            if (state.currentWeather) {
+                // Map weather data to background weather type
+                updateWeatherFromCondition(state);
             }
-        } catch (error) {
-            console.log("No existing entry found for selected date");
-            content = "";
-            mood = "neutral";
-            tags = "";
+        });
+
+        // Load initial weather from localStorage if available
+        if (browser) {
+            try {
+                const storedSettings = localStorage.getItem(
+                    "chroniclesDebugSettings",
+                );
+                if (storedSettings) {
+                    const settings = JSON.parse(storedSettings);
+                    if (settings.currentWeather) {
+                        currentWeather = settings.currentWeather as Weather;
+                    }
+                }
+            } catch (error) {
+                console.error("Error loading debug settings:", error);
+            }
+
+            // Listen for changes from the debug panel
+            const handleDebugSettingsChange = (event: CustomEvent) => {
+                const settings = event.detail;
+                if (settings.currentWeather) {
+                    currentWeather = settings.currentWeather as Weather;
+                }
+            };
+
+            document.addEventListener(
+                "chronicles-debug-settings-changed",
+                handleDebugSettingsChange as EventListener,
+            );
+
+            return () => {
+                document.removeEventListener(
+                    "chronicles-debug-settings-changed",
+                    handleDebugSettingsChange as EventListener,
+                );
+                weatherUnsubscribe();
+            };
         }
+
+        return () => {
+            weatherUnsubscribe();
+        };
+    });
+
+    // Function to update weather background based on API data
+    function updateWeatherFromCondition(state: WeatherState) {
+        const weather = state.currentWeather;
+        if (!weather) return;
+
+        const condition = weather.weather.condition.toLowerCase();
+        const cloudiness = weather.details.clouds;
+        const hour = new Date(weather.date).getHours();
+        const isNight = hour < 6 || hour > 18;
+
+        if (isNight) {
+            currentWeather = "stardust";
+        } else if (
+            condition.includes("rain") ||
+            condition.includes("drizzle")
+        ) {
+            currentWeather = "rainy";
+        } else if (
+            condition.includes("thunderstorm") ||
+            condition.includes("storm")
+        ) {
+            currentWeather = "stormy";
+        } else if (condition.includes("snow")) {
+            currentWeather = "cloudy";
+        } else if (condition.includes("clear")) {
+            currentWeather = "sunny";
+        } else if (cloudiness < 25) {
+            currentWeather = "sunny";
+        } else if (cloudiness < 50) {
+            currentWeather = "partly-cloudy";
+        } else {
+            currentWeather = "cloudy";
+        }
+    }
+
+    // Map current month to season
+    function getCurrentSeason(): "Winter" | "Spring" | "Summer" | "Autumn" {
+        const month = new Date().getMonth();
+
+        if (month >= 2 && month <= 4) return "Spring";
+        if (month >= 5 && month <= 7) return "Summer";
+        if (month >= 8 && month <= 10) return "Autumn";
+        return "Winter"; // months 11, 0, 1 (Dec, Jan, Feb)
+    }
+
+    // Initial season based on current month
+    let currentSeason = getCurrentSeason();
+
+    // Check if we're on the chronicles page to show debug controls
+    $: isChroniclesPage = $page.url.pathname.includes("/dashboard/chronicles");
+
+    async function loadJournalEntry(selectedDate: Date) {
+        await chroniclesStore.loadEntry(selectedDate);
     }
 
     function handleDateSelect(newDate: Date) {
@@ -87,13 +177,36 @@
         loadJournalEntry(newDate);
     }
 
+    // Handler for view mode change
+    function handleViewModeChange(val: string | undefined) {
+        if (val === "edit" || val === "preview" || val === "markdown") {
+            chroniclesStore.setViewMode(val);
+        }
+    }
+
+    // Function to update the weather from child component
+    function handleWeatherChange(weather: Weather) {
+        currentWeather = weather;
+
+        // Map weather to season
+        if (weather === "sunny" || weather === "partly-cloudy") {
+            currentSeason = "Summer";
+        } else if (weather === "cloudy" || weather === "rainy") {
+            currentSeason = "Spring";
+        } else if (weather === "stormy") {
+            currentSeason = "Autumn";
+        } else if (weather === "aurora" || weather === "stardust") {
+            currentSeason = "Winter";
+        }
+    }
+
     onMount(async () => {
         await loadJournalEntry(date);
-        const vh = Math.max(
-            document.documentElement.clientHeight || 0,
-            window.innerHeight || 0,
-        );
-        editorHeight = vh - 300;
+
+        // If there's no entry for today, initialize the flow
+        if (!$chroniclesStore.hasEntryForToday) {
+            chroniclesStore.createEmptyEntry();
+        }
     });
 
     async function handleSave() {
@@ -106,7 +219,7 @@
 
         try {
             const data = {
-                user: pb.authStore.model.id,
+                user: pb.authStore.model?.id,
                 title: formattedDate,
                 content,
                 date: date.toISOString().split("T")[0],
@@ -118,7 +231,7 @@
                 const existingRecord = await pb
                     .collection("journal_entries")
                     .getFirstListItem(
-                        `date = "${date.toISOString().split("T")[0]}" && user = "${pb.authStore.model.id}"`,
+                        `date = "${date.toISOString().split("T")[0]}" && user = "${pb.authStore.model?.id}"`,
                     );
                 await pb
                     .collection("journal_entries")
@@ -137,104 +250,160 @@
     }
 </script>
 
-<div class="mx-auto p-4">
-    <!-- Timeline Section -->
-    <div class="mb-6 justify-center text-center">
-        <div>
-            <h2 class="text-xl font-semibold">{displayDate}</h2>
+<div class="mx-auto p-2 sm:p-4 chronicles-page-container">
+    <!-- Replace static background with ChronicleBackground -->
+    <div class="chronicles-background-container">
+        <ChronicleBackground
+            startingSeason={currentSeason}
+            enableControls={false}
+            height="100vh"
+            width="100%"
+            weather={currentWeather}
+        />
+    </div>
+
+    <!-- Weather component at top right -->
+    <div class="weather-top-right">
+        <WeatherDisplay showForecast={false} compact={true} />
+    </div>
+
+    <!-- Page Header with Date - Add chronicles-title-area class -->
+    <div
+        class="mb-4 sm:mb-6 justify-center text-center chronicles-title-area relative z-10"
+    >
+        <div class="mb-2 date-title mx-8">
+            <h2
+                class="text-xl font-semibold flex items-center justify-center gap-2"
+            >
+                <Sparkles class="h-5 w-5 text-primary" />
+                <span>{displayDate}</span>
+            </h2>
             <p class="text-sm text-muted-foreground">
                 Entry #{formattedDate}
             </p>
         </div>
-        <Card class="p-6 relative">
-            <ChronicleTimeline
-                selectedDate={date}
-                onDateSelect={handleDateSelect}
-            />
-        </Card>
+
+        <!-- View Mode Selector -->
+        <div class="w-full max-w-md mx-auto mt-4 mb-6">
+            <Tabs.Root
+                value={$chroniclesStore.viewMode}
+                onValueChange={handleViewModeChange}
+                class="tab-container"
+            >
+                <Tabs.List class="grid grid-cols-3 tab-list">
+                    <Tabs.Trigger
+                        value="edit"
+                        class="tab-trigger flex items-center justify-center gap-1"
+                    >
+                        <Edit class="h-4 w-4" />
+                        <span class="hidden sm:inline">Edit</span>
+                    </Tabs.Trigger>
+                    <Tabs.Trigger
+                        value="preview"
+                        class="tab-trigger flex items-center justify-center gap-1"
+                    >
+                        <Eye class="h-4 w-4" />
+                        <span class="hidden sm:inline">Preview</span>
+                    </Tabs.Trigger>
+                    <Tabs.Trigger
+                        value="markdown"
+                        class="tab-trigger flex items-center justify-center gap-1"
+                    >
+                        <Code class="h-4 w-4" />
+                        <span class="hidden sm:inline">Markdown</span>
+                    </Tabs.Trigger>
+                </Tabs.List>
+            </Tabs.Root>
+        </div>
     </div>
 
-    <div class="flex gap-4 h-[calc(100vh-200px)]">
-        <!-- Main Editor Section -->
-        <div class="flex-grow h-full">
-            <div class="flex flex-col">
-                <!-- Fixed height editor container -->
-                <div class="">
-                    <!-- The carta editor will be here -->
-                    <MarkdownEditor
-                        {carta}
-                        bind:value={content}
-                        class="carta-editor-custom {$theme === 'dark'
-                            ? 'dark'
-                            : ''}"
-                        mode="tabs"
-                        placeholder="Enter text here"
-                    />
+    <div class="flex flex-col lg:flex-row gap-4 min-h-[calc(100vh-200px)]">
+        <!-- Tab Content based on viewMode -->
+        <div class="w-full tab-content-container">
+            {#if $chroniclesStore.viewMode === "edit"}
+                <div in:fade={{ duration: 300 }}>
+                    <ChronicleJournalFlow />
                 </div>
-            </div>
-            <div
-                class="p-4 border-b flex items-center justify-between flex-shrink-0"
-            >
-                <div class="flex items-center gap-6">
-                    <!-- Mood Select -->
-                    <div class="flex items-center gap-3">
-                        <Label for="mood" class="text-sm whitespace-nowrap"
-                            >Mood</Label
-                        >
-                        <Select bind:value={mood}>
-                            <SelectTrigger id="mood" class="w-32">
-                                <SelectValue placeholder="Mood" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="happy">Happy</SelectItem>
-                                <SelectItem value="neutral">Neutral</SelectItem>
-                                <SelectItem value="sad">Sad</SelectItem>
-                                <SelectItem value="excited">Excited</SelectItem>
-                                <SelectItem value="anxious">Anxious</SelectItem>
-                                <SelectItem value="peaceful"
-                                    >Peaceful</SelectItem
-                                >
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <!-- Tags Input -->
-                    <div class="flex items-center gap-3">
-                        <Label for="tags" class="text-sm whitespace-nowrap"
-                            >Tags</Label
-                        >
-                        <Input
-                            id="tags"
-                            bind:value={tags}
-                            placeholder="life, work..."
-                            class="w-48"
+            {:else if $chroniclesStore.viewMode === "preview" && $chroniclesStore.currentEntry}
+                <div in:fade={{ duration: 300 }}>
+                    <div
+                        class="bg-card/90 backdrop-blur-sm shadow-lg rounded-lg border border-border relative z-10 p-4"
+                    >
+                        <ChroniclePreview
+                            entry={$chroniclesStore.currentEntry}
                         />
                     </div>
-
-                    <!-- Save Button -->
-                    <Button
-                        variant="default"
-                        on:click={handleSave}
-                        disabled={isLoading}
-                    >
-                        {isLoading ? "Saving..." : "Save"}
-                    </Button>
                 </div>
-            </div>
-        </div>
-
-        <!-- Metadata Sidebar -->
-        <div class="w-96 h-full">
-            <ChronicleMetadata />
+            {:else if $chroniclesStore.viewMode === "markdown" && $chroniclesStore.currentEntry}
+                <div in:fade={{ duration: 300 }}>
+                    <Card
+                        class="p-4 sm:p-6 h-full markdown-card bg-card/95 backdrop-blur-sm relative z-10"
+                    >
+                        <div class="prose dark:prose-invert max-w-none h-full">
+                            <pre
+                                class="markdown-preview rounded-md border bg-muted/80 p-4 font-mono">
+                                <code
+                                    >{$chroniclesStore.currentEntry
+                                        .content}</code
+                                >
+                            </pre>
+                        </div>
+                    </Card>
+                </div>
+            {:else}
+                <div in:fade={{ duration: 300 }}>
+                    <Card
+                        class="p-6 text-center bg-card/90 backdrop-blur-sm relative z-10"
+                    >
+                        <div class="text-muted-foreground">
+                            No journal entry available for this date.
+                        </div>
+                    </Card>
+                </div>
+            {/if}
         </div>
     </div>
 </div>
 
 <style>
+    /* Page container positioning */
+    .chronicles-page-container {
+        position: relative;
+        overflow: hidden;
+        min-height: 100vh;
+        margin-top: 4rem; /* Add margin to account for header */
+    }
+
+    /* ChronicleBackground container positioning */
+    .chronicles-background-container {
+        position: fixed;
+        top: 4rem; /* Match the margin-top of the container */
+        left: 0;
+        right: 0;
+        height: calc(
+            100vh - 4rem
+        ); /* Subtract header height from viewport height */
+        z-index: 0; /* Put background at base layer */
+        pointer-events: none;
+    }
+
+    /* Title area styling */
+    .chronicles-title-area {
+        position: relative;
+        z-index: 10;
+    }
+
+    .chronicles-title-area h2,
+    .chronicles-title-area p {
+        position: relative;
+        z-index: 10;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
     :global(.carta-editor) {
         height: 100% !important;
-        min-height: 0 !important; /* Remove min-height constraint */
-        max-height: none !important; /* Remove max-height constraint */
+        min-height: 0 !important;
+        max-height: none !important;
         overflow-y: auto !important;
         font-family: inherit;
         padding: 1rem !important;
@@ -250,74 +419,105 @@
         font-size: 1.1rem;
     }
 
-    /* Dark theme overrides */
-    :global(.dark .carta-editor),
-    :global(.dark .carta-wrapper),
-    :global(.dark .carta-container) {
-        background-color: hsl(var(--background));
-        color: hsl(var(--foreground));
+    :global(.carta-editor-custom) {
+        border-radius: 0.5rem;
+        height: 100% !important;
     }
 
-    :global(.dark .carta-toolbar) {
-        background-color: hsl(var(--background));
-        border-color: hsl(var(--border));
+    :global(.prose) {
+        max-width: none;
+        height: 100%;
     }
 
-    :global(.dark .carta-toolbar button) {
-        color: hsl(var(--foreground));
+    /* Tab styling improvements */
+    .tab-container {
+        border-radius: 0.5rem;
+        overflow: hidden;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
     }
 
-    :global(.dark .carta-toolbar button:hover) {
-        background-color: hsl(var(--accent));
+    .tab-list {
+        background-color: var(--muted);
+        padding: 0.25rem;
+        border-radius: 0.5rem;
     }
 
-    :global(.dark .carta-input-wrapper) {
-        background-color: hsl(var(--background));
+    .tab-trigger {
+        transition: all 0.3s ease;
+        border-radius: 0.4rem;
+        font-weight: 500;
+        height: 2.5rem;
     }
 
-    :global(.dark .carta-input-wrapper textarea) {
-        background-color: transparent;
-        color: hsl(var(--foreground));
+    .tab-trigger[data-state="active"] {
+        background-color: var(--background);
+        color: var(--primary);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     }
 
-    :global(.dark pre),
-    :global(.dark code) {
-        background-color: hsl(var(--muted));
-        color: hsl(var(--muted-foreground));
+    /* Tab content container */
+    .tab-content-container {
+        position: relative;
+        z-index: 10;
+        min-height: 400px;
+        transition: all 0.3s ease;
     }
 
-    :global(.dark blockquote) {
-        border-left-color: hsl(var(--border));
-        color: hsl(var(--muted-foreground));
+    .markdown-card {
+        border: 1px solid rgba(var(--primary-rgb), 0.2);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
     }
 
-    :global(.dark .carta-renderer) {
-        background-color: hsl(var(--background));
-        color: hsl(var(--foreground));
+    .markdown-preview {
+        max-height: 80vh;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        line-height: 1.6;
+        color: var(--foreground);
+        font-size: 0.9rem;
     }
 
-    /* Override shiki highlighting for dark mode */
-    :global(.dark .shiki),
-    :global(.dark .shiki span) {
-        background-color: hsl(var(--muted)) !important;
-        color: hsl(var(--foreground)) !important;
+    .markdown-preview code {
+        display: block;
+        font-family: "Menlo", "Monaco", "Courier New", monospace;
     }
 
-    /* Custom scrollbar */
-    :global(.carta-editor-custom ::-webkit-scrollbar) {
-        width: 6px;
+    /* Mobile improvements */
+    @media (max-width: 640px) {
+        .tab-trigger {
+            padding: 0.5rem;
+            height: 2.25rem;
+        }
+
+        .markdown-preview {
+            font-size: 0.8rem;
+            padding: 0.75rem !important;
+        }
     }
 
-    :global(.carta-editor-custom ::-webkit-scrollbar-track) {
-        background: transparent;
+    /* Ensure cards and content stay above background */
+    :global(.bg-card) {
+        position: relative;
+        z-index: 10;
     }
 
-    :global(.carta-editor-custom ::-webkit-scrollbar-thumb) {
-        background-color: hsl(var(--muted));
-        border-radius: 3px;
+    /* Weather top right positioning */
+    .weather-top-right {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        z-index: 20;
+        width: 350px;
+        max-width: 95%;
     }
 
-    :global(.carta-editor-custom ::-webkit-scrollbar-thumb:hover) {
-        background-color: hsl(var(--muted-foreground));
+    @media (max-width: 768px) {
+        .weather-top-right {
+            position: relative;
+            top: 0;
+            right: 0;
+            width: 100%;
+            margin-bottom: 1rem;
+        }
     }
 </style>

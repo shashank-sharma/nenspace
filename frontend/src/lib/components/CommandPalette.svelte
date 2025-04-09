@@ -54,17 +54,6 @@
     });
 </script>
 
-<div class="fixed bottom-4 right-4 z-50">
-    <p class="text-muted-foreground text-sm">
-        Press
-        <kbd
-            class="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100"
-        >
-            <span class="text-xs">⌘</span>K
-        </kbd>
-    </p>
-</div>
-
 <Command.Dialog bind:open>
     <Command.Input placeholder="Type a command or search sections..." />
     <Command.List>
