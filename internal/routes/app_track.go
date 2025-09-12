@@ -1,7 +1,12 @@
 package routes
 
 import (
+	"fmt"
+	"math"
 	"net/http"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/pocketbase/pocketbase/apis"
@@ -71,12 +76,27 @@ type TrackFocusAPI struct {
 	EndDate   types.DateTime          `db:"end_date" json:"end_date"`
 }
 
+type topAppsCacheEntry struct {
+	ExpiresAt time.Time
+	Payload   map[string]any
+}
+
+var topAppsSessionsCache sync.Map
+
+// Prevent duplicate computations per cache key
+type topAppsInflight struct {
+	done chan struct{}
+}
+
+var topAppsFlightsMu sync.Mutex
+var topAppsFlights = map[string]*topAppsInflight{}
 
 func RegisterTrackRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path string) {
 	trackRouter := apiRouter.Group(path)
 	trackRouter.POST("/create", TrackCreateAppItems)
 	trackRouter.POST("/", TrackDeviceStatus)
 	trackRouter.GET("/getapp", GetCurrentApp)
+	trackRouter.GET("/topapps/sessions", GetTopAppsBySessions)
 	apiRouter.POST("/focus/create", TrackFocus)
 	apiRouter.POST("/sync/create", TrackAppSyncItems)
 	// e.Router.POST("/sync/track-items", routes.TrackAppItems)
@@ -193,7 +213,7 @@ func TrackCreateAppItems(e *core.RequestEvent) error {
 		return apis.NewBadRequestError("Failed to read request data", err)
 	}
 
-	record, err := query.FindByFilter[*models.TrackDevice](map[string]interface{}{
+	record, _ := query.FindByFilter[*models.TrackDevice](map[string]interface{}{
 		"user":     userId,
 		"name":     data.Name,
 		"hostname": data.HostName,
@@ -303,10 +323,287 @@ func TrackAppSyncItems(e *core.RequestEvent) error {
 		"last_online": types.NowDateTime(),
 		"last_sync":   types.NowDateTime(),
 	}); err != nil {
-		logger.LogError("Failed updating the tracking device records")
+		logger.LogError("Failed updating the tracking device records", err)
 	}
 
 	return e.JSON(http.StatusOK, op)
+}
+
+func GetTopAppsBySessions(e *core.RequestEvent) error {
+	// Fixed configuration: today UTC, 30-minute inactivity gap, top 15 apps
+	gapMinutes := 30
+	topLimit := 20
+
+	now := time.Now().UTC()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	// dayStart := time.Date(2025, time.September, 9, 0, 0, 0, 0, time.UTC)
+	dayEnd := dayStart.Add(24 * time.Hour)
+
+	forceRefresh := false
+	// cache key: day|gap|limit; 10-min expiry
+	cacheKey := fmt.Sprintf("%s|gap=%d|limit=%d", dayStart.Format("2006-01-02"), gapMinutes, topLimit)
+	if !forceRefresh {
+		if v, ok := topAppsSessionsCache.Load(cacheKey); ok {
+			entry := v.(topAppsCacheEntry)
+			if time.Now().UTC().Before(entry.ExpiresAt) {
+				logger.LogDebug("GetTopAppsBySessions cache hit", "key", cacheKey, "expires_at", entry.ExpiresAt.Format(time.RFC3339))
+				return e.JSON(http.StatusOK, entry.Payload)
+			} else {
+				logger.LogDebug("GetTopAppsBySessions cache expired", "key", cacheKey)
+				topAppsSessionsCache.Delete(cacheKey)
+			}
+		}
+	} else {
+		logger.LogInfo("Forcing refresh for GetTopAppsBySessions", "key", cacheKey)
+		topAppsSessionsCache.Delete(cacheKey)
+	}
+
+	// Register in-flight to coalesce concurrent requests
+	var flight *topAppsInflight
+	isLeader := false
+	if !forceRefresh {
+		topAppsFlightsMu.Lock()
+		if f, ok := topAppsFlights[cacheKey]; ok {
+			flight = f
+			topAppsFlightsMu.Unlock()
+			logger.LogDebug("GetTopAppsBySessions wait in-flight", "key", cacheKey)
+			<-flight.done
+			// After in-flight completes, return cached result if available
+			if v, ok := topAppsSessionsCache.Load(cacheKey); ok {
+				entry := v.(topAppsCacheEntry)
+				if time.Now().UTC().Before(entry.ExpiresAt) {
+					logger.LogDebug("GetTopAppsBySessions served after in-flight", "key", cacheKey)
+					return e.JSON(http.StatusOK, entry.Payload)
+				}
+			}
+			// Fall-through to compute if not cached
+			topAppsFlightsMu.Lock()
+			flight = &topAppsInflight{done: make(chan struct{})}
+			topAppsFlights[cacheKey] = flight
+			isLeader = true
+			topAppsFlightsMu.Unlock()
+		} else {
+			flight = &topAppsInflight{done: make(chan struct{})}
+			topAppsFlights[cacheKey] = flight
+			isLeader = true
+			topAppsFlightsMu.Unlock()
+		}
+	} else {
+		// For force refresh, still coordinate so others wait for the fresh computation
+		topAppsFlightsMu.Lock()
+		if f, ok := topAppsFlights[cacheKey]; ok {
+			flight = f
+			topAppsFlightsMu.Unlock()
+			logger.LogInfo("Force refresh waiting on existing in-flight", "key", cacheKey)
+			<-flight.done
+			// Proceed to become leader to refresh result
+			topAppsFlightsMu.Lock()
+			flight = &topAppsInflight{done: make(chan struct{})}
+			topAppsFlights[cacheKey] = flight
+			isLeader = true
+			topAppsFlightsMu.Unlock()
+		} else {
+			flight = &topAppsInflight{done: make(chan struct{})}
+			topAppsFlights[cacheKey] = flight
+			isLeader = true
+			topAppsFlightsMu.Unlock()
+		}
+	}
+
+	startDT := types.DateTime{}
+	endDT := types.DateTime{}
+	startDT.Scan(dayStart)
+	endDT.Scan(dayEnd)
+
+	// Get public active devices to scope results similarly to GetCurrentApp
+	devices, err := query.FindAllByFilter[*models.TrackDevice](map[string]any{
+		"is_public": true,
+		"is_active": true,
+	})
+	if err != nil {
+		logger.LogError("Failed to fetch devices", "error", err)
+		if isLeader && flight != nil { close(flight.done); topAppsFlightsMu.Lock(); delete(topAppsFlights, cacheKey); topAppsFlightsMu.Unlock() }
+		return e.JSON(http.StatusInternalServerError, map[string]any{"message": "failed to fetch devices"})
+	}
+	logger.LogDebug("GetTopAppsBySessions devices fetched", "count", len(devices))
+	if len(devices) == 0 {
+		logger.LogInfo("No public active devices for GetTopAppsBySessions", "date", dayStart.Format("2006-01-02"))
+		result := map[string]any{"date": dayStart.Format("2006-01-02"), "gap_minutes": gapMinutes, "limit": topLimit, "sessions": []any{}}
+		if isLeader && flight != nil {
+			now2 := time.Now().UTC()
+			expires := now2.Add(10 * time.Minute)
+			topAppsSessionsCache.Store(cacheKey, topAppsCacheEntry{ExpiresAt: expires, Payload: result})
+			close(flight.done)
+			topAppsFlightsMu.Lock(); delete(topAppsFlights, cacheKey); topAppsFlightsMu.Unlock()
+		}
+		return e.JSON(http.StatusOK, map[string]any{"date": dayStart.Format("2006-01-02"), "gap_minutes": gapMinutes, "limit": topLimit, "sessions": []any{}})
+	}
+
+	deviceSet := map[string]struct{}{}
+	for _, d := range devices {
+		deviceSet[d.Id] = struct{}{}
+	}
+
+	// Fetch all items for the day per device to minimize scan size
+	items := make([]*models.TrackItems, 0, 1024)
+	for _, d := range devices {
+		recs, err := query.FindAllByFilter[*models.TrackItems](map[string]any{
+			"device": d.Id,
+			"begin_date": map[string]any{"gte": startDT, "lte": endDT},
+		})
+		if err != nil {
+			logger.LogError("Failed to fetch track items for device", "device", d.Id, "error", err)
+			continue
+		}
+		items = append(items, recs...)
+	}
+	logger.LogDebug("GetTopAppsBySessions items fetched", "count", len(items))
+
+	type event struct {
+		app   string
+		begin time.Time
+		end   time.Time
+	}
+
+	filtered := make([]event, 0, len(items))
+	for _, it := range items {
+		// Ignore loginwindow app
+		if strings.EqualFold(it.App, "loginwindow") {
+			continue
+		}
+		b := it.BeginDate.Time()
+		e := it.EndDate.Time()
+		// keep only events that intersect with [dayStart, dayEnd)
+		if e.Before(dayStart) || !b.Before(dayEnd) {
+			continue
+		}
+		// clamp to day bounds for accurate per-day aggregation
+		if b.Before(dayStart) {
+			b = dayStart
+		}
+		if e.After(dayEnd) {
+			e = dayEnd
+		}
+		if e.After(b) {
+			filtered = append(filtered, event{app: it.App, begin: b, end: e})
+		}
+	}
+	logger.LogDebug("GetTopAppsBySessions events filtered", "count", len(filtered))
+
+	if len(filtered) == 0 {
+		logger.LogInfo("No track events for day in GetTopAppsBySessions", "date", dayStart.Format("2006-01-02"))
+		result := map[string]any{"date": dayStart.Format("2006-01-02"), "gap_minutes": gapMinutes, "limit": topLimit, "sessions": []any{}}
+		if isLeader && flight != nil {
+			now2 := time.Now().UTC()
+			expires := now2.Add(10 * time.Minute)
+			topAppsSessionsCache.Store(cacheKey, topAppsCacheEntry{ExpiresAt: expires, Payload: result})
+			close(flight.done)
+			topAppsFlightsMu.Lock(); delete(topAppsFlights, cacheKey); topAppsFlightsMu.Unlock()
+		}
+		return e.JSON(http.StatusOK, map[string]any{"date": dayStart.Format("2006-01-02"), "gap_minutes": gapMinutes, "limit": topLimit, "sessions": []any{}})
+	}
+
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].begin.Before(filtered[j].begin) })
+
+	gap := time.Duration(gapMinutes) * time.Minute
+
+	type session struct {
+		start   time.Time
+		end     time.Time
+		events  []event
+	}
+
+	sessions := []session{}
+	current := session{}
+	var prevEnd time.Time
+	for idx, ev := range filtered {
+		if idx == 0 {
+			current = session{start: ev.begin, end: ev.end, events: []event{ev}}
+			prevEnd = ev.end
+			continue
+		}
+		if ev.begin.Sub(prevEnd) > gap {
+			// finalize previous
+			sessions = append(sessions, current)
+			current = session{start: ev.begin, end: ev.end, events: []event{ev}}
+		} else {
+			current.events = append(current.events, ev)
+			if ev.end.After(current.end) {
+				current.end = ev.end
+			}
+		}
+		prevEnd = ev.end
+	}
+	// append last
+	sessions = append(sessions, current)
+	logger.LogDebug("GetTopAppsBySessions sessions built", "count", len(sessions))
+
+	// Build response
+	type appUsage struct {
+		App              string  `json:"app"`
+		Percentage       float64 `json:"percentage"`
+	}
+	type sessionResp struct {
+		SessionIndex         int            `json:"session_index"`
+		Apps                 []appUsage     `json:"apps"`
+	}
+
+	respSessions := make([]sessionResp, 0, len(sessions))
+	for i, s := range sessions {
+		// aggregate per app
+		total := int64(0)
+		agg := map[string]int64{}
+		for _, ev := range s.events {
+			// Ignore loginwindow app
+			if strings.EqualFold(ev.app, "loginwindow") {
+				continue
+			}
+			dur := int64(ev.end.Sub(ev.begin).Seconds())
+			if dur <= 0 {
+				continue
+			}
+			agg[ev.app] += dur
+			total += dur
+		}
+		// build sorted list by duration without returning duration fields
+		keys := make([]string, 0, len(agg))
+		for app := range agg {
+			keys = append(keys, app)
+		}
+		sort.Slice(keys, func(i, j int) bool { return agg[keys[i]] > agg[keys[j]] })
+		if len(keys) > topLimit {
+			keys = keys[:topLimit]
+		}
+		apps := make([]appUsage, 0, len(keys))
+		for _, app := range keys {
+			pct := 0.0
+			if total > 0 {
+				pct = (float64(agg[app]) / float64(total)) * 100.0
+			}
+			apps = append(apps, appUsage{App: app, Percentage: math.Round(pct*100) / 100})
+		}
+
+		respSessions = append(respSessions, sessionResp{
+			SessionIndex:         i + 1,
+			Apps:                 apps,
+		})
+	}
+
+	result := map[string]any{
+		"date":        dayStart.Format("2006-01-02"),
+		"gap_minutes": gapMinutes,
+		"limit":       topLimit,
+		"sessions":    respSessions,
+	}
+
+	// compute expiry in 10 minutes
+	now2 := time.Now().UTC()
+	expires := now2.Add(10 * time.Minute)
+	topAppsSessionsCache.Store(cacheKey, topAppsCacheEntry{ExpiresAt: expires, Payload: result})
+	logger.LogDebug("GetTopAppsBySessions cache stored", "key", cacheKey, "expires_at", expires.Format(time.RFC3339))
+	if isLeader && flight != nil { close(flight.done); topAppsFlightsMu.Lock(); delete(topAppsFlights, cacheKey); topAppsFlightsMu.Unlock() }
+
+	return e.JSON(http.StatusOK, result)
 }
 
 /*
