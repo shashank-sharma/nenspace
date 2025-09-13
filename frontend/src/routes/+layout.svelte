@@ -17,8 +17,6 @@
     import BottomRightControls from "$lib/components/BottomRightControls.svelte";
     import ShortcutsHelpPanel from "$lib/components/ShortcutsHelpPanel.svelte";
     import DebugLauncher from "$lib/components/debug/DebugLauncher.svelte";
-    import { ensureWeatherData } from "$lib/features/chronicles/utils/weather.utils";
-    import { ensureCalendarData } from "$lib/features/calendar/utils/event.utils";
     let isLoading = true;
     let isDebugMode = false;
     let showShortcuts = false;
@@ -44,11 +42,7 @@
                 console.error("Failed to initialize PWA:", err);
             }
 
-            // Initialize data early to avoid multiple fetches later
-            ensureWeatherData();
-
-            // Initialize calendar data early
-            ensureCalendarData();
+            // Data will be initialized only when needed in specific routes
         }
 
         // Page fully loaded

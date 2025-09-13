@@ -1,19 +1,36 @@
 <script lang="ts">
     import { fade } from "svelte/transition";
+    import { cn } from "$lib/utils";
+
+    export let fullScreen = true;
+    export let size: "sm" | "md" | "lg" = "md";
+    export let message = "Loading...";
+    export let delayIn = 200;
+    export let durationIn = 150;
+    export let durationOut = 150;
+
+    const sizes = {
+        sm: "h-4 w-4",
+        md: "h-8 w-8",
+        lg: "h-12 w-12",
+    };
 </script>
 
 <div
-    in:fade={{ duration: 150, delay: 200 }}
-    out:fade={{ duration: 150 }}
-    class="fixed inset-0 z-50 flex items-center justify-center bg-background"
+    in:fade={{ duration: durationIn, delay: delayIn }}
+    out:fade={{ duration: durationOut }}
+    class={cn(
+        "flex items-center justify-center bg-background",
+        fullScreen ? "fixed inset-0 z-50" : "w-full h-full",
+    )}
 >
     <div class="flex flex-col items-center gap-2">
-        <div class="h-8 w-8 animate-spin">
+        <div class={cn("animate-spin", sizes[size])}>
             <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"
-                class="h-8 w-8"
+                class="h-full w-full"
             >
                 <circle
                     class="opacity-25"
@@ -30,6 +47,8 @@
                 />
             </svg>
         </div>
-        <p class="text-sm text-muted-foreground">Loading...</p>
+        {#if message}
+            <p class="text-sm text-muted-foreground">{message}</p>
+        {/if}
     </div>
 </div>

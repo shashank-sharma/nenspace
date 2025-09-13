@@ -9,33 +9,40 @@
     import { Input } from "$lib/components/ui/input";
     import { Button } from "$lib/components/ui/button";
     import { Plus } from "lucide-svelte";
+    import type { Task } from "../types";
+    import { goto } from "$app/navigation";
+
+    // Accept tasks as prop from the parent
+    export let tasks: Task[] = [];
+    export let searchQuery = "";
 
     let showQuickAdd = false;
     let quickAddCategory = "";
-    let searchQuery = "";
-    let localTasks = [];
+    let localTasks = tasks;
 
     function handleQuickAdd(category: string) {
         quickAddCategory = category;
         showQuickAdd = true;
     }
 
-    async function handleSearch(e: KeyboardEvent) {
+    function handleKeyDown(e: KeyboardEvent) {
         if (e.key === "Enter") {
-            // Server-side search
-            await tasksStore.fetchTasks(searchQuery);
+            // Server-side search by navigating to the same page with query
+            goto(`?q=${encodeURIComponent(searchQuery)}`);
+        }
+    }
+
+    function handleSearchInput() {
+        // Local search
+        if (!searchQuery.trim()) {
+            localTasks = tasks;
         } else {
-            // Local search
-            if (!searchQuery.trim()) {
-                localTasks = $tasksStore.tasks;
-            } else {
-                const query = searchQuery.toLowerCase();
-                localTasks = $tasksStore.tasks.filter(
-                    (task) =>
-                        task.title.toLowerCase().includes(query) ||
-                        task.description.toLowerCase().includes(query),
-                );
-            }
+            const query = searchQuery.toLowerCase();
+            localTasks = tasks.filter(
+                (task) =>
+                    task.title.toLowerCase().includes(query) ||
+                    task.description.toLowerCase().includes(query),
+            );
         }
     }
 
@@ -45,12 +52,13 @@
     }));
 
     onMount(() => {
-        tasksStore.fetchTasks();
-        localTasks = $tasksStore.tasks;
+        // Still sync with the store to keep UI state
+        tasksStore.setTasks(tasks);
+        localTasks = tasks;
     });
 
-    // Update local tasks when store tasks change
-    $: if ($tasksStore.tasks) {
+    // Listen for store updates for real-time changes
+    $: if ($tasksStore.tasks?.length && !localTasks.length) {
         localTasks = $tasksStore.tasks;
     }
 </script>
@@ -67,8 +75,8 @@
                 placeholder="Search tasks... (Press Enter for server search)"
                 class="pl-8"
                 bind:value={searchQuery}
-                on:keydown={handleSearch}
-                on:input={handleSearch}
+                on:keydown={handleKeyDown}
+                on:input={handleSearchInput}
             />
         </div>
     </div>

@@ -1,18 +1,11 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { browser } from "$app/environment";
+    import { theme } from "$lib/stores/theme.store";
 
     onMount(() => {
-        if (!browser) return;
-
-        if (
-            localStorage.theme === "dark" ||
-            (!("theme" in localStorage) &&
-                window.matchMedia("(prefers-color-scheme: dark)").matches)
-        ) {
-            document.documentElement.classList.add("dark");
-        } else {
-            document.documentElement.classList.remove("dark");
-        }
+        // Initialize theme on mount
+        // The logic is now handled in the theme store
+        const currentTheme = theme.getTheme();
+        theme.setTheme(currentTheme);
     });
 </script>

@@ -16,6 +16,8 @@ const createTasksStore = () => {
         subscribe,
         setSelectedTask: (task: Task | null) => update(state => ({ ...state, selectedTask: task })),
         
+        setTasks: (tasks: Task[]) => update(state => ({ ...state, tasks })),
+        
         async fetchTasks(query?: string) {
             update(state => ({ ...state, isLoading: true }));
             try {

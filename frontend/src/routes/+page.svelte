@@ -5,7 +5,6 @@
 	import { Button } from "$lib/components/ui/button";
 	import { Badge } from "$lib/components/ui/badge";
 	import { Card } from "$lib/components/ui/card";
-	import { Avatar } from "$lib/components/ui/avatar";
 	import {
 		Download,
 		ChevronRight,
@@ -13,20 +12,15 @@
 		ListTodo,
 		Banknote,
 		Book,
-		Menu,
 	} from "lucide-svelte";
 	import { browser } from "$app/environment";
 	import {
 		showInstallPrompt,
 		installPrompt,
-		triggerInstallBanner,
-		isPwaInstalled,
 	} from "$lib/features/pwa/services";
 	import NenAura from "$lib/components/icons/NenAura.svelte";
 	import { spring } from "svelte/motion";
 
-	let pwaInstallBanner: any;
-	let canInstallPwa = false;
 	let loaded = false;
 	let activeCategoryIndex = 0;
 	let categoryHovered = false;
@@ -107,26 +101,10 @@
 		}, 2000);
 	}
 
-	function forceShowInstallBanner() {
+	function handleShowInstallPrompt() {
 		if (browser) {
-			sessionStorage.removeItem("pwa-banner-dismissed");
-
-			if (
-				pwaInstallBanner &&
-				typeof pwaInstallBanner.forceShow === "function"
-			) {
-				pwaInstallBanner.forceShow();
-				return;
-			}
-
-			const unsubscribe = installPrompt.subscribe((value) => {
-				if (value) {
-					showInstallPrompt();
-				} else {
-					triggerInstallBanner();
-				}
-			});
-			unsubscribe();
+			// Use the service function directly
+			showInstallPrompt();
 		}
 	}
 
@@ -143,15 +121,7 @@
 	}
 
 	onMount(() => {
-		const unsubInstalled = isPwaInstalled.subscribe((value) => {
-			canInstallPwa = !value;
-		});
-
 		if (browser) {
-			window.addEventListener(
-				"force-show-pwa-banner",
-				forceShowInstallBanner,
-			);
 			window.addEventListener("mousemove", updateMousePosition);
 		}
 
@@ -173,12 +143,7 @@
 		}, 4000);
 
 		return () => {
-			unsubInstalled();
 			if (browser) {
-				window.removeEventListener(
-					"force-show-pwa-banner",
-					forceShowInstallBanner,
-				);
 				window.removeEventListener("mousemove", updateMousePosition);
 			}
 			clearInterval(auraInterval);
@@ -291,7 +256,11 @@
 						easing: cubicOut,
 					}}
 				>
-					<Button size="lg" class="gap-2 rounded-full px-6">
+					<Button
+						size="lg"
+						class="gap-2 rounded-full px-6"
+						href="/dashboard"
+					>
 						Go to Dashboard <ChevronRight class="h-4 w-4" />
 					</Button>
 
@@ -422,24 +391,31 @@
 						practice. Start your journey to digital mastery now.
 					</p>
 
-					<Button size="lg" class="gap-2 rounded-full px-8">
+					<Button
+						size="lg"
+						class="gap-2 rounded-full px-8"
+						href="/dashboard"
+					>
 						Start Now <ChevronRight class="h-4 w-4" />
 					</Button>
 				</div>
 			</div>
 		{/if}
 	</section>
-	{#if browser && canInstallPwa}
-		<div class="fixed top-4 right-4 z-50">
-			<Button
-				variant="default"
-				size="sm"
-				class="shadow-lg gap-1"
-				on:click={forceShowInstallBanner}
-			>
-				<Download class="w-4 h-4" /> Install App
-			</Button>
-		</div>
+
+	{#if browser}
+		{#if $installPrompt}
+			<div class="fixed top-4 right-4 z-50">
+				<Button
+					variant="default"
+					size="sm"
+					class="shadow-lg gap-1"
+					on:click={handleShowInstallPrompt}
+				>
+					<Download class="w-4 h-4" /> Install App
+				</Button>
+			</div>
+		{/if}
 	{/if}
 </div>
 
