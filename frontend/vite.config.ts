@@ -2,6 +2,8 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const host = process.env.TAURI_DEV_HOST;
+
 export default defineConfig({
 	plugins: [
 		sveltekit(),
@@ -83,6 +85,20 @@ export default defineConfig({
 		exclude: ['fsevents']
 	},
 	server: {
-        host: true
-    }
+        host: host || false,
+        port: 5173,
+        strictPort: true,
+        hmr: host
+            ? {
+                protocol: 'ws',
+                host,
+                port: 1421,
+            }
+            : undefined,
+    },
+    // Tauri expects a fixed port, fail if that port is not available
+    clearScreen: false,
+    // to make use of `TAURI_DEBUG` and other env variables
+    // https://tauri.studio/v1/api/config#buildconfig.beforedevcommand
+    envPrefix: ['VITE_', 'TAURI_'],
 });
