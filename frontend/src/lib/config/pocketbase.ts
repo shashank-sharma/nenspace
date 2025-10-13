@@ -1,119 +1,54 @@
 import PocketBase from 'pocketbase';
-import { writable } from 'svelte/store';
-import { browser } from '$app/environment';
+import { ConfigService } from '$lib/services/config.service.svelte';
+import { ApiLoadingService } from '$lib/services/api-loading.service.svelte';
 
-// Constants
-export const POCKETBASE_URL_KEY = 'pocketbase-url';
+// Initialize PocketBase with the URL from our centralized ConfigService.
+// This ensures that if the user changes the URL in the debug panel,
+// the application will use the new URL after a reload.
+export const pb = new PocketBase(ConfigService.pocketbaseUrl.value);
 
-const POCKETBASE_URL = browser ? 
-    (localStorage.getItem(POCKETBASE_URL_KEY) || 'http://127.0.0.1:8090') : 
-    'http://127.0.0.1:8090';
+// Track active API requests for loading indicators
+// Use a simple queue approach - start request in beforeSend, end the oldest in afterSend
+const activeRequestIds: string[] = [];
 
-export const pb = new PocketBase(POCKETBASE_URL);
-export const currentUser = writable(pb.authStore.model);
+// Clear any stuck requests on page load (safe to call in both browser and SSR)
+ApiLoadingService.clearAll();
 
-// Backend connection status
-export const backendStatus = writable<{
-    connected: boolean | null;  // null = unknown, true = connected, false = disconnected
-    checking: boolean;
-    error: string | null;
-    showModal: boolean;
-}>({
-    connected: null,
-    checking: false,
-    error: null,
-    showModal: false
-});
-
-// Function to check backend health
-export async function checkBackendHealth() {
-    let currentStatus: { checking: boolean } = { checking: false };
-    
-    // Get the current value from the store using a subscription
-    const unsubscribe = backendStatus.subscribe(value => {
-        currentStatus = value;
-    });
-    unsubscribe();
-    
-    if (currentStatus.checking) return;
-    
-    backendStatus.update(s => ({ ...s, checking: true, error: null }));
-    
-    try {
-        // Add a random query parameter to prevent caching
-        const timestamp = Date.now();
-        const response = await fetch(`${POCKETBASE_URL}/api/health?_t=${timestamp}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            // Short timeout to prevent hanging
-            signal: AbortSignal.timeout(5000),
-        });
-        
-        if (response.status === 200) {
-            backendStatus.update(s => ({ 
-                ...s, 
-                connected: true,
-                showModal: false 
-            }));
-        } else {
-            const data = await response.json().catch(() => ({}));
-            throw new Error(data.message || `Server returned status ${response.status}`);
-        }
-    } catch (error) {
-        backendStatus.update(s => ({ 
-            ...s, 
-            connected: false,
-            error: error instanceof Error ? error.message : String(error),
-            showModal: true
-        }));
-    } finally {
-        backendStatus.update(s => ({ ...s, checking: false }));
+// Hook into PocketBase requests to track loading state
+pb.beforeSend = function (url, options) {
+    // Skip tracking for health checks and background operations
+    if (url.includes('/api/health') || url.includes('/api/files/token')) {
+        return { url, options };
     }
-}
-
-// Update the backend URL
-export function updateBackendUrl(newUrl: string) {
-    if (browser && newUrl) {
-        console.log('Updating PocketBase URL to:', newUrl);
-        
-        try {
-            // Store the URL in localStorage
-            localStorage.setItem(POCKETBASE_URL_KEY, newUrl);
-            
-            // Update the status to show we're trying to connect
-            backendStatus.update(s => ({
-                ...s,
-                checking: true,
-                showModal: false, // Hide the modal before reload
-                error: null
-            }));
-            
-            // Short delay to ensure the state is updated before reload
-            setTimeout(() => {
-                // Force reload the page to reinitialize PocketBase with new URL
-                window.location.href = window.location.href;
-            }, 100);
-            
-        } catch (error) {
-            console.error('Error updating backend URL:', error);
-            // Show error in modal
-            backendStatus.update(s => ({
-                ...s, 
-                error: 'Failed to update URL: ' + (error instanceof Error ? error.message : String(error)),
-                showModal: true
-            }));
+    
+    const requestId = ApiLoadingService.startRequest(`${options.method || 'GET'} ${url}`);
+    activeRequestIds.push(requestId);
+    
+    // Safety: auto-cleanup after 10 seconds in case afterSend doesn't fire
+    setTimeout(() => {
+        const index = activeRequestIds.indexOf(requestId);
+        if (index !== -1) {
+            console.warn(`[API] Request auto-cleaned after 10s: ${url}`);
+            activeRequestIds.splice(index, 1);
+            ApiLoadingService.endRequest(requestId);
         }
+    }, 10000);
+    
+    return { url, options };
+};
+
+pb.afterSend = function (response, data) {
+    // End the first (oldest) request - FIFO approach
+    if (activeRequestIds.length > 0) {
+        const requestId = activeRequestIds.shift()!;
+        ApiLoadingService.endRequest(requestId);
     }
-}
+    
+    return data;
+};
 
-// Initialize health check on client-side
-if (browser) {
-    // Initial check
-    checkBackendHealth();
-}
+// The `currentUser` store is no longer needed here.
+// The `AuthService` is now the single source of truth for authentication.
 
-pb.authStore.onChange((auth) => {
-    currentUser.set(pb.authStore.model);
-});
+// The `backendStatus` store and `checkBackendHealth` function are no longer needed here.
+// This logic is now handled by the new `HealthService`.

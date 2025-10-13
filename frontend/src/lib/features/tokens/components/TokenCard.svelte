@@ -12,16 +12,22 @@
         CardFooter,
     } from "$lib/components/ui/card";
     import type { Token } from "../types";
+    import { createEventDispatcher } from "svelte";
 
-    export let token: Token;
-    export let onEdit: (token: Token) => void;
-    export let onDelete: (id: string) => void;
-    export let onToggleStatus: (id: string, status: boolean) => void;
+    const dispatch = createEventDispatcher<{
+        edit: Token;
+        delete: string;
+        toggleStatus: { id: string; status: boolean };
+    }>();
+
+    let { token } = $props<{
+        token: Token;
+    }>();
 
     function handleCardClick(e: MouseEvent) {
         const target = e.target as HTMLElement;
         if (!target.closest(".action-button")) {
-            onEdit(token);
+            dispatch("edit", token);
         }
     }
 
@@ -32,7 +38,7 @@
 
 <Card
     class="cursor-pointer hover:shadow-md transition-shadow"
-    on:click={handleCardClick}
+    onclick={handleCardClick}
 >
     <CardHeader>
         <CardTitle class="flex items-center justify-between">
@@ -71,7 +77,10 @@
             <Switch
                 checked={token.is_active}
                 onCheckedChange={() =>
-                    onToggleStatus(token.id, token.is_active)}
+                    dispatch("toggleStatus", {
+                        id: token.id,
+                        status: token.is_active,
+                    })}
             />
             <span class="text-sm">
                 {token.is_active ? "Active" : "Disabled"}
@@ -81,7 +90,7 @@
             variant="destructive"
             size="icon"
             class="action-button"
-            on:click={() => onDelete(token.id)}
+            onclick={() => dispatch("delete", token.id)}
         >
             <Trash2 class="w-4 h-4" />
         </Button>

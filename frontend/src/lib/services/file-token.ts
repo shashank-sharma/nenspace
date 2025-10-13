@@ -1,70 +1,53 @@
-import { writable, get } from 'svelte/store';
 import { pb } from '$lib/config/pocketbase';
 
-export interface FileToken {
-    token: string;
-    expiresAt: number;
+interface FileToken {
+	token: string;
+	expiresAt: number;
 }
 
-// Create a writable store for the file token
-export const fileTokenStore = writable<FileToken | null>(null);
-
-// For tracking token requests
-let tokenRequestInProgress = false;
+let fileToken: FileToken | null = null;
 let tokenPromise: Promise<string> | null = null;
 
-/**
- * Get a valid file token for accessing protected files
- * - Checks for an existing valid token in the store
- * - If no valid token exists, fetches a new one
- * - Handles concurrent requests by returning the same promise
- */
-export async function getFileToken(): Promise<string> {
-    const now = Date.now();
+async function getFileToken(): Promise<string> {
+	const now = Date.now();
+	if (fileToken && fileToken.expiresAt > now) {
+		return fileToken.token;
+	}
 
-    const currentToken = get(fileTokenStore);
+	if (tokenPromise) {
+		return tokenPromise;
+	}
 
-    if (currentToken && currentToken.expiresAt > now) {
-        return currentToken.token;
-    }
+	tokenPromise = new Promise<string>(async (resolve, reject) => {
+		try {
+			const token = await pb.files.getToken();
+			fileToken = {
+				token,
+				expiresAt: now + 110 * 1000 // 110 seconds
+			};
+			resolve(token);
+		} catch (error) {
+			console.error('Error fetching file token:', error);
+			reject(error);
+		} finally {
+			tokenPromise = null;
+		}
+	});
 
-    if (tokenRequestInProgress && tokenPromise) {
-        return tokenPromise;
-    }
-
-    tokenRequestInProgress = true;
-    tokenPromise = new Promise<string>(async (resolve, reject) => {
-        try {
-            const token = await pb.files.getToken();
-            const tokenData: FileToken = {
-                token,
-                expiresAt: now + 110 * 1000, // 110 seconds (slightly less than the default 2 min)
-            };
-            fileTokenStore.set(tokenData);
-
-            tokenRequestInProgress = false;
-            resolve(token);
-        } catch (error) {
-            tokenRequestInProgress = false;
-            console.error("Error fetching file token:", error);
-            reject("");
-        }
-    });
-
-    return tokenPromise;
+	return tokenPromise;
 }
 
-/**
- * Get the URL for a file with authentication token
- * @param fileUrl The base file URL
- * @returns Full URL with authentication token
- */
-export async function getAuthenticatedFileUrl(fileUrl: string): Promise<string> {
-    try {
-        const token = await getFileToken();
-        const separator = fileUrl.includes('?') ? '&' : '?';
-        return `${fileUrl}${separator}token=${token}`;
-    } catch {
-        return fileUrl;
-    }
-} 
+async function getAuthenticatedFileUrl(fileUrl: string): Promise<string> {
+	if (!fileUrl) return '';
+	try {
+		const token = await getFileToken();
+		const separator = fileUrl.includes('?') ? '&' : '?';
+		return `${fileUrl}${separator}token=${token}`;
+	} catch {
+		return fileUrl;
+	}
+}
+
+export const FileService = {
+	getAuthenticatedFileUrl
+}; 

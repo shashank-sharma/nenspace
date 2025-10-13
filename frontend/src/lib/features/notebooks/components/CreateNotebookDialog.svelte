@@ -1,15 +1,17 @@
 <script lang="ts">
-    import { notebooksStore } from "../stores/notebooks.store";
+    import { notebooksService } from "../services/notebooks.service";
     import * as Dialog from "$lib/components/ui/dialog";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Label } from "$lib/components/ui/label";
     import { toast } from "svelte-sonner";
+    import { createEventDispatcher } from "svelte";
 
-    export let open = false;
+    let { open = $bindable() } = $props<{ open?: boolean }>();
+    const dispatch = createEventDispatcher();
 
-    let name = "";
-    let loading = false;
+    let name = $state("");
+    let loading = $state(false);
 
     async function handleSubmit() {
         if (!name.trim()) {
@@ -19,14 +21,14 @@
 
         loading = true;
         try {
-            await notebooksStore.createNotebook({
+            await notebooksService.createNotebook({
                 name,
                 version: "1.0",
                 cells: [],
             });
             toast.success("Notebook created successfully");
-            open = false;
-            name = "";
+            dispatch("create");
+            handleClose();
         } catch (error) {
             toast.error("Failed to create notebook");
         } finally {
@@ -40,16 +42,12 @@
     }
 </script>
 
-<Dialog.Root bind:open on:close={handleClose}>
+<Dialog.Root bind:open>
     <Dialog.Content class="sm:max-w-[425px]">
         <Dialog.Header>
             <Dialog.Title>Create New Notebook</Dialog.Title>
-            <Dialog.Description>
-                Create a new notebook to start organizing your code and notes.
-            </Dialog.Description>
         </Dialog.Header>
-
-        <form on:submit|preventDefault={handleSubmit} class="space-y-4">
+        <form onsubmit={handleSubmit} class="space-y-4">
             <div class="space-y-2">
                 <Label for="name">Name</Label>
                 <Input
@@ -58,9 +56,8 @@
                     placeholder="Enter notebook name"
                 />
             </div>
-
             <Dialog.Footer>
-                <Button variant="outline" type="button" on:click={handleClose}>
+                <Button variant="outline" type="button" onclick={handleClose}>
                     Cancel
                 </Button>
                 <Button type="submit" disabled={loading}>

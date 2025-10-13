@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "nenspace",
         "width": 1200,
         "height": 800,
@@ -22,7 +23,8 @@
         "center": true,
         "decorations": true,
         "alwaysOnTop": false,
-        "skipTaskbar": false
+        "skipTaskbar": false,
+        "visible": true
       }
     ],
     "security": {

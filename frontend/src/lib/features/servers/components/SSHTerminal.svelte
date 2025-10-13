@@ -7,28 +7,79 @@
     import { pb } from "$lib/config/pocketbase";
     import { toast } from "svelte-sonner";
     import type { Server } from "../types";
+    import { Terminal } from "xterm";
+    import { FitAddon } from "xterm-addon-fit";
+    import { WebLinksAddon } from "xterm-addon-web-links";
+    import { AttachAddon } from "xterm-addon-attach";
 
-    export let open = false;
-    export let server: Server | null = null;
-    export let onClose: () => void;
+    let {
+        open = $bindable(),
+        server = null,
+        onClose,
+    } = $props<{
+        open?: boolean;
+        server: Server | null;
+        onClose: () => void;
+    }>();
 
-    let terminalOutput: string[] = [];
-    let command = "";
-    let isConnecting = false;
-    let isConnected = false;
-    let isExecuting = false;
     let terminalRef: HTMLDivElement;
+    let isConnected = $state(false);
+    let isConnecting = $state(false);
+    let isExecuting = $state(false);
+    let command = $state("");
+    let terminalOutput = $state("");
+    let term: Terminal;
+    let fitAddon: FitAddon;
     let connectionId: string | null = null;
+
+    $effect(() => {
+        if (terminalRef && open) {
+            initializeTerminal();
+            window.addEventListener("resize", handleResize);
+        }
+        return () => {
+            window.removeEventListener("resize", handleResize);
+        };
+    });
+
+    function initializeTerminal() {
+        term = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: "monospace",
+            theme: {
+                background: "#000000",
+                foreground: "#00ff00",
+                cursor: "#00ff00",
+            },
+        });
+
+        fitAddon = new FitAddon();
+        term.loadAddon(fitAddon);
+        term.loadAddon(new WebLinksAddon());
+
+        term.open(terminalRef);
+        fitAddon.fit();
+
+        term.onData((data) => {
+            if (isConnected) {
+                // This part will be handled by the AttachAddon
+            }
+        });
+
+        term.focus();
+    }
+
+    function handleResize() {
+        if (fitAddon) {
+            fitAddon.fit();
+        }
+    }
 
     async function connectToServer() {
         if (!server) return;
-
         isConnecting = true;
-        terminalOutput = [];
-        addToTerminal(
-            `Connecting to ${server.ip}:${server.port} as ${server.username}...`,
-        );
-
+        terminalOutput = `Connecting to ${server.ip}:${server.port} as ${server.username}...\n`;
         try {
             const response = await pb.send("/api/servers/connect", {
                 method: "POST",
@@ -36,24 +87,30 @@
                     server_id: server.id,
                 }),
             });
-
-            if (response && response.connection_id) {
-                connectionId = response.connection_id;
+            console.log("Connection response:", response);
+            if (response.id) {
+                connectionId = response.id;
                 isConnected = true;
-                addToTerminal("Connected successfully.");
-                addToTerminal(`Welcome to ${server.name} (${server.ip})`);
-                addToTerminal("Type 'exit' to close the connection.");
+                isConnecting = false;
+                toast.success(`Connected to ${server.name}`);
+
+                const socket = new WebSocket(
+                    `ws://localhost:8090/api/servers/connect?connection_id=${connectionId}`,
+                );
+                const attachAddon = new AttachAddon(socket);
+                term.loadAddon(attachAddon);
             } else {
-                throw new Error("Failed to establish connection");
+                throw new Error(
+                    response.error || "Failed to get connection ID",
+                );
             }
         } catch (error: any) {
-            console.error("SSH connection error:", error);
-            addToTerminal(
-                "Connection failed: " + (error.message || "Unknown error"),
-            );
-            toast.error("Failed to connect to server");
-        } finally {
+            console.error("Connection error:", error);
+            terminalOutput += `Connection failed: ${error.message || "Unknown error"}\n`;
             isConnecting = false;
+            toast.error(
+                `Connection failed: ${error.message || "Unknown error"}`,
+            );
         }
     }
 
@@ -76,44 +133,19 @@
 
         try {
             // Send the command to the SSH server via API
-            const response = await pb.send("/api/servers/execute", {
+            await pb.send("/api/servers/execute", {
                 method: "POST",
                 body: JSON.stringify({
                     connection_id: connectionId,
                     command: cmd,
                 }),
             });
-
-            if (response && response.output) {
-                if (response.output.trim()) {
-                    // Split multi-line output
-                    const lines = response.output.split("\n");
-                    for (const line of lines) {
-                        addToTerminal(line);
-                    }
-                } else {
-                    addToTerminal("Command executed with no output.");
-                }
-            } else {
-                addToTerminal("No response from server.");
-            }
+            command = ""; // Clear command input after sending
         } catch (error: any) {
-            console.error("Command execution error:", error);
-            addToTerminal(
-                "Command execution failed: " +
-                    (error.message || "Unknown error"),
+            console.error("Execution error:", error);
+            toast.error(
+                `Execution failed: ${error.message || "Unknown error"}`,
             );
-
-            // If the connection was lost, attempt to reconnect
-            if (
-                error.status === 404 &&
-                error.message.includes("connection not found")
-            ) {
-                isConnected = false;
-                connectionId = null;
-                addToTerminal("Connection lost. Attempting to reconnect...");
-                await connectToServer();
-            }
         } finally {
             isExecuting = false;
         }
@@ -145,10 +177,8 @@
     /**
      * Add text to the terminal output
      */
-    function addToTerminal(text: string) {
-        // Split multi-line output
-        const lines = text.split("\n");
-        terminalOutput = [...terminalOutput, ...lines];
+    function addToTerminal(data: string) {
+        terminalOutput += data + "\n";
 
         // Scroll to bottom
         setTimeout(() => {
@@ -169,9 +199,11 @@
     }
 
     // Connect to server when dialog opens
-    $: if (open && server) {
-        connectToServer();
-    }
+    $effect(() => {
+        if (open && server) {
+            connectToServer();
+        }
+    });
 
     // Clean up when component is destroyed
     onDestroy(() => {
@@ -212,7 +244,7 @@
             class="flex-1 min-h-[300px] max-h-[60vh] overflow-y-auto bg-black text-green-500 p-4 font-mono text-sm rounded-md mb-4"
             bind:this={terminalRef}
         >
-            {#each terminalOutput as line}
+            {#each terminalOutput.split("\n") as line}
                 <div class="whitespace-pre-wrap break-all">{line}</div>
             {/each}
             {#if isExecuting}

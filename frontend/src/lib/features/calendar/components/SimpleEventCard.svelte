@@ -3,12 +3,18 @@
     import { Clock, MapPin } from "lucide-svelte";
     import { getEventTimeColor, getEventTextColor } from "../utils/color";
 
-    export let event: CalendarEvent;
-    export let compact: boolean = false;
-    export let maxWidth: string = "auto";
+    let {
+        event,
+        compact = false,
+        maxWidth = "auto",
+    } = $props<{
+        event: CalendarEvent;
+        compact?: boolean;
+        maxWidth?: string;
+    }>();
 
-    $: eventColor = getEventTimeColor(event);
-    $: textColor = getEventTextColor(event);
+    const eventColor = $derived(getEventTimeColor(event));
+    const textColor = $derived(getEventTextColor(event));
 
     function formatTime(date: Date | string): string {
         const d = typeof date === "string" ? new Date(date) : date;
@@ -65,14 +71,12 @@
         }
     }
 
-    $: startDate = new Date(event.start);
-    $: endDate = new Date(event.end);
-    $: timeDisplay = getEventTimeDisplay(
-        event.start,
-        event.end,
-        event.is_day_event,
+    const startDate = $derived(new Date(event.start));
+    const endDate = $derived(new Date(event.end));
+    const timeDisplay = $derived(
+        getEventTimeDisplay(event.start, event.end, event.is_day_event),
     );
-    $: duration = formatDuration(startDate, endDate);
+    const duration = $derived(formatDuration(startDate, endDate));
 </script>
 
 {#if compact}

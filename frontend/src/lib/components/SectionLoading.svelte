@@ -2,8 +2,10 @@
     import Loading from "./Loading.svelte";
     import { fade } from "svelte/transition";
 
-    export let message = "";
-    export let backdropBlur = true;
+    let { message = "", backdropBlur = true } = $props<{
+        message?: string;
+        backdropBlur?: boolean;
+    }>();
 </script>
 
 <div

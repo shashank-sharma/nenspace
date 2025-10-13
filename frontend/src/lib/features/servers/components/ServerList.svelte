@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { onMount } from "svelte";
     import { pb } from "$lib/config/pocketbase";
     import { toast } from "svelte-sonner";
     import { Plus, RefreshCcw } from "lucide-svelte";
@@ -10,13 +9,13 @@
     import * as AlertDialog from "$lib/components/ui/alert-dialog";
     import type { Server } from "../types";
 
-    let servers: Server[] = [];
-    let loading = true;
-    let showDialog = false;
-    let showDeleteDialog = false;
-    let showSSHTerminal = false;
-    let selectedServer: Server | null = null;
-    let serverToDelete: string | null = null;
+    let servers = $state<Server[]>([]);
+    let loading = $state(true);
+    let showDialog = $state(false);
+    let showDeleteDialog = $state(false);
+    let showSSHTerminal = $state(false);
+    let selectedServer = $state<Server | null>(null);
+    let serverToDelete = $state<string | null>(null);
 
     async function loadServers() {
         loading = true;
@@ -33,6 +32,10 @@
             loading = false;
         }
     }
+
+    $effect(() => {
+        loadServers();
+    });
 
     async function handleServerSubmit(data: any) {
         try {
@@ -114,8 +117,6 @@
             toast.error("Failed to update server status");
         }
     }
-
-    onMount(loadServers);
 </script>
 
 <div class="container mx-auto p-4">

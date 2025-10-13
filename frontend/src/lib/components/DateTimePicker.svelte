@@ -8,24 +8,27 @@
     import { CalendarDays } from "lucide-svelte";
     import { createEventDispatcher, onMount } from "svelte";
     import type { DateValue } from "@internationalized/date";
-    import {
-        getLocalTimeZone,
-        today,
-        parseDate,
-        CalendarDate,
-    } from "@internationalized/date";
+    import { getLocalTimeZone, today } from "@internationalized/date";
 
-    export let value: DateValue | undefined = undefined;
-    export let placeholder = "Pick date and time";
+    let { value = $bindable(), placeholder = "Pick date and time" } = $props<{
+        value?: DateValue;
+        placeholder?: string;
+    }>();
+
+    $effect(() => {
+        if (value) {
+            console.log("Date time picker value changed", value);
+        }
+    });
 
     // Keep a JavaScript Date version for handling time
-    let jsDate: Date | undefined = undefined;
+    let jsDate = $state<Date | undefined>(undefined);
 
     const dispatch = createEventDispatcher<{
         change: Date;
     }>();
 
-    let isOpen = false;
+    let isOpen = $state(false);
 
     // Initialize with the current date and time if no value provided
     onMount(() => {
@@ -41,16 +44,32 @@
         }
     });
 
-    // This reactive statement ensures jsDate updates when value changes
-    // either through bind:value or explicit setting
-    $: if (value) {
-        updateJsDateFromValue();
+    // Ensure jsDate updates when value changes and emit a single change
+    let prevDateKey = $state<string | null>(null);
+    function dateKey(v: DateValue | undefined): string | null {
+        if (!v) return null;
+        // CalendarDate has year/month/day
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const anyVal: any = v;
+        if ("year" in anyVal && "month" in anyVal && "day" in anyVal) {
+            return `${anyVal.year}-${String(anyVal.month).padStart(2, "0")}-${String(anyVal.day).padStart(2, "0")}`;
+        }
+        return null;
     }
 
-    // Make sure the UI updates when jsDate changes
-    $: formattedDateTime = formatDateTime(jsDate);
+    $effect(() => {
+        const key = dateKey(value);
+        if (key && key !== prevDateKey) {
+            prevDateKey = key;
+            updateJsDateFromValue();
+            dispatchChangeEvent();
+        }
+    });
 
-    // Update jsDate when value changes
+    // Make sure the UI updates when jsDate changes
+    const formattedDateTime = $derived(formatDateTime(jsDate));
+
+    // Update jsDate when value changes (no event dispatch here)
     function updateJsDateFromValue() {
         if (!value) return;
 
@@ -72,9 +91,6 @@
                 now.getMinutes(),
             );
         }
-
-        // Dispatch the change event when value is updated
-        dispatchChangeEvent();
     }
 
     // Extract date parts from a CalendarDate

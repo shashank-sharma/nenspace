@@ -1,54 +1,80 @@
 <script lang="ts">
-    import { onMount, setContext } from "svelte";
+    import type { Snippet } from "svelte";
+    import { onMount } from "svelte";
     import { navigating } from "$app/stores";
-    import { Toaster } from "$lib/components/ui/sonner";
     import { fade } from "svelte/transition";
     import Loading from "$lib/components/Loading.svelte";
-    import { theme } from "$lib/stores/theme.store";
+    import { ThemeService } from "$lib/services/theme.service.svelte";
     import "../app.css";
-    import ThemeInitializer from "$lib/components/ThemeInitializer.svelte";
-    import { initPwa } from "$lib/features/pwa/services";
+    import { browser } from "$app/environment";
+    import { usePlatform } from "$lib/hooks/usePlatform.svelte";
+    import LimitedFunctionalityBanner from "$lib/components/platform/LimitedFunctionalityBanner.svelte";
+
+    // PWA-only imports (dynamically loaded - excluded from Tauri builds)
+    // These are imported at runtime ONLY in PWA/Web mode
     import { Button } from "$lib/components/ui/button";
     import { RefreshCw } from "lucide-svelte";
-    import { browser } from "$app/environment";
-    import UpdateDetector from "$lib/features/pwa/components/UpdateDetector.svelte";
-    import OfflineIndicator from "$lib/features/pwa/components/OfflineIndicator.svelte";
-    import { toast } from "svelte-sonner";
-    import BottomRightControls from "$lib/components/BottomRightControls.svelte";
-    import ShortcutsHelpPanel from "$lib/components/ShortcutsHelpPanel.svelte";
-    import DebugLauncher from "$lib/components/debug/DebugLauncher.svelte";
-    let isLoading = true;
-    let isDebugMode = false;
-    let showShortcuts = false;
 
-    setContext("theme", {
-        current: theme,
-    });
+    // NOTE: RealtimeService and Sync Adapters moved to dashboard/+layout.svelte
+    // They only load when authenticated and viewing dashboard, not on homepage/auth pages
 
-    // PWA initialization
-    let pwaInitFinished = false;
-    let pwaUpdateAvailable = false;
+    let { children } = $props<{ children: Snippet }>();
+    let isLoading = $state(true);
+    let showShortcuts = $state(false);
 
-    onMount(async () => {
+    // Platform detection
+    const platform = usePlatform();
+
+    // PWA-specific state (only used in PWA/Web, not Tauri)
+    let pwaInitFinished = $state(false);
+    let pwaUpdateAvailable = $state(false);
+
+    // Dynamically loaded PWA components (null until loaded)
+    let UpdateDetector: any = $state(null);
+    let OfflineIndicator: any = $state(null);
+
+    // One-time initialization on mount
+    onMount(() => {
         if (browser) {
-            // Initialize PWA service
-            console.log("PWA Debug Mode:", isDebugMode);
+            // Log platform info for debugging
+            console.log(`[App] Platform: ${platform.summary}`);
+            console.log(
+                `[App] Tauri: ${platform.isTauri}, PWA: ${platform.isPWA}, Mobile: ${platform.isMobile}`,
+            );
 
-            try {
-                await initPwa();
-                console.log("Service Worker registered");
-                pwaInitFinished = true;
-            } catch (err) {
-                console.error("Failed to initialize PWA:", err);
+            // PWA initialization (ONLY in PWA/Web, NOT in Tauri)
+            // Dynamic imports ensure PWA code is completely excluded from Tauri builds
+            if (!platform.isTauri) {
+                // Dynamically import PWA modules (tree-shaken out of Tauri builds)
+                Promise.all([
+                    import("$lib/features/pwa/services/pwa.service.svelte"),
+                    import(
+                        "$lib/features/pwa/components/UpdateDetector.svelte"
+                    ),
+                    import(
+                        "$lib/features/pwa/components/OfflineIndicator.svelte"
+                    ),
+                ])
+                    .then(
+                        ([pwaModule, updateDetectorModule, offlineModule]) => {
+                            // PwaService auto-initializes on import
+                            UpdateDetector = updateDetectorModule.default;
+                            OfflineIndicator = offlineModule.default;
+                            pwaInitFinished = true;
+                        },
+                    )
+                    .catch((err) => {
+                        console.error("[App] Failed to load PWA modules:", err);
+                    });
             }
 
-            // Data will be initialized only when needed in specific routes
-        }
+            // NOTE: RealtimeService initialization moved to dashboard/+layout.svelte
+            // It only initializes when user is authenticated and viewing dashboard
 
-        // Page fully loaded
-        setTimeout(() => {
-            isLoading = false;
-        }, 300);
+            setTimeout(() => {
+                isLoading = false;
+            }, 300);
+        }
     });
 
     function handlePwaUpdateAvailable() {
@@ -70,27 +96,30 @@
     }
 </script>
 
-<ThemeInitializer />
+<!-- PWA-ONLY Components (dynamically loaded - zero bundle impact on Tauri) -->
+{#if !platform.isTauri && pwaInitFinished}
+    {#if UpdateDetector}
+        <UpdateDetector on:update-available={handlePwaUpdateAvailable} />
+    {/if}
 
-{#if browser && pwaInitFinished}
-    <UpdateDetector on:update-available={handlePwaUpdateAvailable} />
-{/if}
+    <!-- Offline indicator (bottom banner) -->
+    {#if OfflineIndicator}
+        <OfflineIndicator />
+    {/if}
 
-<!-- Offline indicator -->
-<OfflineIndicator />
-
-<!-- PWA update notification -->
-{#if pwaUpdateAvailable}
-    <div
-        transition:fade={{ duration: 200 }}
-        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-full bg-card border rounded-lg shadow-lg p-4 flex items-center justify-between"
-    >
-        <span>A new version is available!</span>
-        <Button variant="outline" size="sm" on:click={reload}>
-            <RefreshCw class="mr-2 h-4 w-4" />
-            Update Now
-        </Button>
-    </div>
+    <!-- PWA update notification -->
+    {#if pwaUpdateAvailable}
+        <div
+            transition:fade={{ duration: 200 }}
+            class="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-full bg-card border rounded-lg shadow-lg p-4 flex items-center justify-between"
+        >
+            <span>A new version is available!</span>
+            <Button variant="outline" size="sm" on:click={reload}>
+                <RefreshCw class="mr-2 h-4 w-4" />
+                Update Now
+            </Button>
+        </div>
+    {/if}
 {/if}
 
 {#if $navigating}
@@ -110,17 +139,11 @@
     </div>
 {/if}
 
-<Toaster />
-
-<!-- Bottom right controls -->
-<BottomRightControls on:show-shortcuts={handleShowShortcuts} />
-<div class="fixed bottom-4 right-4 z-50">
-    <DebugLauncher />
-</div>
-<ShortcutsHelpPanel visible={showShortcuts} on:close={handleCloseShortcuts} />
+<!-- Platform-aware Limited Functionality Banner (all platforms) -->
+<LimitedFunctionalityBanner />
 
 <main class="">
-    <slot />
+    {@render children()}
 </main>
 
 <style>
@@ -134,11 +157,6 @@
         margin: 0;
         padding: 0;
         font-family: Gilroy, serif;
-    }
-    .app-container {
-        min-height: 100vh;
-        background-color: hsl(var(--background));
-        color: hsl(var(--foreground));
     }
 
     :global(body) {

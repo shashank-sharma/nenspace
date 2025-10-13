@@ -2,14 +2,23 @@
     import { fade } from "svelte/transition";
     import { cn } from "$lib/utils";
 
-    export let fullScreen = true;
-    export let size: "sm" | "md" | "lg" = "md";
-    export let message = "Loading...";
-    export let delayIn = 200;
-    export let durationIn = 150;
-    export let durationOut = 150;
+    let {
+        fullScreen = true,
+        size = "md",
+        message = "Loading...",
+        delayIn = 200,
+        durationIn = 150,
+        durationOut = 150,
+    } = $props<{
+        fullScreen?: boolean;
+        size?: "sm" | "md" | "lg";
+        message?: string;
+        delayIn?: number;
+        durationIn?: number;
+        durationOut?: number;
+    }>();
 
-    const sizes = {
+    const sizes: { [key: string]: string } = {
         sm: "h-4 w-4",
         md: "h-8 w-8",
         lg: "h-12 w-12",

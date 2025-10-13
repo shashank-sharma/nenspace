@@ -9,12 +9,16 @@
     import SimpleEventCard from "./SimpleEventCard.svelte";
     import { createEventDispatcher } from "svelte";
 
-    export let events: CalendarEvent[] = [];
-    export let selectedDate: Date;
-    export let onDateSelect: (date: Date) => void;
-    export let onEventClick: (event: CalendarEvent, e?: MouseEvent) => void;
+    let { events = [], selectedDate } = $props<{
+        events?: CalendarEvent[];
+        selectedDate: Date;
+    }>();
 
-    const dispatch = createEventDispatcher();
+    const dispatch = createEventDispatcher<{
+        selectDate: Date;
+        eventClick: { event: CalendarEvent; e?: MouseEvent };
+        changeView: "day";
+    }>();
 
     const DAYS_OF_WEEK = [
         "Sunday",
@@ -27,10 +31,10 @@
     ];
     const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-    $: weekDays = getWeekDays(selectedDate);
+    let weekDays = $derived(getWeekDays(selectedDate));
 
     function getEventsForDate(date: Date): CalendarEvent[] {
-        return events.filter((event) => {
+        return events.filter((event: CalendarEvent) => {
             const eventStartDate = new Date(event.start);
             return isSameDay(eventStartDate, date);
         });
@@ -52,7 +56,7 @@
     }
 
     function handleDblClick(day: Date) {
-        onDateSelect(day);
+        dispatch("selectDate", day);
         dispatch("changeView", "day");
     }
 
@@ -60,18 +64,18 @@
         const newDate = new Date(selectedDate);
         const daysToAdd = direction === "prev" ? -7 : 7;
         newDate.setDate(newDate.getDate() + daysToAdd);
-        onDateSelect(newDate);
+        dispatch("selectDate", newDate);
     }
 
     function handleKeydown(event: KeyboardEvent) {
         if (event.key === "ArrowLeft") {
             const prevDay = new Date(selectedDate);
             prevDay.setDate(prevDay.getDate() - 1);
-            onDateSelect(prevDay);
+            dispatch("selectDate", prevDay);
         } else if (event.key === "ArrowRight") {
             const nextDay = new Date(selectedDate);
             nextDay.setDate(nextDay.getDate() + 1);
-            onDateSelect(nextDay);
+            dispatch("selectDate", nextDay);
         }
     }
 </script>
@@ -87,7 +91,8 @@
         <div class="flex gap-2">
             <button
                 class="p-2 rounded-full hover:bg-muted transition-colors"
-                on:click={() => navigateWeek("prev")}
+                onclick={() => navigateWeek("prev")}
+                aria-label="Previous week"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -106,8 +111,8 @@
 
             <button
                 class="p-2 rounded-full hover:bg-muted transition-colors"
-                on:click={() => {
-                    onDateSelect(new Date());
+                onclick={() => {
+                    dispatch("selectDate", new Date());
                 }}
             >
                 Today
@@ -115,7 +120,8 @@
 
             <button
                 class="p-2 rounded-full hover:bg-muted transition-colors"
-                on:click={() => navigateWeek("next")}
+                onclick={() => navigateWeek("next")}
+                aria-label="Next week"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -140,14 +146,14 @@
         <div class="grid grid-cols-7 gap-x-[1px]">
             {#each weekDays as day, index}
                 {@const isSelectedDay = isSameDay(day, selectedDate)}
-                <div
+                <button
                     class="text-center py-2 px-1 cursor-pointer rounded-t-md transition-colors hover:bg-muted/30
                         {isSelectedDay ? 'bg-primary/10' : ''}
                         {isToday(day)
                         ? 'border-b-2 border-primary'
                         : 'border-b border-muted/50'}"
-                    on:click={() => onDateSelect(day)}
-                    on:dblclick={() => handleDblClick(day)}
+                    onclick={() => dispatch("selectDate", day)}
+                    ondblclick={() => handleDblClick(day)}
                 >
                     <div class="font-medium text-xs md:text-sm">
                         {DAYS_OF_WEEK[day.getDay()].substring(0, 3)}
@@ -163,7 +169,7 @@
                     >
                         {day.getDate()}
                     </div>
-                </div>
+                </button>
             {/each}
         </div>
 
@@ -185,17 +191,17 @@
                     {#if allDayEvents.length > 0}
                         <div class="space-y-1">
                             {#each allDayEvents as event (event.id)}
-                                <div
-                                    class="cursor-pointer"
-                                    on:click|stopPropagation={(e) =>
-                                        onEventClick(event, e)}
+                                <button
+                                    class="cursor-pointer w-full"
+                                    onclick={(e) =>
+                                        dispatch("eventClick", { event, e })}
                                 >
                                     <SimpleEventCard
                                         {event}
                                         compact={true}
                                         maxWidth="100%"
                                     />
-                                </div>
+                                </button>
                             {/each}
                         </div>
                     {/if}
@@ -226,17 +232,20 @@
                         {#if hourEvents.length > 0}
                             <div class="space-y-1 z-10 relative">
                                 {#each hourEvents as event (event.id)}
-                                    <div
-                                        class="cursor-pointer"
-                                        on:click|stopPropagation={(e) =>
-                                            onEventClick(event, e)}
+                                    <button
+                                        class="cursor-pointer w-full"
+                                        onclick={(e) =>
+                                            dispatch("eventClick", {
+                                                event,
+                                                e,
+                                            })}
                                     >
                                         <SimpleEventCard
                                             {event}
                                             compact={true}
                                             maxWidth="100%"
                                         />
-                                    </div>
+                                    </button>
                                 {/each}
                             </div>
                         {/if}

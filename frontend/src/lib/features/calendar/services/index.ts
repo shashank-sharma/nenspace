@@ -1,14 +1,6 @@
-import { browser } from '$app/environment';
-import { ensureCalendarData } from '../utils/event.utils';
-export { CalendarService } from './calendar.service';
-
 /**
- * Initialize calendar data by ensuring it's loaded.
- * This function handles the calendar data pre-loading and can be called from layout.
+ * Calendar Services Barrel Export
  */
-export function initCalendar(): void {
-  if (browser) {
-    // Initialize calendar data
-    ensureCalendarData();
-  }
-} 
+
+export { CalendarService } from './calendar.service';
+export { calendarStore } from '../stores/calendar.store.svelte';

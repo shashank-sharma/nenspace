@@ -1,16 +1,13 @@
 <script lang="ts">
-    import { getContext } from "svelte";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Search, Bell, Settings, Sun, Moon } from "lucide-svelte";
     import CommandPalette from "$lib/components/CommandPalette.svelte";
-    import type { Writable } from "svelte/store";
     import NotificationCenter from "$lib/features/notifications/components/NotificationCenter.svelte";
+    import GlobalSyncIndicator from "$lib/components/GlobalSyncIndicator.svelte";
+    import { ThemeService } from "$lib/services/theme.service.svelte";
 
-    const { theme, toggleTheme } = getContext<{
-        theme: Writable<"light" | "dark">;
-        toggleTheme: () => void;
-    }>("theme");
+    // Access theme via ThemeService
 
     // let showCommandPalette = true;
 </script>
@@ -42,6 +39,7 @@
                 <span class="sr-only">Toggle theme</span>
             </Button> -->
 
+            <GlobalSyncIndicator />
             <NotificationCenter />
         </div>
     </div>

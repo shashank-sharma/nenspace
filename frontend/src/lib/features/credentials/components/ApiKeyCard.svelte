@@ -1,121 +1,90 @@
 <script lang="ts">
-    import { fade } from "svelte/transition";
-    import { Edit, Trash2, Eye, EyeOff, Power } from "lucide-svelte";
-    import { Button } from "$lib/components/ui/button";
-    import * as Card from "$lib/components/ui/card";
-    import { Badge } from "$lib/components/ui/badge";
     import type { ApiKey } from "../types";
-    import { formatDistanceToNow } from "date-fns";
+    import * as Card from "$lib/components/ui/card";
+    import { Button } from "$lib/components/ui/button";
+    import { Switch } from "$lib/components/ui/switch";
+    import { Badge } from "$lib/components/ui/badge";
+    import { Eye, EyeOff, Edit, Trash2 } from "lucide-svelte";
 
-    export let apiKey: ApiKey;
-    export let onEdit: (apiKey: ApiKey) => void;
-    export let onDelete: (id: string) => void;
-    export let onToggleStatus: (id: string, isActive: boolean) => void;
-
-    let showKey = false;
-    let showSecret = false;
-
-    function formatDate(dateString: string) {
-        return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+    interface Props {
+        apiKey: ApiKey;
+        onedit?: () => void;
+        ondelete?: () => void;
+        ontoggleStatus?: () => void;
     }
+
+    let { apiKey, onedit, ondelete, ontoggleStatus } = $props<Props>();
+
+    let showSecret = $state(false);
 </script>
 
-<div transition:fade={{ duration: 200 }}>
-    <Card.Root class="h-full">
-        <Card.Header>
-            <div class="flex items-center justify-between">
-                <Card.Title>{apiKey.service}</Card.Title>
-                <Badge
-                    variant={apiKey.is_active ? "default" : "destructive"}
-                    class="ml-2"
-                >
-                    {apiKey.is_active ? "Active" : "Inactive"}
-                </Badge>
+<Card.Root>
+    <Card.Header>
+        <div class="flex justify-between items-start">
+            <div>
+                <Card.Title>{apiKey.name}</Card.Title>
+                <Card.Description>{apiKey.description}</Card.Description>
             </div>
-        </Card.Header>
-        <Card.Content>
-            <div class="space-y-2">
-                <div>
-                    <p class="text-sm font-medium">API Key</p>
-                    <div class="flex items-center mt-1">
-                        <p class="text-sm font-mono truncate flex-1">
-                            {showKey ? apiKey.key : "••••••••••••••••"}
-                        </p>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            on:click={() => (showKey = !showKey)}
-                        >
-                            <svelte:component
-                                this={showKey ? EyeOff : Eye}
-                                class="h-4 w-4"
-                            />
-                        </Button>
-                    </div>
-                </div>
-                {#if apiKey.secret}
-                    <div>
-                        <p class="text-sm font-medium">Secret</p>
-                        <div class="flex items-center mt-1">
-                            <p class="text-sm font-mono truncate flex-1">
-                                {showSecret
-                                    ? apiKey.secret
-                                    : "••••••••••••••••"}
-                            </p>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                on:click={() => (showSecret = !showSecret)}
-                            >
-                                <svelte:component
-                                    this={showSecret ? EyeOff : Eye}
-                                    class="h-4 w-4"
-                                />
-                            </Button>
-                        </div>
-                    </div>
-                {/if}
-                <div>
-                    <p class="text-sm font-medium">Created</p>
-                    <p class="text-sm text-muted-foreground">
-                        {formatDate(apiKey.created)}
+            <Badge variant={apiKey.is_active ? "default" : "destructive"}>
+                {apiKey.is_active ? "Active" : "Inactive"}
+            </Badge>
+        </div>
+    </Card.Header>
+    <Card.Content>
+        <div class="space-y-2">
+            <div>
+                <h4 class="text-sm font-semibold">Secret</h4>
+                <div class="flex items-center space-x-2">
+                    <p class="text-muted-foreground font-mono text-xs">
+                        {showSecret ? apiKey.secret : "••••••••••••••••••••"}
                     </p>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onclick={() => (showSecret = !showSecret)}
+                    >
+                        {#if showSecret}
+                            <EyeOff class="w-4 h-4" />
+                        {:else}
+                            <Eye class="w-4 h-4" />
+                        {/if}
+                    </Button>
                 </div>
-                {#if apiKey.expires}
-                    <div>
-                        <p class="text-sm font-medium">Expires</p>
-                        <p class="text-sm text-muted-foreground">
-                            {formatDate(apiKey.expires)}
-                        </p>
-                    </div>
-                {/if}
             </div>
-        </Card.Content>
-        <Card.Footer class="flex justify-between">
+            <div>
+                <h4 class="text-sm font-semibold">Scopes</h4>
+                <div class="flex flex-wrap gap-1 mt-1">
+                    {#each apiKey.scopes as scope}
+                        <Badge variant="secondary">{scope}</Badge>
+                    {/each}
+                </div>
+            </div>
+        </div>
+    </Card.Content>
+    <Card.Footer class="flex justify-between">
+        <div class="flex items-center space-x-2">
+            <Switch
+                id="status-mode-{apiKey.id}"
+                checked={apiKey.is_active}
+                onclick={() => ontoggleStatus?.()}
+            />
+            <label for="status-mode-{apiKey.id}" class="text-sm">Active</label>
+        </div>
+        <div class="flex space-x-2">
             <Button
-                variant="ghost"
-                size="sm"
-                on:click={() => onToggleStatus(apiKey.id, apiKey.is_active)}
+                variant="outline"
+                size="icon"
+                onclick={() => onedit?.()}
             >
-                <Power class="h-4 w-4 mr-2" />
-                {apiKey.is_active ? "Deactivate" : "Activate"}
+                <Edit class="w-4 h-4" />
             </Button>
-            <div class="space-x-2">
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    on:click={() => onEdit(apiKey)}
-                >
-                    <Edit class="h-4 w-4" />
-                </Button>
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    on:click={() => onDelete(apiKey.id)}
-                >
-                    <Trash2 class="h-4 w-4" />
-                </Button>
-            </div>
-        </Card.Footer>
-    </Card.Root>
-</div>
+            <Button
+                variant="destructive"
+                size="icon"
+                onclick={() => ondelete?.()}
+            >
+                <Trash2 class="w-4 h-4" />
+            </Button>
+        </div>
+    </Card.Footer>
+</Card.Root>

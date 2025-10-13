@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unregister Service Worker - Nen Space</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .status.show {
+            display: block;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Service Worker Cleanup</h1>
+        <p>This page will unregister all service workers and clear caches to fix the <code>/sw.js</code> error.</p>
+
+        <button onclick="cleanupServiceWorkers()">Unregister All Service Workers</button>
+
+        <div id="status" class="status"></div>
+    </div>
+
+    <script>
+        async function cleanupServiceWorkers() {
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status show info';
+            statusEl.innerHTML = 'Working...';
+
+            try {
+                let messages = [];
+
+                // 1. Unregister all service workers
+                if ('serviceWorker' in navigator) {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+
+                    if (registrations.length === 0) {
+                        messages.push('✓ No service workers found');
+                    } else {
+                        for (let registration of registrations) {
+                            await registration.unregister();
+                            messages.push(`✓ Unregistered service worker: ${registration.scope}`);
+                        }
+                    }
+                } else {
+                    messages.push('ℹ Service Worker API not available');
+                }
+
+                // 2. Clear all caches
+                if ('caches' in window) {
+                    const cacheNames = await caches.keys();
+
+                    if (cacheNames.length === 0) {
+                        messages.push('✓ No caches found');
+                    } else {
+                        for (let cacheName of cacheNames) {
+                            await caches.delete(cacheName);
+                            messages.push(`✓ Deleted cache: ${cacheName}`);
+                        }
+                    }
+                } else {
+                    messages.push('ℹ Cache API not available');
+                }
+
+                // 3. Show success
+                statusEl.className = 'status show success';
+                statusEl.innerHTML = `
+                    <strong>✓ Cleanup Complete!</strong><br><br>
+                    ${messages.join('<br>')}
+                    <br><br>
+                    <strong>Next steps:</strong>
+                    <ol>
+                        <li>Close this tab</li>
+                        <li>Restart your dev server (Ctrl+C, then <code>bun run dev</code>)</li>
+                        <li>Hard refresh the app (Ctrl+Shift+R or Cmd+Shift+R)</li>
+                    </ol>
+                `;
+
+            } catch (error) {
+                statusEl.className = 'status show error';
+                statusEl.innerHTML = `
+                    <strong>Error:</strong><br>
+                    <pre>${error.message}</pre>
+                `;
+            }
+        }
+
+        // Auto-run on page load
+        window.addEventListener('load', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('auto') === 'true') {
+                cleanupServiceWorkers();
+            }
+        });
+    </script>
+</body>
+
+</html>

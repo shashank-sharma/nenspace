@@ -1,21 +1,34 @@
 <script lang="ts">
-    import { onMount, afterUpdate } from "svelte";
-    import { fade, crossfade } from "svelte/transition";
+    import { onMount } from "svelte";
     import { tweened } from "svelte/motion";
-    import { cubicOut } from "svelte/easing";
+    import { fade } from "svelte/transition";
 
-    export let color = "rgba(88, 28, 135, 0.8)"; // Default to a purple color
-    export let size = 400;
-    export let intensity = 0.7;
-    export let pulseSpeed = 1;
-    export let type = "enhancement"; // enhancement, transmutation, manipulation, conjuration, specialization, emission
+    let {
+        color = "rgba(88, 28, 135, 0.8)",
+        size = 400,
+        intensity = 0.7,
+        pulseSpeed = 1,
+        type = "enhancement",
+    } = $props<{
+        color?: string;
+        size?: number;
+        intensity?: number;
+        pulseSpeed?: number;
+        type?:
+            | "enhancement"
+            | "transmutation"
+            | "manipulation"
+            | "conjuration"
+            | "specialization"
+            | "emission";
+    }>();
 
-    let mounted = false;
-    let glowFilter: string;
+    let mounted = $state(false);
+    let glowFilter = $state("");
     let previousType = type;
-    let transitioning = false;
+    let transitioning = $state(false);
 
-    $: baseGlowColor = (() => {
+    let baseGlowColor = $derived(() => {
         switch (type.toLowerCase()) {
             case "enhancement":
                 return "rgba(249, 115, 22, 0.8)"; // Orange
@@ -32,12 +45,14 @@
             default:
                 return color;
         }
-    })();
+    });
 
-    $: actualColor = color === "rgba(88, 28, 135, 0.8)" ? baseGlowColor : color;
+    let actualColor = $derived(
+        color === "rgba(88, 28, 135, 0.8)" ? baseGlowColor : color,
+    );
 
     // Handle transitions between types
-    afterUpdate(() => {
+    $effect(() => {
         if (mounted && previousType !== type) {
             transitioning = true;
             setTimeout(() => {
@@ -64,7 +79,6 @@
             height={size}
             viewBox="0 0 100 100"
             xmlns="http://www.w3.org/2000/svg"
-            transition:fade={{ duration: 1000 }}
         >
             <defs>
                 <filter
@@ -391,51 +405,6 @@
     }
 
     /* Enhancement animation */
-    .enhancement-container {
-        transform-origin: center;
-    }
-
-    .enhancement-core {
-        animation: enhancement-pulse 2s infinite alternate ease-in-out;
-    }
-
-    .enhancement-line {
-        animation: enhancement-line-pulse 1.5s infinite alternate ease-in-out;
-        transform-origin: 50px 50px;
-    }
-
-    @keyframes enhancement-pulse {
-        0% {
-            stroke-width: 2;
-            stroke-opacity: 0.6;
-        }
-        100% {
-            stroke-width: 4;
-            stroke-opacity: 1;
-        }
-    }
-
-    @keyframes enhancement-line-pulse {
-        0% {
-            stroke-width: 1.5;
-            stroke-opacity: 0.5;
-        }
-        100% {
-            stroke-width: 3;
-            stroke-opacity: 0.9;
-        }
-    }
-
-    /* Specialization animation */
-    .specialization-shape {
-        animation: rotate 7s infinite linear;
-    }
-
-    .specialization-circle {
-        animation: rotate 10s infinite linear reverse;
-    }
-
-    /* Enhancement animation */
     .enhancement-solid {
         animation: enhancement-solid-pulse 2s infinite alternate ease-in-out;
         filter: url(#glowFilter);
@@ -450,5 +419,14 @@
             r: 22;
             fill-opacity: 0.7;
         }
+    }
+
+    /* Specialization animation */
+    .specialization-shape {
+        animation: rotate 7s infinite linear;
+    }
+
+    .specialization-circle {
+        animation: rotate 10s infinite linear reverse;
     }
 </style>

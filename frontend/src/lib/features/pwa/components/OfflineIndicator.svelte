@@ -1,9 +1,9 @@
-<script>
-    import { isOffline } from "../services/core";
+<script lang="ts">
+    import { PwaService } from "$lib/features/pwa/services/pwa.service.svelte";
     import { fade } from "svelte/transition";
 </script>
 
-{#if $isOffline}
+{#if PwaService.effectiveOfflineStatus}
     <div class="fixed top-4 right-4 z-50" transition:fade={{ duration: 300 }}>
         <div
             class="bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 px-4 py-2 rounded-lg shadow-md flex items-center gap-2"

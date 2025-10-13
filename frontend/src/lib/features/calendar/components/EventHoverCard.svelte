@@ -21,20 +21,30 @@
     import type { CalendarEvent } from "../types";
     import { getEventTimeColor } from "../utils/color";
 
-    export let event: CalendarEvent | null = null;
-    export let isOpen: boolean = false;
-    export let onClose: () => void;
-    export let position = { x: 0, y: 0 };
+    let {
+        event = null,
+        isOpen = false,
+        onClose,
+        position = { x: 0, y: 0 },
+    } = $props<{
+        event: CalendarEvent | null;
+        isOpen?: boolean;
+        onClose: () => void;
+        position?: { x: number; y: number };
+    }>();
 
-    let isMobile = false;
-    let showMore = false;
-    let hoverCardStyles = "";
-    let windowWidth: number;
-    let windowHeight: number;
+    let isMobile = $state(false);
+    let showMore = $state(false);
+    let hoverCardStyles = $state("");
+    let windowWidth = $state(0);
+    let windowHeight = $state(0);
 
-    $: if (event) {
-        setHoverCardPosition();
-    }
+    $effect(() => {
+        if (event) {
+            checkMobile();
+            setHoverCardPosition();
+        }
+    });
 
     function checkMobile() {
         isMobile = window.innerWidth < 768;
@@ -103,12 +113,6 @@
         };
     });
 </script>
-
-<svelte:window
-    bind:innerWidth={windowWidth}
-    bind:innerHeight={windowHeight}
-    on:resize={setHoverCardPosition}
-/>
 
 {#if isOpen && event}
     {#if isMobile}
@@ -185,7 +189,7 @@
                                     variant="link"
                                     size="sm"
                                     class="px-0 mt-1"
-                                    on:click={() => (showMore = !showMore)}
+                                    onclick={() => (showMore = !showMore)}
                                 >
                                     {showMore ? "Show less" : "Show more"}
                                 </Button>
@@ -296,7 +300,7 @@
                                         variant="link"
                                         size="sm"
                                         class="px-0 mt-1"
-                                        on:click={() => (showMore = !showMore)}
+                                        onclick={() => (showMore = !showMore)}
                                     >
                                         {showMore ? "Show less" : "Show more"}
                                     </Button>
@@ -334,7 +338,7 @@
                     variant="ghost"
                     size="sm"
                     class="absolute top-2 right-2"
-                    on:click={onClose}
+                    onclick={onClose}
                 >
                     ×
                 </Button>

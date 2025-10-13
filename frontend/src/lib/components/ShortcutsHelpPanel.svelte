@@ -4,7 +4,7 @@
     import { Button } from "$lib/components/ui/button";
     import { createEventDispatcher } from "svelte";
 
-    export let visible = false;
+    let { visible = false } = $props<{ visible?: boolean }>();
 
     const dispatch = createEventDispatcher<{
         close: void;
@@ -37,7 +37,7 @@
                     variant="ghost"
                     size="sm"
                     class="h-7 w-7 p-0"
-                    on:click={closePanel}
+                    onclick={closePanel}
                 >
                     <X class="h-4 w-4" />
                 </Button>

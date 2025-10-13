@@ -1,10 +1,10 @@
 <script lang="ts">
-    import { logout } from "$lib/services/authService";
+    import { authService } from "$lib/services/authService.svelte";
     import { goto } from "$app/navigation";
     import { onMount } from "svelte";
 
     onMount(() => {
-        logout();
+        authService.logout();
         goto("/auth/login");
     });
 </script>

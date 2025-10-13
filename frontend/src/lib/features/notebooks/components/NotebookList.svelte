@@ -1,6 +1,6 @@
 <script lang="ts">
-    import { onMount } from "svelte";
-    import { notebooksStore } from "../stores/notebooks.store";
+    import { notebooksService } from "../services/notebooks.service";
+    import type { Notebook } from "../types";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Search, Plus, ChevronLeft, ChevronRight } from "lucide-svelte";
@@ -8,30 +8,61 @@
     import CreateNotebookDialog from "./CreateNotebookDialog.svelte";
     import { toast } from "svelte-sonner";
 
-    let dialogOpen = false;
+    let notebooks = $state<Notebook[]>([]);
+    let loading = $state(true);
+    let error = $state<string | null>(null);
+    let searchQuery = $state("");
+    let currentPage = $state(1);
+    let itemsPerPage = $state(6);
+    let dialogOpen = $state(false);
 
-    $: filteredNotebooks = $notebooksStore.notebooks.filter((notebook) =>
-        notebook.name
-            .toLowerCase()
-            .includes($notebooksStore.searchQuery.toLowerCase()),
+    const filteredNotebooks = $derived(
+        notebooks.filter((notebook) =>
+            notebook.name.toLowerCase().includes(searchQuery.toLowerCase()),
+        ),
     );
 
-    $: paginatedNotebooks = filteredNotebooks.slice(
-        ($notebooksStore.currentPage - 1) * $notebooksStore.itemsPerPage,
-        $notebooksStore.currentPage * $notebooksStore.itemsPerPage,
+    const totalPages = $derived(
+        Math.ceil(filteredNotebooks.length / itemsPerPage),
     );
+
+    const paginatedNotebooks = $derived(
+        filteredNotebooks.slice(
+            (currentPage - 1) * itemsPerPage,
+            currentPage * itemsPerPage,
+        ),
+    );
+
+    async function loadNotebooks() {
+        loading = true;
+        try {
+            notebooks = await notebooksService.listNotebooks();
+        } catch (e) {
+            error = "Failed to load notebooks";
+            toast.error(error);
+        } finally {
+            loading = false;
+        }
+    }
 
     async function handleDelete(id: string) {
         try {
-            await notebooksStore.deleteNotebook(id);
+            await notebooksService.deleteNotebook(id);
+            notebooks = notebooks.filter((nb) => nb.id !== id);
             toast.success("Notebook deleted successfully");
         } catch (error) {
             toast.error("Failed to delete notebook");
         }
     }
 
-    onMount(() => {
-        notebooksStore.loadNotebooks();
+    $effect(() => {
+        loadNotebooks();
+    });
+
+    $effect(() => {
+        if (searchQuery) {
+            currentPage = 1;
+        }
     });
 </script>
 
@@ -47,66 +78,48 @@
         </Button>
     </div>
 
-    <div class="flex gap-4 items-center">
-        <div class="relative flex-1">
-            <div class="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground">
-                <Search size={16} />
-            </div>
-            <Input
-                type="text"
-                placeholder="Search notebooks..."
-                value={$notebooksStore.searchQuery}
-                on:input={(e) =>
-                    notebooksStore.setSearchQuery(e.currentTarget.value)}
-                class="pl-8"
-            />
-        </div>
+    <div class="relative flex-1">
+        <Search class="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+            type="text"
+            placeholder="Search notebooks..."
+            bind:value={searchQuery}
+            class="pl-8"
+        />
     </div>
 
-    {#if $notebooksStore.loading}
-        <div class="text-center py-12">
-            <p class="text-muted-foreground">Loading notebooks...</p>
-        </div>
+    {#if loading}
+        <p>Loading notebooks...</p>
+    {:else if error}
+        <p>{error}</p>
+    {:else if paginatedNotebooks.length === 0}
+        <p>No notebooks found.</p>
     {:else}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {#each paginatedNotebooks as notebook (notebook.id)}
-                <NotebookCard {notebook} onDelete={handleDelete} />
+                <NotebookCard
+                    {notebook}
+                    on:delete={() => handleDelete(notebook.id)}
+                />
             {/each}
         </div>
 
-        {#if filteredNotebooks.length === 0}
-            <div class="text-center py-12">
-                <p class="text-muted-foreground">
-                    {$notebooksStore.searchQuery
-                        ? "No notebooks found matching your search."
-                        : "No notebooks yet. Create one to get started!"}
-                </p>
-            </div>
-        {/if}
-
-        {#if $notebooksStore.totalPages > 1}
+        {#if totalPages > 1}
             <div class="flex justify-center gap-2 mt-4">
                 <Button
                     variant="outline"
                     size="icon"
-                    disabled={$notebooksStore.currentPage === 1}
-                    on:click={() =>
-                        notebooksStore.setPage($notebooksStore.currentPage - 1)}
+                    disabled={currentPage === 1}
+                    on:click={() => (currentPage -= 1)}
                 >
                     <ChevronLeft class="w-4 h-4" />
                 </Button>
-
-                <span class="flex items-center px-4 text-sm">
-                    Page {$notebooksStore.currentPage} of {$notebooksStore.totalPages}
-                </span>
-
+                <span>Page {currentPage} of {totalPages}</span>
                 <Button
                     variant="outline"
                     size="icon"
-                    disabled={$notebooksStore.currentPage ===
-                        $notebooksStore.totalPages}
-                    on:click={() =>
-                        notebooksStore.setPage($notebooksStore.currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    on:click={() => (currentPage += 1)}
                 >
                     <ChevronRight class="w-4 h-4" />
                 </Button>
@@ -114,5 +127,11 @@
         {/if}
     {/if}
 
-    <CreateNotebookDialog bind:open={dialogOpen} />
+    <CreateNotebookDialog
+        bind:open={dialogOpen}
+        on:create={() => {
+            dialogOpen = false;
+            loadNotebooks();
+        }}
+    />
 </div>

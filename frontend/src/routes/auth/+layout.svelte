@@ -1,11 +1,5 @@
 <script lang="ts">
-    import { onMount } from "svelte";
-    import { checkBackendHealth } from "$lib/config/pocketbase";
-
-    onMount(() => {
-        // Run health check once when auth layout loads
-        checkBackendHealth();
-    });
+    // The HealthService now runs automatically, so a manual check is no longer needed here.
 </script>
 
 <div class="min-h-screen flex flex-col">

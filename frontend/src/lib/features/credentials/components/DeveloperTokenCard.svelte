@@ -5,18 +5,18 @@
     import * as Card from "$lib/components/ui/card";
     import { Badge } from "$lib/components/ui/badge";
     import type { DeveloperToken } from "../types";
-    import { formatDistanceToNow } from "date-fns";
+    import { DateUtil } from "$lib/utils";
 
-    export let token: DeveloperToken;
-    export let onEdit: (token: DeveloperToken) => void;
-    export let onDelete: (id: string) => void;
-    export let onToggleStatus: (id: string, isActive: boolean) => void;
-
-    let showToken = false;
-
-    function formatDate(dateString: string) {
-        return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+    interface Props {
+        token: DeveloperToken;
+        onedit?: () => void;
+        ondelete?: () => void;
+        ontoggleStatus?: () => void;
     }
+
+    let { token, onedit, ondelete, ontoggleStatus } = $props<Props>();
+
+    let showToken = $state(false);
 </script>
 
 <div transition:fade={{ duration: 200 }}>
@@ -46,26 +46,27 @@
                         <Button
                             variant="ghost"
                             size="sm"
-                            on:click={() => (showToken = !showToken)}
+                            onclick={() => (showToken = !showToken)}
                         >
-                            <svelte:component
-                                this={showToken ? EyeOff : Eye}
-                                class="h-4 w-4"
-                            />
+                            {#if showToken}
+                                <EyeOff class="h-4 w-4" />
+                            {:else}
+                                <Eye class="h-4 w-4" />
+                            {/if}
                         </Button>
                     </div>
                 </div>
                 <div>
                     <p class="text-sm font-medium">Created</p>
                     <p class="text-sm text-muted-foreground">
-                        {formatDate(token.created)}
+                        {DateUtil.formatRelative(token.created)}
                     </p>
                 </div>
                 {#if token.expires}
                     <div>
                         <p class="text-sm font-medium">Expires</p>
                         <p class="text-sm text-muted-foreground">
-                            {formatDate(token.expires)}
+                            {DateUtil.formatRelative(token.expires)}
                         </p>
                     </div>
                 {/if}
@@ -75,7 +76,7 @@
             <Button
                 variant="ghost"
                 size="sm"
-                on:click={() => onToggleStatus(token.id, token.is_active)}
+                onclick={() => ontoggleStatus?.()}
             >
                 <Power class="h-4 w-4 mr-2" />
                 {token.is_active ? "Deactivate" : "Activate"}
@@ -84,14 +85,14 @@
                 <Button
                     variant="ghost"
                     size="sm"
-                    on:click={() => onEdit(token)}
+                    onclick={() => onedit?.()}
                 >
                     <Edit class="h-4 w-4" />
                 </Button>
                 <Button
                     variant="ghost"
                     size="sm"
-                    on:click={() => onDelete(token.id)}
+                    onclick={() => ondelete?.()}
                 >
                     <Trash2 class="h-4 w-4" />
                 </Button>

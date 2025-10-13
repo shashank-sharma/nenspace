@@ -6,7 +6,6 @@
  * based on the URL pattern.
  */
 
-import type { ComponentType, SvelteComponent } from 'svelte';
 import ChroniclesDebugSettings from '../sections/ChroniclesDebugSettings.svelte';
 import TasksDebugSettings from '../sections/TasksDebugSettings.svelte';
 
@@ -27,7 +26,7 @@ export interface PageDebugSection {
     /**
      * The Svelte component that contains the debug settings UI
      */
-    component: ComponentType;
+    component: any; // Use any for Svelte 5 component compatibility
     
     /**
      * RegExp pattern to match URLs where this debug section should be shown
@@ -86,16 +85,6 @@ export const pageDebugRegistry: PageDebugSection[] = [
         expanded: true,
         priority: 10,
     },
-    
-    // Example of commented out template for adding new debug settings
-    // {
-    //     id: "new-feature-debug",
-    //     title: "New Feature Options",
-    //     component: NewFeatureDebugSettings,
-    //     urlPattern: /\/new-feature/i,
-    //     expanded: false,
-    //     priority: 20,
-    // },
 ];
 
 /**

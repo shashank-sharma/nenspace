@@ -10,14 +10,20 @@
     } from "$lib/components/ui/card";
     import { Activity } from "lucide-svelte";
 
-    export let events: CalendarEvent[] = [];
-    export let selectedDate: Date;
+    let { events = [], selectedDate = $bindable(new Date()) } = $props<{
+        events?: CalendarEvent[];
+        selectedDate?: Date;
+    }>();
 
-    $: eventsThisMonth = getEventsInMonth(events, selectedDate);
-    $: eventsByDayOfWeek = getEventsByDayOfWeek(eventsThisMonth, selectedDate);
-    $: eventsByTimeOfDay = getEventsByTimeOfDay(eventsThisMonth, selectedDate);
-    $: mostBusyDay = getMostBusyDay(eventsByDayOfWeek);
-    $: totalEventsThisMonth = eventsThisMonth.length;
+    const eventsThisMonth = $derived(getEventsInMonth(events, selectedDate));
+    const eventsByDayOfWeek = $derived(
+        getEventsByDayOfWeek(eventsThisMonth, selectedDate),
+    );
+    const eventsByTimeOfDay = $derived(
+        getEventsByTimeOfDay(eventsThisMonth, selectedDate),
+    );
+    const mostBusyDay = $derived(getMostBusyDay(eventsByDayOfWeek));
+    const totalEventsThisMonth = $derived(eventsThisMonth.length);
 
     function getEventsByDayOfWeek(
         monthEvents: CalendarEvent[],
@@ -123,24 +129,26 @@
         });
     }
 
-    $: maxDayCount = Math.max(...eventsByDayOfWeek);
-    $: maxTimeCount = Math.max(
-        eventsByTimeOfDay.morning,
-        eventsByTimeOfDay.afternoon,
-        eventsByTimeOfDay.evening,
-        eventsByTimeOfDay.night,
+    const maxDayCount = $derived(Math.max(...eventsByDayOfWeek));
+    const maxTimeCount = $derived(
+        Math.max(
+            eventsByTimeOfDay.morning,
+            eventsByTimeOfDay.afternoon,
+            eventsByTimeOfDay.evening,
+            eventsByTimeOfDay.night,
+        ),
     );
 
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
     const barColors = [
-        "bg-gray-500",
-        "bg-blue-500",
-        "bg-blue-500",
-        "bg-blue-500",
-        "bg-blue-500",
-        "bg-blue-500",
-        "bg-gray-500",
+        "bg-muted-foreground",
+        "bg-primary",
+        "bg-primary",
+        "bg-primary",
+        "bg-primary",
+        "bg-primary",
+        "bg-muted-foreground",
     ];
 
     function getBarHeight(value: number, max: number) {

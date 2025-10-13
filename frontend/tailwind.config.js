@@ -51,6 +51,10 @@ const config = {
 					DEFAULT: "hsl(var(--card) / <alpha-value>)",
 					foreground: "hsl(var(--card-foreground) / <alpha-value>)"
 				},
+				completed: {
+					DEFAULT: "hsl(var(--completed) / <alpha-value>)",
+					foreground: "hsl(var(--completed-foreground) / <alpha-value>)"
+				},
 				sidebar: {
 					DEFAULT: "hsl(var(--sidebar-background))",
 					foreground: "hsl(var(--sidebar-foreground))",

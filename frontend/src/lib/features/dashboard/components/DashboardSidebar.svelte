@@ -3,8 +3,7 @@
     import { goto } from "$app/navigation";
     import { Button } from "$lib/components/ui/button";
     import { cn } from "$lib/utils";
-    import { auth } from "$lib/stores/auth.store";
-    import { dashboardStore } from "../stores/dashboard.store";
+    import { authService } from "$lib/services/authService.svelte";
     import type { DashboardSection } from "../types";
     import {
         ChevronLeft,
@@ -15,14 +14,16 @@
     import { slide } from "svelte/transition";
     import { tweened } from "svelte/motion";
     import { cubicOut } from "svelte/easing";
-    import { writable, type Writable } from "svelte/store";
-    import { onMount, afterUpdate } from "svelte";
+    import { tick } from "svelte";
 
-    export let sections: DashboardSection[];
-    export let isMobile: boolean = false;
-    export let mobileExpandedSection: Writable<string | null> = writable(null);
+    let { sections, isMobile = false } = $props<{
+        sections: DashboardSection[];
+        isMobile?: boolean;
+    }>();
 
-    let isCollapsed = false;
+    let mobileExpandedSection = $state<string | null>(null);
+
+    let isCollapsed = $state(false);
     let prevPath: string = "";
     let activeMobileSection: string | null = null;
     const width = tweened(256, {
@@ -31,16 +32,21 @@
     });
 
     // Store for tracking which sections are expanded
-    const expandedSections = writable<Record<string, boolean>>({});
+    let expandedSections = $state<Record<string, boolean>>({});
 
-    $: width.set(isCollapsed ? 84 : 256);
-    $: currentPath = $page.url.pathname;
+    $effect(() => {
+        width.set(isCollapsed ? 84 : 256);
+    });
+
+    let currentPath = $derived($page.url.pathname);
 
     // Reactive statement to update active sections when path changes
-    $: if (currentPath !== prevPath) {
-        prevPath = currentPath;
-        updateActiveSection(currentPath);
-    }
+    $effect(() => {
+        // Use tick to defer state updates until after the current render cycle
+        tick().then(() => {
+            updateActiveSection(currentPath);
+        });
+    });
 
     function toggleSidebar() {
         isCollapsed = !isCollapsed;
@@ -53,19 +59,18 @@
 
         if (isMobile) {
             // In mobile, only one section can be expanded at a time
-            mobileExpandedSection.update((current) =>
-                current === sectionId ? null : sectionId,
-            );
+            mobileExpandedSection =
+                mobileExpandedSection === sectionId ? null : sectionId;
         } else {
-            expandedSections.update((state) => ({
-                ...state,
-                [sectionId]: !state[sectionId],
-            }));
+            expandedSections = {
+                ...expandedSections,
+                [sectionId]: !expandedSections[sectionId],
+            };
         }
     }
 
     function navigateToSection(section: DashboardSection) {
-        dashboardStore.setActiveSection(section.id);
+        // dashboardStore.setActiveSection(section.id); // Removed as per new architecture
 
         // If this is a section with children on mobile, toggle expansion instead of navigating
         if (isMobile && section.collapsible && section.children?.length) {
@@ -76,11 +81,11 @@
     }
 
     function navigateToChildSection(child: DashboardSection) {
-        dashboardStore.setActiveSection(child.id);
+        // dashboardStore.setActiveSection(child.id); // Removed as per new architecture
         goto(child.path);
         // Close the mobile expanded section after navigation
         if (isMobile) {
-            mobileExpandedSection.set(null);
+            mobileExpandedSection = null;
         }
     }
 
@@ -106,7 +111,7 @@
 
                         // If a child is active, also mark its parent as expanded
                         if (isMobile) {
-                            mobileExpandedSection.set(section.id);
+                            mobileExpandedSection = section.id;
                         }
                         break;
                     }
@@ -115,30 +120,23 @@
             }
         }
 
-        if (activeSection) {
-            dashboardStore.setActiveSection(activeSection);
-        }
+        // dashboardStore.setActiveSection(activeSection); // Removed as per new architecture
 
         // Update expanded sections
-        sections.forEach((section) => {
+        sections.forEach((section: DashboardSection) => {
             if (section.collapsible && section.children) {
-                const hasActiveChild = section.children.some((child) =>
-                    isActive(child.path),
+                const hasActiveChild = section.children.some(
+                    (child: DashboardSection) => isActive(child.path),
                 );
                 if (hasActiveChild || section.path === path) {
-                    expandedSections.update((state) => ({
-                        ...state,
+                    expandedSections = {
+                        ...expandedSections,
                         [section.id]: true,
-                    }));
+                    };
                 }
             }
         });
     }
-
-    onMount(() => {
-        // Initialize on component mount
-        updateActiveSection(currentPath);
-    });
 </script>
 
 {#if isMobile}
@@ -156,11 +154,10 @@
                             ? "secondary"
                             : "ghost"}
                         class={"flex flex-col items-center justify-center h-16 w-16 p-1 rounded-lg relative"}
-                        on:click={() => navigateToSection(section)}
+                        onclick={() => navigateToSection(section)}
                     >
                         {#if section.icon}
-                            <svelte:component
-                                this={section.icon}
+                            <section.icon
                                 class={cn(
                                     "h-5 w-5 mb-1",
                                     isActive(section.path) && "text-primary",
@@ -185,9 +182,9 @@
         </div>
 
         <!-- Mobile Subsections (when expanded) -->
-        {#if $mobileExpandedSection}
+        {#if mobileExpandedSection}
             {#each sections as section}
-                {#if section.id === $mobileExpandedSection && section.collapsible && section.children}
+                {#if section.id === mobileExpandedSection && section.collapsible && section.children}
                     <div
                         class="mt-2 bg-card/95 backdrop-blur-sm border-t p-2 rounded-t-lg shadow-inner"
                         transition:slide={{ duration: 150 }}
@@ -203,8 +200,8 @@
                                     variant="ghost"
                                     size="sm"
                                     class="h-6 w-6 p-0"
-                                    on:click={() =>
-                                        mobileExpandedSection.set(null)}
+                                    onclick={() =>
+                                        (mobileExpandedSection = null)}
                                 >
                                     Bad
                                     <ChevronDown class="h-4 w-4 rotate-180" />
@@ -219,12 +216,11 @@
                                             ? "secondary"
                                             : "ghost"}
                                         class={"flex-shrink-0 flex items-center justify-center h-10 rounded-lg"}
-                                        on:click={() =>
+                                        onclick={() =>
                                             navigateToChildSection(child)}
                                     >
                                         {#if child.icon}
-                                            <svelte:component
-                                                this={child.icon}
+                                            <child.icon
                                                 class={cn(
                                                     "h-4 w-4 mr-2",
                                                     isActive(child.path) &&
@@ -267,11 +263,12 @@
             {#if !isCollapsed}
                 <h1 class="text-xl font-bold">Nen Space</h1>
             {/if}
-            <Button variant="ghost" size="icon" on:click={toggleSidebar}>
-                <svelte:component
-                    this={isCollapsed ? ChevronRight : ChevronLeft}
-                    class="h-4 w-4"
-                />
+            <Button variant="ghost" size="icon" onclick={toggleSidebar}>
+                {#if isCollapsed}
+                    <ChevronRight class="h-4 w-4" />
+                {:else}
+                    <ChevronLeft class="h-4 w-4" />
+                {/if}
             </Button>
         </div>
 
@@ -287,37 +284,34 @@
                             isCollapsed && "justify-center px-2",
                             isCollapsed && section.collapsible && "relative",
                         )}
-                        on:click={() => navigateToSection(section)}
+                        onclick={() => navigateToSection(section)}
                     >
                         {#if section.icon}
-                            <svelte:component
-                                this={section.icon}
-                                class="h-4 w-4 mr-2"
-                            />
+                            <section.icon class="h-4 w-4 mr-2" />
                         {/if}
                         {#if !isCollapsed}
                             <span class="flex-1 text-left">{section.label}</span
                             >
                             {#if section.collapsible}
-                                <div
+                                <button
                                     class="cursor-pointer"
-                                    on:click={(e) =>
+                                    onclick={(e) =>
                                         toggleSection(section.id, e)}
                                 >
                                     <ChevronDown
                                         class={cn(
                                             "h-4 w-4 transition-transform",
-                                            $expandedSections[section.id]
+                                            expandedSections[section.id]
                                                 ? "rotate-180"
                                                 : "",
                                         )}
                                     />
-                                </div>
+                                </button>
                             {/if}
                         {/if}
                     </Button>
 
-                    {#if section.collapsible && section.children && $expandedSections[section.id] && !isCollapsed}
+                    {#if section.collapsible && section.children && expandedSections[section.id] && !isCollapsed}
                         <div
                             class="ml-6 mt-1 space-y-1"
                             transition:slide={{ duration: 150 }}
@@ -328,19 +322,16 @@
                                         ? "secondary"
                                         : "ghost"}
                                     class="w-full justify-start"
-                                    on:click={() => {
-                                        dashboardStore.setActiveSection(
-                                            child.id,
-                                        );
+                                    onclick={() => {
+                                        // dashboardStore.setActiveSection( // Removed as per new architecture
+                                        //     child.id,
+                                        // );
                                         navigateToSection(child);
                                         goto(child.path);
                                     }}
                                 >
                                     {#if child.icon}
-                                        <svelte:component
-                                            this={child.icon}
-                                            class="h-4 w-4 mr-2"
-                                        />
+                                        <child.icon class="h-4 w-4 mr-2" />
                                     {/if}
                                     <span>{child.label}</span>
                                 </Button>
@@ -356,10 +347,10 @@
                 <div class="flex items-center space-x-3">
                     <div class="flex-1 min-w-0">
                         <p class="text-sm font-medium truncate">
-                            {$auth.user?.username || "Guest"}
+                            {authService.user?.username || "Guest"}
                         </p>
                         <p class="text-xs text-muted-foreground truncate">
-                            {$auth.user?.email || ""}
+                            {authService.user?.email || ""}
                         </p>
                     </div>
                 </div>

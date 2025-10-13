@@ -19,14 +19,24 @@
     import { Badge } from "$lib/components/ui/badge";
     import { Calendar, Clock } from "lucide-svelte";
 
-    export let events: CalendarEvent[] = [];
-    export let selectedDate: Date;
-    export let view: "month" | "week" | "day" = "month";
+    let {
+        events = [],
+        selectedDate,
+        view = "month",
+    } = $props<{
+        events?: CalendarEvent[];
+        selectedDate: Date;
+        view?: "month" | "week" | "day";
+    }>();
 
-    $: filteredEvents = getFilteredEvents(events, selectedDate, view);
-    $: viewTitle = getViewTitle(selectedDate, view);
-    $: sortedEvents = [...filteredEvents].sort(
-        (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+    const filteredEvents = $derived(
+        getFilteredEvents(events, selectedDate, view),
+    );
+    const viewTitle = $derived(getViewTitle(selectedDate, view));
+    const sortedEvents = $derived(
+        [...filteredEvents].sort(
+            (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+        ),
     );
 
     function getViewTitle(date: Date, view: string): string {
@@ -108,8 +118,12 @@
         return grouped;
     }
 
-    $: groupedEvents = view === "day" ? null : groupEventsByDay(sortedEvents);
-    $: dayEvents = view === "day" ? getDayEvents(sortedEvents) : null;
+    const groupedEvents = $derived(
+        view === "day" ? null : groupEventsByDay(sortedEvents),
+    );
+    const dayEvents = $derived(
+        view === "day" ? getDayEvents(sortedEvents) : null,
+    );
 
     function getDayEvents(events: CalendarEvent[]) {
         const now = new Date();

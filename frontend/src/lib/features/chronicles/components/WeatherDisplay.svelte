@@ -13,8 +13,10 @@
         Wind,
     } from "lucide-svelte";
 
-    export let showForecast = false;
-    export let compact = true;
+    let { showForecast = false, compact = true } = $props<{
+        showForecast?: boolean;
+        compact?: boolean;
+    }>();
 
     function formatTemp(temp: number | undefined): string {
         if (temp === undefined) return "--";
@@ -80,7 +82,7 @@
 </script>
 
 <div class="weather-container">
-    {#if $weatherStore.isLoading}
+    {#if weatherStore.isLoading}
         <Card
             class="p-3 flex items-center justify-center {compact
                 ? 'compact-card'
@@ -88,7 +90,7 @@
         >
             <div class="h-8 w-8 rounded-full bg-muted animate-pulse"></div>
         </Card>
-    {:else if $weatherStore.error}
+    {:else if weatherStore.error}
         <Card
             class="p-3 flex flex-col items-center text-center {compact
                 ? 'compact-card'
@@ -99,7 +101,7 @@
                 <p class="text-sm">Weather unavailable</p>
             </div>
         </Card>
-    {:else if $weatherStore.currentWeather}
+    {:else if weatherStore.currentWeather}
         <Card
             class="relative overflow-hidden {compact ? 'compact-card' : ''} p-4"
         >
@@ -108,16 +110,16 @@
                 <div class="flex items-center">
                     <svelte:component
                         this={getWeatherIcon(
-                            $weatherStore.currentWeather.weather.condition,
+                            weatherStore.currentWeather.weather.condition,
                         )}
                         class="h-8 w-8 mr-2 text-primary"
                     />
                     <div>
                         <div class="font-medium">
-                            {$weatherStore.currentWeather.location.city}
+                            {weatherStore.currentWeather.location.city}
                         </div>
                         <div class="text-xs text-muted-foreground">
-                            {$weatherStore.currentWeather.weather.description}
+                            {weatherStore.currentWeather.weather.description}
                         </div>
                     </div>
                 </div>
@@ -126,12 +128,12 @@
                 <div class="text-right">
                     <div class="text-xl font-bold">
                         {formatTemp(
-                            $weatherStore.currentWeather.temperature.current,
+                            weatherStore.currentWeather.temperature.current,
                         )}
                     </div>
                     <div class="text-xs text-muted-foreground">
                         Feels like {formatTemp(
-                            $weatherStore.currentWeather.temperature.feels_like,
+                            weatherStore.currentWeather.temperature.feels_like,
                         )}
                     </div>
                 </div>
@@ -142,14 +144,14 @@
                 <div class="detail-item">
                     <span class="text-muted-foreground">Humidity</span>
                     <span class="font-medium"
-                        >{$weatherStore.currentWeather.details.humidity}%</span
+                        >{weatherStore.currentWeather.details.humidity}%</span
                     >
                 </div>
                 <div class="detail-item">
                     <span class="text-muted-foreground">Wind</span>
                     <span class="font-medium"
-                        >{$weatherStore.currentWeather.details.wind_speed}
-                        {$weatherStore.currentWeather.details
+                        >{weatherStore.currentWeather.details.wind_speed}
+                        {weatherStore.currentWeather.details
                             .wind_direction}</span
                     >
                 </div>
@@ -157,7 +159,7 @@
                     <span class="text-muted-foreground">Sunrise</span>
                     <span class="font-medium"
                         >{formatTime(
-                            $weatherStore.currentWeather.sun.sunrise,
+                            weatherStore.currentWeather.sun.sunrise,
                         )}</span
                     >
                 </div>
@@ -165,18 +167,18 @@
                     <span class="text-muted-foreground">Sunset</span>
                     <span class="font-medium"
                         >{formatTime(
-                            $weatherStore.currentWeather.sun.sunset,
+                            weatherStore.currentWeather.sun.sunset,
                         )}</span
                     >
                 </div>
             </div>
 
             <!-- Forecast (if enabled) -->
-            {#if showForecast && $weatherStore.forecast}
+            {#if showForecast && weatherStore.forecast}
                 <div class="weather-forecast mt-4 pt-4 border-t">
                     <h4 class="text-sm font-medium mb-2">5-Day Forecast</h4>
                     <div class="forecast-items flex overflow-x-auto gap-2 pb-1">
-                        {#each $weatherStore.forecast.forecast.days as day}
+                        {#each weatherStore.forecast.forecast.days as day}
                             <div
                                 class="forecast-day flex flex-col items-center min-w-[4rem] p-2"
                             >
@@ -203,7 +205,7 @@
             <!-- Last Updated -->
             <div class="text-xs text-muted-foreground mt-2 text-right">
                 Last updated: {formatTime(
-                    $weatherStore.currentWeather.last_updated,
+                    weatherStore.currentWeather.last_updated,
                 )}
             </div>
         </Card>

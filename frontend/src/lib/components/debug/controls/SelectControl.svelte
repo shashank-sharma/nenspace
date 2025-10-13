@@ -1,29 +1,33 @@
 <script lang="ts">
     import {
         Select,
-        SelectTrigger,
-        SelectValue,
         SelectContent,
         SelectItem,
+        SelectTrigger,
+        SelectValue,
     } from "$lib/components/ui/select";
+    import { Label } from "$lib/components/ui/label";
 
-    export let value: string;
-    export let options: { label: string; value: string }[] = [];
-    export let onChange: (value: string) => void = () => {};
+    type Option = { value: string; label: string };
 
-    function handleChange(newValue: string) {
-        value = newValue;
-        onChange(newValue);
-    }
+    let { label, options, value, change } = $props<{
+        label: string;
+        options: Option[];
+        value: string;
+        change?: (value: string) => void;
+    }>();
 </script>
 
-<Select {value} onValueChange={handleChange}>
-    <SelectTrigger class="w-full">
-        <SelectValue placeholder="Select option" />
-    </SelectTrigger>
-    <SelectContent>
-        {#each options as option}
-            <SelectItem value={option.value}>{option.label}</SelectItem>
-        {/each}
-    </SelectContent>
-</Select>
+<div class="flex items-center justify-between">
+    <Label class="pr-4">{label}</Label>
+    <Select {value} onValueChange={(v: string | undefined) => v && change?.(v)}>
+        <SelectTrigger class="w-auto min-w-[120px]">
+            <SelectValue placeholder="Select..." />
+        </SelectTrigger>
+        <SelectContent>
+            {#each options as option}
+                <SelectItem value={option.value}>{option.label}</SelectItem>
+            {/each}
+        </SelectContent>
+    </Select>
+</div>

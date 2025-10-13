@@ -1,11 +1,11 @@
 import { browser } from '$app/environment';
-import { initCalendar } from '$lib/features/calendar/services';
 
 /** @type {import('./$types').PageLoad} */
 export function load() {
-  // Initialize calendar data when this page is accessed
+  // The Calendar feature component handles its own initial data fetch.
+  // Avoid triggering a parallel preload here to prevent duplicate requests.
   if (browser) {
-    initCalendar();
+    // no-op on client; leave data fetching to the component
   }
   
   return {

@@ -9,9 +9,15 @@
     import { formatDuration, getEventTimeDisplay } from "../utils/date";
     import { Clock, MapPin, User, Calendar } from "lucide-svelte";
 
-    export let open: boolean = false;
-    export let event: CalendarEvent | null = null;
-    export let onClose: () => void;
+    let {
+        open = false,
+        event = null,
+        onClose,
+    } = $props<{
+        open?: boolean;
+        event: CalendarEvent | null;
+        onClose: () => void;
+    }>();
 
     const eventColors = {
         default: "border-blue-400",
@@ -49,7 +55,9 @@
         return eventColors.default;
     }
 
-    $: eventColor = event ? getEventColor(event) : eventColors.default;
+    const eventColor = $derived(
+        event ? getEventColor(event) : eventColors.default,
+    );
 </script>
 
 <ShadcnDialog {open} onOpenChange={onClose}>

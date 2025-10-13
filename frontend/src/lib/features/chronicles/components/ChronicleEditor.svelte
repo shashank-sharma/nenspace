@@ -1,5 +1,12 @@
 <script lang="ts">
     import { chroniclesStore } from "../stores";
+    import { ChroniclesService } from "../services";
+    import { withErrorHandling } from "$lib/utils/error-handler.util";
+    import { validateWithToast, required } from "$lib/utils/validation.util";
+    import {
+        formatDateForEntry,
+        formatDateForTitle,
+    } from "../utils/weather-mapping.util";
     import { Card } from "$lib/components/ui/card";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
@@ -18,9 +25,9 @@
 
     const { theme } = getContext("theme");
 
-    let content = $chroniclesStore.currentEntry?.content || "";
-    let mood = $chroniclesStore.currentEntry?.mood || "neutral";
-    let tags = $chroniclesStore.currentEntry?.tags || "";
+    let content = $state(chroniclesStore.currentEntry?.content || "");
+    let mood = $state(chroniclesStore.currentEntry?.mood || "neutral");
+    let tags = $state(chroniclesStore.currentEntry?.tags || "");
 
     let carta = new Carta({
         sanitizer: DOMPurify.sanitize,
@@ -36,22 +43,39 @@
             "code",
             "blockquote",
         ],
-        theme: $theme === "dark" ? "github-dark" : "github-light",
+        theme: theme.theme === "dark" ? "github-dark" : "github-light",
     });
 
     async function handleSave() {
-        if (!content.trim()) {
+        if (
+            !validateWithToast(
+                { content },
+                {
+                    content: [required("Content is required")],
+                },
+            )
+        ) {
             return;
         }
 
-        await chroniclesStore.saveEntry({
-            content,
-            mood,
-            tags,
-            date: new Date().toISOString().split("T")[0],
-            title: new Date().toISOString().split("T")[0].replace(/-/g, ""),
-            user: "", // Will be set in store
-        });
+        await withErrorHandling(
+            async () => {
+                const entry = await ChroniclesService.saveJournalEntry({
+                    ...chroniclesStore.currentEntry,
+                    content,
+                    mood,
+                    tags,
+                    date: formatDateForEntry(new Date()),
+                    title: formatDateForTitle(new Date()),
+                    user: "",
+                });
+                chroniclesStore.setCurrentEntry(entry);
+            },
+            {
+                successMessage: "Saved successfully",
+                errorMessage: "Failed to save",
+            },
+        );
     }
 </script>
 

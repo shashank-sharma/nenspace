@@ -1,38 +1,46 @@
 <script lang="ts">
-    import { writable, type Writable } from "svelte/store";
     import { Input } from "$lib/components/ui/input";
     import { Check, X } from "lucide-svelte";
-    import { cn } from "$lib/utils.js";
+    import { cn } from "$lib/utils";
 
-    // Props
-    export let store: Writable<string>;
-    export let placeholder: string = "";
-    export let className: string = "";
+    let {
+        value,
+        placeholder = "",
+        className = "",
+        onChange = () => {},
+    } = $props<{
+        value: string;
+        placeholder?: string;
+        className?: string;
+        onChange?: (value: string) => void;
+    }>();
 
     // Local state
-    let editValue: string;
-    let isEditing = false;
+    let editValue = $state(value);
+    let isEditing = $state(false);
 
-    // Initialize edit value from store
-    $: if (!isEditing) {
-        editValue = $store;
-    }
+    // Initialize edit value
+    $effect(() => {
+        if (!isEditing) {
+            editValue = value;
+        }
+    });
 
     // Start editing
     function startEdit() {
-        editValue = $store;
+        editValue = value;
         isEditing = true;
     }
 
     // Save changes
     function saveChanges() {
-        store.set(editValue);
+        onChange(editValue);
         isEditing = false;
     }
 
     // Cancel editing
     function cancelEdit() {
-        editValue = $store;
+        editValue = value;
         isEditing = false;
     }
 
@@ -52,14 +60,14 @@
             bind:value={editValue}
             {placeholder}
             class={cn("pr-16", className)}
-            on:keydown={handleKeydown}
-            on:focus={() => (isEditing = true)}
+            onkeydown={handleKeydown}
+            onfocus={() => (isEditing = true)}
         />
         <div class="absolute right-0 inset-y-0 flex items-center pr-1">
             <button
                 type="button"
                 class="p-1 hover:bg-green-500/20 text-green-500 rounded-sm mr-1"
-                on:click={saveChanges}
+                onclick={saveChanges}
                 title="Save"
             >
                 <Check size={14} />
@@ -67,7 +75,7 @@
             <button
                 type="button"
                 class="p-1 hover:bg-red-500/20 text-red-500 rounded-sm"
-                on:click={cancelEdit}
+                onclick={cancelEdit}
                 title="Cancel"
             >
                 <X size={14} />
@@ -75,11 +83,11 @@
         </div>
     {:else}
         <Input
-            value={$store}
+            {value}
             {placeholder}
             class={cn("cursor-pointer hover:border-primary/50", className)}
-            on:focus={startEdit}
-            on:click={startEdit}
+            onfocus={startEdit}
+            onclick={startEdit}
             readonly
         />
     {/if}

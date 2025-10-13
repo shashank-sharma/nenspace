@@ -1,57 +1,108 @@
 <script lang="ts">
-    import { foodLogStore } from "../stores/food-log.store";
     import { FOOD_TAGS, DEFAULT_FOOD_LOG_FORM } from "../types";
+    import type { FoodLogFormData, FoodLogEntry } from "../types";
+    import {
+        MAX_IMAGE_SIZE_BYTES,
+        MAX_IMAGE_SIZE_MB,
+        ALLOWED_IMAGE_TYPES,
+    } from "../constants";
     import { onMount } from "svelte";
-    import { getLocalTimeZone, today } from "@internationalized/date";
+    import {
+        getLocalTimeZone,
+        today,
+        parseDate,
+    } from "@internationalized/date";
     import type { DateValue } from "@internationalized/date";
-
-    // Check if these UI components exist in the project
     import { Button } from "$lib/components/ui/button";
     import { Label } from "$lib/components/ui/label";
     import { Input } from "$lib/components/ui/input";
-    import * as Select from "$lib/components/ui/select";
     import { toast } from "svelte-sonner";
     import { X, Upload } from "lucide-svelte";
     import DateTimePicker from "$lib/components/DateTimePicker.svelte";
+    import { createEventDispatcher } from "svelte";
+    import { required, validateWithToast } from "$lib/utils";
 
-    // Make initialTag accept string | null | undefined
-    export let initialTag: string | null | undefined = null;
-    // Add compact mode for modal display
-    export let compact = false;
-    // Add onSuccess callback for when form submission is successful
-    export let onSuccess: () => void = () => {};
+    let {
+        initialTag = null,
+        compact = false,
+        editEntry = null,
+        mode = "create",
+    } = $props<{
+        initialTag?: string | null | undefined;
+        compact?: boolean;
+        editEntry?: FoodLogEntry | null;
+        mode?: "create" | "edit";
+    }>();
 
-    let formData = { ...DEFAULT_FOOD_LOG_FORM };
-    let imagePreview: string | null = null;
+    const dispatch = createEventDispatcher<{
+        submit: FoodLogFormData & { id?: string };
+    }>();
+
+    let formData = $state<FoodLogFormData>({ ...DEFAULT_FOOD_LOG_FORM });
     let fileInput: HTMLInputElement;
-    let isDragging = false;
-    let isSubmitting = false;
+    let isDragging = $state(false);
+    let isSubmitting = $state(false);
     let dropZone: HTMLDivElement;
 
     // DateValue for the DateTimePicker
-    let datePickerValue: DateValue = today(getLocalTimeZone());
+    let datePickerValue = $state<DateValue>(today(getLocalTimeZone()));
 
     // JavaScript Date for our form data
-    let dateValue: Date = new Date();
+    let dateValue = $state<Date>(new Date());
 
     // Create a string value for the select component
-    let selectedTag = initialTag || formData.tag;
+    let selectedTag = $state(initialTag || DEFAULT_FOOD_LOG_FORM.tag);
 
-    // Set the initial tag if provided
-    $: if (initialTag && initialTag !== formData.tag) {
-        selectedTag = initialTag;
-        formData.tag = initialTag;
-    }
+    // Keep tag in sync if the parent updates initialTag
+    $effect(() => {
+        if (initialTag && initialTag !== formData.tag) {
+            selectedTag = initialTag;
+            formData.tag = initialTag;
+        }
+    });
+
+    let previewUrl = $state<string | null>(null);
+
+    $effect(() => {
+        if (formData.image) {
+            const url = URL.createObjectURL(formData.image);
+            previewUrl = url;
+            return () => {
+                URL.revokeObjectURL(url);
+                previewUrl = null;
+            };
+        } else {
+            previewUrl = null;
+        }
+    });
 
     // Initial setup to ensure the date field in formData is set to ISO string
     onMount(() => {
-        // Initialize with the current date/time
-        formData.date = dateValue.toISOString();
+        // If editing, populate form with existing data
+        if (mode === "edit" && editEntry) {
+            formData.name = editEntry.name;
+            formData.tag = editEntry.tag;
+            formData.date = editEntry.date;
+            selectedTag = editEntry.tag;
 
-        // Set initial tag if provided
-        if (initialTag) {
-            selectedTag = initialTag;
-            formData.tag = initialTag;
+            // Set date picker value
+            const entryDate = new Date(editEntry.date);
+            dateValue = entryDate;
+
+            // Parse date for DateTimePicker
+            const dateStr = entryDate.toISOString().split("T")[0];
+            datePickerValue = parseDate(dateStr);
+
+            // Note: We don't set the image as File, but we could show existing image
+        } else {
+            // Initialize with the current date/time for create mode
+            formData.date = dateValue.toISOString();
+
+            // Set initial tag if provided
+            if (initialTag) {
+                selectedTag = initialTag;
+                formData.tag = initialTag;
+            }
         }
     });
 
@@ -71,8 +122,9 @@
         dateValue = new Date(); // Reset to current date/time
         datePickerValue = today(getLocalTimeZone()); // Reset DatePicker value
         formData.date = dateValue.toISOString();
-        selectedTag = formData.tag;
-        imagePreview = null;
+        selectedTag = initialTag || formData.tag;
+        formData.tag = selectedTag;
+        previewUrl = null;
         if (fileInput) fileInput.value = "";
     }
 
@@ -89,24 +141,21 @@
         if (!file) return;
 
         // Validate file type
-        if (!file.type.startsWith("image/")) {
-            toast.error("Please select an image file");
+        if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+            toast.error(
+                `Please select a valid image file (${ALLOWED_IMAGE_TYPES.map((t) => t.split("/")[1].toUpperCase()).join(", ")})`,
+            );
             return;
         }
 
-        // Validate file size (5MB max)
-        if (file.size > 5 * 1024 * 1024) {
-            toast.error("Image size must be less than 5MB");
+        // Validate file size
+        if (file.size > MAX_IMAGE_SIZE_BYTES) {
+            toast.error(`Image size must be less than ${MAX_IMAGE_SIZE_MB}MB`);
             return;
         }
 
-        // Create preview and set form data
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            imagePreview = e.target?.result as string;
-            formData.image = file;
-        };
-        reader.readAsDataURL(file);
+        // Set form data file
+        formData.image = file;
     }
 
     // Handle drag and drop events
@@ -128,51 +177,42 @@
         }
     }
 
-    // Handle select change
-    function handleTagChange(tag: string) {
-        selectedTag = tag;
-        formData.tag = tag;
-    }
-
     // Handle form submission
     async function handleSubmit() {
-        if (!formData.name) {
-            toast.error("Please enter a name for your food item");
-            return;
-        }
-
-        if (!formData.tag) {
-            toast.error("Please select a tag for your food item");
-            return;
-        }
-
-        if (!formData.image) {
-            toast.error("Please upload an image of your food");
-            return;
-        }
-
-        // Double-check the date is valid
-        if (!formData.date || isNaN(new Date(formData.date).getTime())) {
-            toast.error("Please select a valid date and time");
+        // Validation using validation utility
+        if (
+            !validateWithToast(formData, {
+                name: [required("Please enter a name for your food log entry")],
+            })
+        ) {
             return;
         }
 
         isSubmitting = true;
 
         try {
-            const result = await foodLogStore.addEntry(formData);
+            // Dispatch submit event with form data
+            const submitData: FoodLogFormData & { id?: string } = {
+                name: formData.name.trim(),
+                tag: formData.tag,
+                image: formData.image,
+                date: formData.date,
+            };
 
-            if (result.success) {
-                toast.success("Food item added successfully!");
+            // Include entry ID if editing
+            if (mode === "edit" && editEntry) {
+                submitData.id = editEntry.id;
+            }
+
+            dispatch("submit", submitData);
+
+            // Reset form after successful dispatch (only for create mode)
+            if (mode === "create") {
                 resetForm();
-                // Call onSuccess callback if provided
-                onSuccess();
-            } else {
-                toast.error("Failed to add food item");
             }
         } catch (error) {
-            console.error("Error adding food item:", error);
-            toast.error("An unexpected error occurred");
+            console.error("Error submitting form:", error);
+            toast.error("Failed to submit form");
         } finally {
             isSubmitting = false;
         }
@@ -180,7 +220,7 @@
 
     // Handle image removal
     function removeImage() {
-        imagePreview = null;
+        previewUrl = null;
         formData.image = undefined;
         if (fileInput) fileInput.value = "";
     }
@@ -206,11 +246,17 @@
 <div class="food-log-upload space-y-4">
     {#if !compact}
         <h2 class="text-2xl font-semibold tracking-tight">
-            Add New Food Entry
+            {mode === "edit" ? "Edit Food Entry" : "Add New Food Entry"}
         </h2>
     {/if}
 
-    <form on:submit|preventDefault={handleSubmit} class="space-y-4">
+    <form
+        onsubmit={(e) => {
+            e.preventDefault();
+            handleSubmit();
+        }}
+        class="space-y-4"
+    >
         <div class="space-y-2">
             <Label for="food-name">Food Name</Label>
             <Input
@@ -219,6 +265,7 @@
                 placeholder="What did you eat?"
                 bind:value={formData.name}
                 required
+                disabled={isSubmitting}
             />
         </div>
 
@@ -230,7 +277,8 @@
                     id="food-tag"
                     class="w-full p-2 border rounded-md"
                     bind:value={selectedTag}
-                    on:change={() => (formData.tag = selectedTag)}
+                    onchange={() => (formData.tag = selectedTag)}
+                    disabled={isSubmitting}
                 >
                     {#each FOOD_TAGS as tag}
                         <option value={tag.value}>{tag.label}</option>
@@ -245,7 +293,7 @@
             <DateTimePicker
                 bind:value={datePickerValue}
                 placeholder="Select date and time"
-                on:change={(e) => handleDateChange(e.detail)}
+                on:change={(e: CustomEvent<Date>) => handleDateChange(e.detail)}
             />
             <div class="text-xs text-muted-foreground mt-1">
                 {dateValue ? dateValue.toLocaleString() : "No date selected"}
@@ -253,65 +301,75 @@
         </div>
 
         <div class="space-y-2">
-            <Label for="food-image">Food Image</Label>
+            <Label for="food-image">Food Image (Optional)</Label>
             <div
                 bind:this={dropZone}
-                class="border-2 border-dashed p-6 rounded-lg text-center cursor-pointer transition-colors duration-200 flex flex-col items-center justify-center"
-                class:border-primary={isDragging}
-                class:bg-primary-50={isDragging}
-                class:border-gray-300={!isDragging}
-                on:click={() => fileInput?.click()}
-                on:keydown={(e) => e.key === "Enter" && fileInput?.click()}
+                class="border-2 border-dashed p-6 rounded-lg text-center cursor-pointer transition-colors duration-200 flex flex-col items-center justify-center
+					{isDragging ? 'border-primary bg-primary/5' : 'border-input'}
+					{isSubmitting ? 'opacity-50 pointer-events-none' : ''}"
+                onclick={() => !isSubmitting && fileInput?.click()}
+                onkeydown={(e) =>
+                    e.key === "Enter" && !isSubmitting && fileInput?.click()}
                 tabindex="0"
                 role="button"
                 aria-label="Upload image"
             >
-                {#if imagePreview}
+                {#if previewUrl}
                     <div
                         class="relative max-w-full max-h-64 overflow-hidden mb-2 group"
                     >
                         <img
-                            src={imagePreview}
+                            src={previewUrl}
                             alt="Preview"
                             class="max-h-64 object-contain rounded-md"
                         />
                         <button
                             type="button"
-                            class="absolute top-2 right-2 bg-white/80 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                            on:click|stopPropagation={removeImage}
+                            class="absolute top-2 right-2 bg-white dark:bg-gray-800 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            onclick={(e) => {
+                                e.stopPropagation();
+                                removeImage();
+                            }}
                             aria-label="Remove image"
+                            disabled={isSubmitting}
                         >
                             <X class="h-4 w-4" />
                         </button>
                     </div>
-                    <span class="text-sm text-gray-500"
+                    <span class="text-sm text-muted-foreground"
                         >Click to change image</span
                     >
                 {:else}
-                    <Upload class="h-12 w-12 text-gray-400 mb-2" />
-                    <p class="text-sm text-gray-500">
+                    <Upload class="h-12 w-12 text-muted-foreground mb-2" />
+                    <p class="text-sm text-muted-foreground">
                         Drag and drop an image, or click to select
                     </p>
-                    <p class="text-xs text-gray-400 mt-1">
-                        JPG, PNG, GIF up to 5MB
+                    <p class="text-xs text-muted-foreground mt-1">
+                        JPG, PNG, GIF, WEBP up to {MAX_IMAGE_SIZE_MB}MB
                     </p>
                 {/if}
                 <input
                     bind:this={fileInput}
                     type="file"
                     id="food-image"
-                    accept="image/*"
+                    accept={ALLOWED_IMAGE_TYPES.join(",")}
                     class="hidden"
-                    on:change={handleFileSelect}
+                    onchange={handleFileSelect}
+                    disabled={isSubmitting}
                 />
             </div>
         </div>
 
         <Button type="submit" class="w-full" disabled={isSubmitting}>
             {#if isSubmitting}
-                Adding...
+                <div class="flex items-center gap-2">
+                    <div
+                        class="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"
+                    ></div>
+                    {mode === "edit" ? "Updating..." : "Adding..."}
+                </div>
             {:else}
-                Add to Food Log
+                {mode === "edit" ? "Update Food Log" : "Add to Food Log"}
             {/if}
         </Button>
     </form>
@@ -344,5 +402,10 @@
         border-right: 5px solid transparent;
         border-top: 5px solid currentColor;
         pointer-events: none;
+    }
+
+    .select-wrapper select:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 </style>

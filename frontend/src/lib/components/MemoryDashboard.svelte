@@ -1,344 +1,139 @@
 <!-- MemoryDashboard.svelte -->
 <script lang="ts">
-    import { onMount } from "svelte";
-    import { pb } from "$lib/config/pocketbase";
-
-    // Custom API client for memory system endpoints
-    class MemoryAPI {
-        static async send(
-            endpoint: string,
-            options: {
-                method?: string;
-                params?: Record<string, any>;
-                body?: any;
-            } = {},
-        ) {
-            const url = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
-            const method = options.method || "GET";
-            const headers: Record<string, string> = {
-                "Content-Type": "application/json",
-            };
-
-            // Include the auth token if user is authenticated
-            if (pb.authStore.isValid) {
-                headers["Authorization"] = pb.authStore.token;
-            }
-
-            const fetchOptions: RequestInit = {
-                method,
-                headers,
-            };
-
-            // Add body for non-GET requests
-            if (method !== "GET" && options.body) {
-                fetchOptions.body = JSON.stringify(options.body);
-            }
-
-            // Add query params
-            let finalUrl = url;
-            if (options.params) {
-                const searchParams = new URLSearchParams();
-                for (const key in options.params) {
-                    if (
-                        options.params[key] !== undefined &&
-                        options.params[key] !== null
-                    ) {
-                        searchParams.append(
-                            key,
-                            options.params[key].toString(),
-                        );
-                    }
-                }
-                const queryString = searchParams.toString();
-                if (queryString) {
-                    finalUrl += `?${queryString}`;
-                }
-            }
-
-            try {
-                // Construct the full URL by adding the baseUrl and api prefix
-                const fullUrl = `${pb.baseUrl}/api${finalUrl}`;
-                const response = await fetch(fullUrl, fetchOptions);
-
-                if (!response.ok) {
-                    throw new Error(
-                        `API request failed: ${response.status} ${response.statusText}`,
-                    );
-                }
-
-                const contentType = response.headers.get("content-type");
-                if (contentType && contentType.includes("application/json")) {
-                    return await response.json();
-                }
-
-                return await response.text();
-            } catch (error) {
-                console.error("API request error:", error);
-                throw error;
-            }
-        }
-    }
-
-    // Define types for our data structures
-    interface Memory {
-        id: string;
-        title: string;
-        content: string;
-        memory_type: string;
-        created: string;
-        importance: number;
-        strength: number;
-        access_count: number;
-        last_accessed: string;
-        tags: string;
-    }
-
-    interface Entity {
-        id: string;
-        name: string;
-        description: string;
-        entity_type: string;
-        importance: number;
-        interaction_count: number;
-        first_seen: string;
-        last_seen: string;
-    }
-
-    interface Insight {
-        id: string;
-        title: string;
-        content: string;
-        category: string;
-        confidence: number;
-        user_rating: number;
-        is_highlighted: boolean;
-    }
-
-    interface TagCount {
-        tag: string;
-        count: number;
-    }
-
-    interface StatusData {
-        memory_count: number;
-        entity_count: number;
-        insight_count: number;
-    }
+    import { MemoryService } from "$lib/features/memory/services/memory.service";
+    import type {
+        Memory,
+        Entity,
+        Insight,
+        TagCount,
+        StatusData,
+    } from "$lib/features/memory/types";
 
     // Component state
-    let memories: Memory[] = [];
-    let insights: Insight[] = [];
-    let entities: Entity[] = [];
-    let loading = true;
-    let searchQuery = "";
-    let activeTab = "timeline";
-    let selectedMemory: Memory | null = null;
-    let selectedEntity: { entity: Entity; related_memories?: Memory[] } | null =
-        null;
-    let selectedInsight: {
+    let memories = $state<Memory[]>([]);
+    let insights = $state<Insight[]>([]);
+    let entities = $state<Entity[]>([]);
+    let loading = $state(true);
+    let searchQuery = $state("");
+    let activeTab = $state("timeline");
+    let selectedMemory = $state<Memory | null>(null);
+    let selectedEntity = $state<{
+        entity: Entity;
+        related_memories?: Memory[];
+    } | null>(null);
+    let selectedInsight = $state<{
         insight: Insight;
         source_memories?: Memory[];
         related_entities?: Entity[];
-    } | null = null;
-    let memoryTags: TagCount[] = [];
-    let statusData: StatusData | null = null;
+    } | null>(null);
+    let memoryTags = $state<TagCount[]>([]);
+    let statusData = $state<StatusData | null>(null);
 
     // Fetch initial data
-    onMount(async () => {
-        await Promise.all([
-            fetchMemoryTimeline(),
-            fetchInsights(),
-            fetchEntities(),
-            fetchMemoryTags(),
-            fetchMemoryStatus(),
-        ]);
-        loading = false;
+    $effect(() => {
+        async function loadInitialData() {
+            await Promise.all([
+                fetchMemoryTimeline(),
+                fetchInsights(),
+                fetchEntities(),
+                fetchMemoryTags(),
+                fetchMemoryStatus(),
+            ]);
+            loading = false;
+        }
+        loadInitialData();
     });
 
-    // Memory timeline fetch
     async function fetchMemoryTimeline() {
         try {
-            const response = await MemoryAPI.send("/memory/timeline", {
-                method: "GET",
-                params: {
-                    limit: 50,
-                },
-            });
-
-            if (response && response.memories) {
-                memories = response.memories;
-            }
+            const response = await MemoryService.getMemoryTimeline();
+            if (response?.memories) memories = response.memories;
         } catch (error) {
             console.error("Error fetching memory timeline:", error);
         }
     }
 
-    // Memory search
     async function searchMemories() {
         if (!searchQuery.trim()) {
             await fetchMemoryTimeline();
             return;
         }
-
         try {
-            const response = await MemoryAPI.send("/memory/search", {
-                method: "POST",
-                body: {
-                    query: searchQuery,
-                    limit: 20,
-                },
-            });
-
-            if (response && response.memories) {
-                memories = response.memories;
-            }
+            const response = await MemoryService.searchMemories(searchQuery);
+            if (response?.memories) memories = response.memories;
         } catch (error) {
             console.error("Error searching memories:", error);
         }
     }
 
-    // Fetch insights
     async function fetchInsights() {
         try {
-            const response = await MemoryAPI.send("/memory/insights", {
-                method: "GET",
-                params: {
-                    limit: 10,
-                },
-            });
-
-            if (response && response.insights) {
-                insights = response.insights;
-            }
+            const response = await MemoryService.getInsights();
+            if (response?.insights) insights = response.insights;
         } catch (error) {
             console.error("Error fetching insights:", error);
         }
     }
 
-    // Fetch entities
     async function fetchEntities() {
         try {
-            const response = await MemoryAPI.send("/memory/entities", {
-                method: "GET",
-                params: {
-                    limit: 20,
-                },
-            });
-
-            if (response && response.entities) {
-                entities = response.entities;
-            }
+            const response = await MemoryService.getEntities();
+            if (response?.entities) entities = response.entities;
         } catch (error) {
             console.error("Error fetching entities:", error);
         }
     }
 
-    // Fetch memory tags
     async function fetchMemoryTags() {
         try {
-            const response = await MemoryAPI.send("/memory/tags", {
-                method: "GET",
-            });
-
-            if (response && response.tags) {
-                memoryTags = response.tags;
-            }
+            const response = await MemoryService.getMemoryTags();
+            if (response?.tags) memoryTags = response.tags;
         } catch (error) {
             console.error("Error fetching memory tags:", error);
         }
     }
 
-    // Fetch memory status
     async function fetchMemoryStatus() {
         try {
-            const response = await MemoryAPI.send("/memory/status", {
-                method: "GET",
-            });
-
-            if (response) {
-                statusData = response;
-            }
+            const response = await MemoryService.getMemoryStatus();
+            if (response) statusData = response;
         } catch (error) {
             console.error("Error fetching memory status:", error);
         }
     }
 
-    // Get memory details
     async function getMemoryDetails(memoryId: string) {
         try {
-            const response = await MemoryAPI.send("/memory/details", {
-                method: "GET",
-                params: {
-                    id: memoryId,
-                },
-            });
-
-            if (response && response.memory) {
-                selectedMemory = response.memory;
-            }
+            const response = await MemoryService.getMemoryDetails(memoryId);
+            if (response?.memory) selectedMemory = response.memory;
         } catch (error) {
             console.error("Error fetching memory details:", error);
         }
     }
 
-    // Get entity details
     async function getEntityDetails(entityId: string) {
         try {
-            const response = await MemoryAPI.send("/memory/entity", {
-                method: "GET",
-                params: {
-                    id: entityId,
-                },
-            });
-
-            if (response && response.entity) {
-                selectedEntity = response;
-            }
+            const response = await MemoryService.getEntityDetails(entityId);
+            if (response?.entity) selectedEntity = response;
         } catch (error) {
             console.error("Error fetching entity details:", error);
         }
     }
 
-    // Get insight details
     async function getInsightDetails(insightId: string) {
         try {
-            const response = await MemoryAPI.send("/memory/insight", {
-                method: "GET",
-                params: {
-                    id: insightId,
-                },
-            });
-
-            if (response && response.insight) {
-                selectedInsight = response;
-            }
+            const response = await MemoryService.getInsightDetails(insightId);
+            if (response?.insight) selectedInsight = response;
         } catch (error) {
             console.error("Error fetching insight details:", error);
         }
     }
 
-    // Rate an insight
     async function rateInsight(insightId: string, rating: number) {
         try {
-            await MemoryAPI.send("/memory/insight/rate", {
-                method: "POST",
-                params: {
-                    id: insightId,
-                },
-                body: {
-                    rating,
-                },
-            });
-
-            // Refresh insights
+            await MemoryService.rateInsight(insightId, rating);
             await fetchInsights();
-
-            // Update selected insight if applicable
-            if (
-                selectedInsight &&
-                selectedInsight.insight &&
-                selectedInsight.insight.id === insightId
-            ) {
+            if (selectedInsight?.insight.id === insightId) {
                 await getInsightDetails(insightId);
             }
         } catch (error) {
@@ -346,29 +141,48 @@
         }
     }
 
-    // Trigger memory consolidation
+    function getMemoryTypeIcon(memoryType: string) {
+        // Replace with actual icons
+        switch (memoryType) {
+            case "conversation":
+                return "💬";
+            case "observation":
+                return "👀";
+            case "experience":
+                return "🌟";
+            default:
+                return "🧠";
+        }
+    }
+
+    function getEntityTypeIcon(entityType: string) {
+        // Replace with actual icons
+        switch (entityType) {
+            case "person":
+                return "👤";
+            case "place":
+                return "📍";
+            case "organization":
+                return "🏢";
+            default:
+                return "🏷️";
+        }
+    }
+
     async function triggerConsolidation() {
         try {
-            await MemoryAPI.send("/memory/consolidate", {
-                method: "POST",
-                body: {
-                    process_type: "consolidation",
-                },
-            });
-
+            await MemoryService.triggerConsolidation();
             alert("Memory consolidation process started");
         } catch (error) {
             console.error("Error triggering consolidation:", error);
         }
     }
 
-    // Format date
     function formatDate(dateString: string) {
         const date = new Date(dateString);
         return date.toLocaleDateString() + " " + date.toLocaleTimeString();
     }
 
-    // Parse JSON field
     function parseJsonField(field: string | null) {
         if (!field) return [];
         try {
@@ -378,54 +192,12 @@
         }
     }
 
-    // Filter memories by tag
     async function filterByTag(tag: string) {
         try {
-            const response = await MemoryAPI.send("/memory/tag", {
-                method: "GET",
-                params: {
-                    tag,
-                    limit: 20,
-                },
-            });
-
-            if (response && response.memories) {
-                memories = response.memories;
-            }
+            const response = await MemoryService.filterByTag(tag);
+            if (response?.memories) memories = response.memories;
         } catch (error) {
             console.error("Error filtering memories by tag:", error);
-        }
-    }
-
-    // Memory type icon
-    function getMemoryTypeIcon(type: string) {
-        switch (type) {
-            case "episodic":
-                return "📅"; // calendar for events
-            case "semantic":
-                return "🧠"; // brain for knowledge
-            case "procedural":
-                return "🔧"; // wrench for how-to
-            default:
-                return "📝"; // note for default
-        }
-    }
-
-    // Entity type icon
-    function getEntityTypeIcon(type: string) {
-        switch (type) {
-            case "person":
-                return "👤";
-            case "place":
-                return "📍";
-            case "project":
-                return "📁";
-            case "concept":
-                return "💡";
-            case "device":
-                return "📱";
-            default:
-                return "📦";
         }
     }
 </script>
@@ -449,7 +221,7 @@
                 >
                 <span class="status-label">Insights</span>
             </div>
-            <button class="consolidate-button" on:click={triggerConsolidation}
+            <button class="consolidate-button" onclick={triggerConsolidation}
                 >Run Consolidation</button
             >
         </div>
@@ -462,15 +234,15 @@
                 type="text"
                 bind:value={searchQuery}
                 placeholder="Search memories..."
-                on:keyup={(e) => e.key === "Enter" && searchMemories()}
+                onkeyup={(e) => e.key === "Enter" && searchMemories()}
             />
-            <button on:click={searchMemories}>Search</button>
+            <button onclick={searchMemories}>Search</button>
         </div>
 
         <div class="tabs">
             <button
                 class={activeTab === "timeline" ? "active" : ""}
-                on:click={() => {
+                onclick={() => {
                     activeTab = "timeline";
                     fetchMemoryTimeline();
                 }}
@@ -479,7 +251,7 @@
             </button>
             <button
                 class={activeTab === "insights" ? "active" : ""}
-                on:click={() => {
+                onclick={() => {
                     activeTab = "insights";
                     fetchInsights();
                 }}
@@ -488,7 +260,7 @@
             </button>
             <button
                 class={activeTab === "entities" ? "active" : ""}
-                on:click={() => {
+                onclick={() => {
                     activeTab = "entities";
                     fetchEntities();
                 }}
@@ -497,7 +269,7 @@
             </button>
             <button
                 class={activeTab === "tags" ? "active" : ""}
-                on:click={() => {
+                onclick={() => {
                     activeTab = "tags";
                     fetchMemoryTags();
                 }}
@@ -521,7 +293,13 @@
                     {#each memories as memory (memory.id)}
                         <div
                             class="memory-card"
-                            on:click={() => getMemoryDetails(memory.id)}
+                            role="button"
+                            tabindex="0"
+                            onclick={() => getMemoryDetails(memory.id)}
+                            onkeydown={(e) => {
+                                if (e.key === "Enter" || e.key === " ")
+                                    getMemoryDetails(memory.id);
+                            }}
                         >
                             <div class="memory-header">
                                 <span class="memory-type-icon"
@@ -542,10 +320,15 @@
                             </p>
                             <div class="memory-tags">
                                 {#each parseJsonField(memory.tags) as tag}
-                                    <span
+                                    <button
+                                        type="button"
                                         class="tag"
-                                        on:click|stopPropagation={() =>
-                                            filterByTag(tag)}>{tag}</span
+                                        onclick={(e) => {
+                                            e.stopPropagation();
+                                            filterByTag(tag);
+                                        }}
+                                        onkeydown={(e) => e.stopPropagation()}
+                                        >{tag}</button
                                     >
                                 {/each}
                             </div>
@@ -575,7 +358,13 @@
                     {#each insights as insight (insight.id)}
                         <div
                             class="insight-card"
-                            on:click={() => getInsightDetails(insight.id)}
+                            role="button"
+                            tabindex="0"
+                            onclick={() => getInsightDetails(insight.id)}
+                            onkeydown={(e) => {
+                                if (e.key === "Enter" || e.key === " ")
+                                    getInsightDetails(insight.id);
+                            }}
                         >
                             <div class="insight-header">
                                 <span class="insight-category"
@@ -605,8 +394,12 @@
                                     {#each [1, 2, 3, 4, 5] as star}
                                         <button
                                             class="star-button"
-                                            on:click|stopPropagation={() =>
-                                                rateInsight(insight.id, star)}
+                                            onclick={(e) => {
+                                                e.stopPropagation();
+                                                rateInsight(insight.id, star);
+                                            }}
+                                            onkeydown={(e) =>
+                                                e.stopPropagation()}
                                         >
                                             ⭐
                                         </button>
@@ -626,9 +419,10 @@
                     <div class="empty-state">No entities found</div>
                 {:else}
                     {#each entities as entity (entity.id)}
-                        <div
+                        <button
+                            type="button"
                             class="entity-card"
-                            on:click={() => getEntityDetails(entity.id)}
+                            onclick={() => getEntityDetails(entity.id)}
                         >
                             <div class="entity-header">
                                 <span class="entity-type-icon"
@@ -657,7 +451,7 @@
                                     ).toLocaleDateString()}</span
                                 >
                             </div>
-                        </div>
+                        </button>
                     {/each}
                 {/if}
             </div>
@@ -671,17 +465,18 @@
                 {:else}
                     <div class="tag-cloud">
                         {#each memoryTags as tagItem}
-                            <div
+                            <button
+                                type="button"
                                 class="tag-item"
                                 style="font-size: {Math.max(
                                     0.8,
                                     Math.min(2, 0.8 + tagItem.count / 10),
                                 )}rem"
-                                on:click={() => filterByTag(tagItem.tag)}
+                                onclick={() => filterByTag(tagItem.tag)}
                             >
                                 {tagItem.tag}
                                 <span class="tag-count">({tagItem.count})</span>
-                            </div>
+                            </button>
                         {/each}
                     </div>
                 {/if}
@@ -693,8 +488,10 @@
     {#if selectedMemory}
         <div class="modal">
             <div class="modal-content">
-                <span class="close" on:click={() => (selectedMemory = null)}
-                    >&times;</span
+                <button
+                    type="button"
+                    class="close"
+                    onclick={() => (selectedMemory = null)}>&times;</button
                 >
                 <div class="memory-detail">
                     <div class="memory-detail-header">
@@ -718,12 +515,13 @@
                         <h4>Tags</h4>
                         <div class="tags">
                             {#each parseJsonField(selectedMemory.tags) as tag}
-                                <span
+                                <button
+                                    type="button"
                                     class="tag"
-                                    on:click={() => {
+                                    onclick={() => {
                                         filterByTag(tag);
                                         selectedMemory = null;
-                                    }}>{tag}</span
+                                    }}>{tag}</button
                                 >
                             {/each}
                         </div>
@@ -770,8 +568,10 @@
     {#if selectedEntity}
         <div class="modal">
             <div class="modal-content">
-                <span class="close" on:click={() => (selectedEntity = null)}
-                    >&times;</span
+                <button
+                    type="button"
+                    class="close"
+                    onclick={() => (selectedEntity = null)}>&times;</button
                 >
                 <div class="entity-detail">
                     <div class="entity-detail-header">
@@ -831,9 +631,10 @@
                             <h4>Related Memories</h4>
                             <div class="related-list">
                                 {#each selectedEntity.related_memories as memory (memory.id)}
-                                    <div
+                                    <button
+                                        type="button"
                                         class="related-item"
-                                        on:click={() => {
+                                        onclick={() => {
                                             getMemoryDetails(memory.id);
                                             selectedEntity = null;
                                         }}
@@ -846,7 +647,7 @@
                                         <span class="related-title"
                                             >{memory.title}</span
                                         >
-                                    </div>
+                                    </button>
                                 {/each}
                             </div>
                         </div>
@@ -860,8 +661,10 @@
     {#if selectedInsight}
         <div class="modal">
             <div class="modal-content">
-                <span class="close" on:click={() => (selectedInsight = null)}
-                    >&times;</span
+                <button
+                    type="button"
+                    class="close"
+                    onclick={() => (selectedInsight = null)}>&times;</button
                 >
                 <div class="insight-detail">
                     <div class="insight-detail-header">
@@ -893,7 +696,7 @@
                             {#each [1, 2, 3, 4, 5] as star}
                                 <button
                                     class="star-button"
-                                    on:click={() => {
+                                    onclick={() => {
                                         if (selectedInsight) {
                                             rateInsight(
                                                 selectedInsight.insight.id,
@@ -913,9 +716,10 @@
                             <h4>Source Memories</h4>
                             <div class="source-list">
                                 {#each selectedInsight.source_memories as memory (memory.id)}
-                                    <div
+                                    <button
+                                        type="button"
                                         class="source-item"
-                                        on:click={() => {
+                                        onclick={() => {
                                             getMemoryDetails(memory.id);
                                             selectedInsight = null;
                                         }}
@@ -928,7 +732,7 @@
                                         <span class="source-title"
                                             >{memory.title}</span
                                         >
-                                    </div>
+                                    </button>
                                 {/each}
                             </div>
                         </div>
@@ -939,9 +743,10 @@
                             <h4>Related Entities</h4>
                             <div class="entity-list">
                                 {#each selectedInsight.related_entities as entity (entity.id)}
-                                    <div
+                                    <button
+                                        type="button"
                                         class="entity-item"
-                                        on:click={() => {
+                                        onclick={() => {
                                             getEntityDetails(entity.id);
                                             selectedInsight = null;
                                         }}
@@ -954,7 +759,7 @@
                                         <span class="entity-name"
                                             >{entity.name}</span
                                         >
-                                    </div>
+                                    </button>
                                 {/each}
                             </div>
                         </div>
@@ -1115,6 +920,9 @@
             transform 0.2s,
             box-shadow 0.2s;
     }
+    .entity-card {
+        text-align: left;
+    }
 
     .memory-card:hover,
     .insight-card:hover,
@@ -1221,6 +1029,14 @@
         padding: 0;
     }
 
+    .tag-item,
+    .close {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0;
+    }
+
     /* Tags Cloud */
     .tag-cloud {
         display: flex;
@@ -1282,6 +1098,8 @@
         font-size: 24px;
         font-weight: bold;
         cursor: pointer;
+        background: none;
+        border: none;
     }
 
     /* Detail View Styles */
@@ -1379,6 +1197,9 @@
         align-items: center;
         gap: 8px;
         font-size: 14px;
+        border: none;
+        width: 100%;
+        text-align: left;
     }
 
     .related-item:hover,

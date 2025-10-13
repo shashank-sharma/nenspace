@@ -1,6 +1,6 @@
 <!-- src/routes/settings/appearance/+page.svelte -->
 <script lang="ts">
-    import { pb } from "$lib/config/pocketbase";
+    import { ThemeService } from "$lib/services/theme.service.svelte";
     import { Button } from "$lib/components/ui/button";
     import { Label } from "$lib/components/ui/label";
     import * as RadioGroup from "$lib/components/ui/radio-group";
@@ -8,20 +8,18 @@
     import { Switch } from "$lib/components/ui/switch";
     import { toast } from "svelte-sonner";
     import { Sun, Moon, Monitor, Layout, Type, Palette } from "lucide-svelte";
-    import { getContext } from "svelte";
 
-    // Get theme context that you set up in your layout
-    const { theme, toggleTheme } = getContext("theme");
-
-    let settings = {
-        theme: $theme,
+    let settings = $state({
         fontSize: "normal",
         spacing: "comfortable",
         animationsEnabled: true,
         borderRadius: "default",
         accentColor: "blue",
         sidebarCollapsed: false,
-    };
+    });
+
+    // The theme is now directly bound to the service's reactive property
+    let currentTheme = $derived(ThemeService.theme);
 
     const fontSizes = [
         { value: "small", label: "Small" },
@@ -53,9 +51,8 @@
 
     async function saveSettings() {
         try {
-            // Here you would typically save to PocketBase
-            // await pb.collection('user_appearance_settings').update(id, settings);
-            theme.set(settings.theme);
+            // Theme is set directly via onValueChange, so this is not needed here
+            // ThemeService.setTheme(currentTheme);
             toast.success("Appearance settings updated successfully");
         } catch (error) {
             toast.error("Failed to update appearance settings");
@@ -64,7 +61,6 @@
 
     function resetSettings() {
         settings = {
-            theme: "light",
             fontSize: "normal",
             spacing: "comfortable",
             animationsEnabled: true,
@@ -74,6 +70,12 @@
         };
         toast.success("Settings reset to defaults");
     }
+
+    $effect(() => {
+        if (ThemeService.theme) {
+            currentTheme = ThemeService.theme;
+        }
+    });
 </script>
 
 <div class="space-y-8">
@@ -84,7 +86,13 @@
             <h3 class="text-lg font-medium">Theme</h3>
         </div>
 
-        <RadioGroup.Root value={settings.theme} class="grid grid-cols-3 gap-2">
+        <RadioGroup.Root
+            value={currentTheme}
+            onValueChange={(v: string | null) => {
+                if (v) ThemeService.setTheme(v as "light" | "dark" | "system");
+            }}
+            class="grid grid-cols-3 gap-2"
+        >
             <div>
                 <RadioGroup.Item
                     value="light"
@@ -93,7 +101,7 @@
                 >
                     <div
                         class="items-center rounded-md border-2 border-muted p-1 hover:border-accent cursor-pointer"
-                        class:border-primary={settings.theme === "light"}
+                        class:border-primary={currentTheme === "light"}
                     >
                         <div class="space-y-2 rounded-sm bg-[#ecedef] p-2">
                             <div
@@ -101,30 +109,30 @@
                             >
                                 <div
                                     class="h-2 w-[80px] rounded-lg bg-[#ecedef]"
-                                />
+                                ></div>
                                 <div
                                     class="h-2 w-[100px] rounded-lg bg-[#ecedef]"
-                                />
+                                ></div>
                             </div>
                             <div
                                 class="flex items-center space-x-2 rounded-md bg-white p-2 shadow-sm"
                             >
                                 <div
                                     class="h-4 w-4 rounded-full bg-[#ecedef]"
-                                />
+                                ></div>
                                 <div
                                     class="h-2 w-[100px] rounded-lg bg-[#ecedef]"
-                                />
+                                ></div>
                             </div>
                             <div
                                 class="flex items-center space-x-2 rounded-md bg-white p-2 shadow-sm"
                             >
                                 <div
                                     class="h-4 w-4 rounded-full bg-[#ecedef]"
-                                />
+                                ></div>
                                 <div
                                     class="h-2 w-[100px] rounded-lg bg-[#ecedef]"
-                                />
+                                ></div>
                             </div>
                         </div>
                         <span class="block w-full p-2 text-center font-normal"
@@ -137,7 +145,7 @@
                 <RadioGroup.Item value="dark" class="sr-only" aria-label="Dark">
                     <div
                         class="items-center rounded-md border-2 border-muted bg-popover p-1 hover:border-accent cursor-pointer"
-                        class:border-primary={settings.theme === "dark"}
+                        class:border-primary={currentTheme === "dark"}
                     >
                         <div class="space-y-2 rounded-sm bg-slate-950 p-2">
                             <div
@@ -145,30 +153,30 @@
                             >
                                 <div
                                     class="h-2 w-[80px] rounded-lg bg-slate-400"
-                                />
+                                ></div>
                                 <div
                                     class="h-2 w-[100px] rounded-lg bg-slate-400"
-                                />
+                                ></div>
                             </div>
                             <div
                                 class="flex items-center space-x-2 rounded-md bg-slate-800 p-2 shadow-sm"
                             >
                                 <div
                                     class="h-4 w-4 rounded-full bg-slate-400"
-                                />
+                                ></div>
                                 <div
                                     class="h-2 w-[100px] rounded-lg bg-slate-400"
-                                />
+                                ></div>
                             </div>
                             <div
                                 class="flex items-center space-x-2 rounded-md bg-slate-800 p-2 shadow-sm"
                             >
                                 <div
                                     class="h-4 w-4 rounded-full bg-slate-400"
-                                />
+                                ></div>
                                 <div
                                     class="h-2 w-[100px] rounded-lg bg-slate-400"
-                                />
+                                ></div>
                             </div>
                         </div>
                         <span class="block w-full p-2 text-center font-normal"
@@ -185,7 +193,7 @@
                 >
                     <div
                         class="items-center rounded-md border-2 border-muted p-1 hover:border-accent cursor-pointer"
-                        class:border-primary={settings.theme === "system"}
+                        class:border-primary={currentTheme === "system"}
                     >
                         <div class="space-y-2 rounded-sm bg-[#ecedef] p-2">
                             <div
@@ -193,20 +201,20 @@
                             >
                                 <div
                                     class="h-2 w-[80px] rounded-lg bg-[#ecedef]"
-                                />
+                                ></div>
                                 <div
                                     class="h-2 w-[100px] rounded-lg bg-[#ecedef]"
-                                />
+                                ></div>
                             </div>
                             <div
                                 class="space-y-2 rounded-md bg-slate-800 p-2 shadow-sm"
                             >
                                 <div
                                     class="h-2 w-[80px] rounded-lg bg-slate-400"
-                                />
+                                ></div>
                                 <div
                                     class="h-2 w-[100px] rounded-lg bg-slate-400"
-                                />
+                                ></div>
                             </div>
                         </div>
                         <span class="block w-full p-2 text-center font-normal"
@@ -234,7 +242,7 @@
                     </Select.Trigger>
                     <Select.Content>
                         {#each fontSizes as size}
-                            <Select.Item value={size.value}
+                            <Select.Item value={size.value} label={size.label}
                                 >{size.label}</Select.Item
                             >
                         {/each}
@@ -260,8 +268,9 @@
                     </Select.Trigger>
                     <Select.Content>
                         {#each spacingOptions as option}
-                            <Select.Item value={option.value}
-                                >{option.label}</Select.Item
+                            <Select.Item
+                                value={option.value}
+                                label={option.label}>{option.label}</Select.Item
                             >
                         {/each}
                     </Select.Content>
@@ -276,8 +285,9 @@
                     </Select.Trigger>
                     <Select.Content>
                         {#each borderRadiusOptions as option}
-                            <Select.Item value={option.value}
-                                >{option.label}</Select.Item
+                            <Select.Item
+                                value={option.value}
+                                label={option.label}>{option.label}</Select.Item
                             >
                         {/each}
                     </Select.Content>
@@ -291,12 +301,7 @@
                         Enable or disable animations
                     </p>
                 </div>
-                <Switch
-                    checked={settings.animationsEnabled}
-                    on:change={() =>
-                        (settings.animationsEnabled =
-                            !settings.animationsEnabled)}
-                />
+                <Switch bind:checked={settings.animationsEnabled} />
             </div>
 
             <div class="flex items-center justify-between">
@@ -306,21 +311,16 @@
                         Start with sidebar collapsed
                     </p>
                 </div>
-                <Switch
-                    checked={settings.sidebarCollapsed}
-                    on:change={() =>
-                        (settings.sidebarCollapsed =
-                            !settings.sidebarCollapsed)}
-                />
+                <Switch bind:checked={settings.sidebarCollapsed} />
             </div>
         </div>
     </div>
 
     <!-- Actions -->
     <div class="flex justify-between">
-        <Button variant="outline" on:click={resetSettings}>
+        <Button variant="outline" onclick={resetSettings}>
             Reset to Defaults
         </Button>
-        <Button on:click={saveSettings}>Save Changes</Button>
+        <Button onclick={saveSettings}>Save Changes</Button>
     </div>
 </div>

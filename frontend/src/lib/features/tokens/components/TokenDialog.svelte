@@ -15,46 +15,57 @@
     import { PROVIDERS, DEFAULT_TOKEN_FORM } from "../constants";
     import type { Token } from "../types";
     import { toast } from "svelte-sonner";
-    import { calendarStore } from "$lib/features/calendar/stores/calendar.store";
+    import { CalendarService } from "$lib/features/calendar/services/calendar.service";
     import { onMount, onDestroy } from "svelte";
 
-    export let open = false;
-    export let onClose: () => void;
-    export let onSubmit: (data: any) => Promise<void>;
-    export let selectedToken: Token | null = null;
+    let {
+        open = $bindable(),
+        onClose,
+        onSubmit,
+        selectedToken = null,
+    } = $props<{
+        open?: boolean;
+        onClose: () => void;
+        onSubmit: (data: any) => Promise<void>;
+        selectedToken: Token | null;
+    }>();
 
-    let showTokenValue = false;
-    let showRefreshTokenValue = false;
-    let formData = selectedToken
-        ? { ...selectedToken }
-        : { ...DEFAULT_TOKEN_FORM };
-    let expiryDate = selectedToken?.expiry
-        ? new Date(selectedToken.expiry)
-        : null;
-    let isSubmitting = false;
+    let showTokenValue = $state(false);
+    let showRefreshTokenValue = $state(false);
+    let formData = $state(
+        selectedToken ? { ...selectedToken } : { ...DEFAULT_TOKEN_FORM },
+    );
+    let expiryDate = $state(
+        selectedToken?.expiry ? new Date(selectedToken.expiry) : null,
+    );
+    let isSubmitting = $state(false);
     let authWindow: Window | null = null;
-    let showOAuthUI = false;
+    let showOAuthUI = $state(false);
 
-    $: if (!open) {
-        formData = selectedToken
-            ? { ...selectedToken }
-            : { ...DEFAULT_TOKEN_FORM };
-        expiryDate = selectedToken?.expiry
-            ? new Date(selectedToken.expiry)
-            : null;
-        showTokenValue = false;
-        showRefreshTokenValue = false;
-        showOAuthUI = false;
-    }
+    $effect(() => {
+        if (!open) {
+            formData = selectedToken
+                ? { ...selectedToken }
+                : { ...DEFAULT_TOKEN_FORM };
+            expiryDate = selectedToken?.expiry
+                ? new Date(selectedToken.expiry)
+                : null;
+            showTokenValue = false;
+            showRefreshTokenValue = false;
+            showOAuthUI = false;
+        }
+    });
 
-    $: {
+    $effect(() => {
         console.log("Dialog state:", { open, provider: formData.provider });
         showOAuthUI = formData.provider === "google_calendar" && !selectedToken;
-    }
+    });
 
-    function handleProviderChange(value: string) {
-        console.log("Provider changed to:", value);
-        formData.provider = value;
+    function handleProviderChange(value: string | undefined) {
+        if (value) {
+            console.log("Provider changed to:", value);
+            formData.provider = value;
+        }
     }
 
     function handleExpiryChange(date: Date | null) {
@@ -65,7 +76,7 @@
     async function handleCalendarAuthClick() {
         try {
             console.log("Starting calendar auth...");
-            const authUrl = await calendarStore.startAuth();
+            const authUrl = await CalendarService.startAuth();
             console.log("Auth URL received:", authUrl ? "yes" : "no");
             if (authUrl) {
                 authWindow = window.open(
@@ -99,7 +110,7 @@
         try {
             isSubmitting = true;
             console.log("Checking calendar status...");
-            const status = await calendarStore.checkStatus(true);
+            const status = await CalendarService.checkStatus(true);
             console.log("Calendar status:", status);
 
             if (status) {
@@ -122,11 +133,12 @@
                             tokenData.id,
                         );
                         // Use the calendar token ID to create a calendar sync
-                        const success = await calendarStore.createCalendarToken(
-                            "Google Calendar",
-                            "google_calendar",
-                            tokenData.id,
-                        );
+                        const success =
+                            await CalendarService.createCalendarToken(
+                                "Google Calendar",
+                                "google_calendar",
+                                tokenData.id,
+                            );
 
                         console.log(
                             "Calendar token creation:",
@@ -209,7 +221,7 @@
                 </p>
                 <Button
                     class="w-full"
-                    on:click={handleCalendarAuthClick}
+                    onclick={handleCalendarAuthClick}
                     disabled={isSubmitting}
                 >
                     {#if isSubmitting}
@@ -221,10 +233,10 @@
                 </Button>
             </div>
         {:else}
-            <form class="space-y-4" on:submit|preventDefault={handleSubmit}>
+            <form class="space-y-4" onsubmit={handleSubmit}>
                 <div class="space-y-2">
                     <Label for="provider">Provider *</Label>
-                    <Select value={formData.provider}>
+                    <Select bind:value={formData.provider}>
                         <SelectTrigger class="w-full">
                             <SelectValue placeholder="Select provider" />
                         </SelectTrigger>
@@ -265,7 +277,7 @@
                         <button
                             type="button"
                             class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                            on:click={() => (showTokenValue = !showTokenValue)}
+                            onclick={() => (showTokenValue = !showTokenValue)}
                         >
                             {#if showTokenValue}
                                 <EyeOff class="w-4 h-4" />
@@ -302,7 +314,7 @@
                         <button
                             type="button"
                             class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                            on:click={() =>
+                            onclick={() =>
                                 (showRefreshTokenValue =
                                     !showRefreshTokenValue)}
                         >
@@ -335,7 +347,7 @@
                 </div>
 
                 <Dialog.Footer>
-                    <Button type="button" variant="outline" on:click={onClose}>
+                    <Button type="button" variant="outline" onclick={onClose}>
                         Cancel
                     </Button>
                     <Button type="submit" disabled={isSubmitting}>

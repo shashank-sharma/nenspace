@@ -1,0 +1,39 @@
+/* Minimal CSS for the floating status widget */
+/* Matches StatusIndicator styling but minimal bundle */
+
+:global(*) {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:global(html),
+:global(body),
+:global(#svelte) {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: visible; /* Allow content to overflow for shadows/rounded corners */
+    background: transparent !important; /* Force transparent background */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure all root elements are transparent */
+:global(body)::before,
+:global(body)::after {
+    display: none;
+}
+
+/* Remove any default body background */
+:global(body) {
+    background-color: transparent !important;
+    background-image: none !important;
+}
+
+/* Ensure the svelte app root is transparent */
+:global(#svelte) {
+    background-color: transparent !important;
+}

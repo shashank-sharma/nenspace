@@ -3,6 +3,7 @@
     import { toast } from "svelte-sonner";
     import { Button } from "$lib/components/ui/button";
     import { RefreshCw } from "lucide-svelte";
+    import { isTauri } from "$lib/utils/platform";
 
     // State
     let updateAvailable = false;
@@ -22,9 +23,18 @@
 
     // Setup service worker update detection
     function setupUpdateDetection() {
-        if (!("serviceWorker" in navigator)) return;
+        // Skip if running in Tauri or service worker not supported
+        if (isTauri() || !("serviceWorker" in navigator)) return;
 
-        navigator.serviceWorker.register("/sw.js").then((reg) => {
+        // Use the existing registration from VitePWA (already auto-registered)
+        navigator.serviceWorker.getRegistration().then((reg) => {
+            if (!reg) {
+                console.log(
+                    "[UpdateDetector] No service worker registered (disabled in dev)",
+                );
+                return;
+            }
+
             registration = reg;
 
             // Detect if there's already a waiting service worker
@@ -85,6 +95,9 @@
 
     // Setup periodic checks for updates
     function setupPeriodicUpdates() {
+        // Skip if running in Tauri or no registration
+        if (isTauri() || !registration) return;
+
         // Check for updates when the page becomes visible again
         document.addEventListener("visibilitychange", () => {
             if (document.visibilityState === "visible" && registration) {
@@ -102,6 +115,12 @@
     }
 
     onMount(() => {
+        // Skip entirely if running in Tauri
+        if (isTauri()) {
+            console.log("[UpdateDetector] Skipping in Tauri mode");
+            return;
+        }
+
         setupUpdateDetection();
         setupPeriodicUpdates();
 

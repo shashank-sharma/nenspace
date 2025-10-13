@@ -10,16 +10,25 @@
         ChevronUp,
         ChevronDown,
     } from "lucide-svelte";
-    import { mailMessagesStore } from "../stores";
     import type { MailMessage } from "../types";
-    import DOMPurify from "dompurify";
+    import * as DOMPurify from "isomorphic-dompurify";
     import { onMount } from "svelte";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
 
-    export let class_name = "";
-    let iframeRef: HTMLIFrameElement;
-    let iframeLoaded = false;
-    let isBodyCollapsed = false;
+    let { class_name = "", selectedMail } = $props<{
+        class_name?: string;
+        selectedMail: MailMessage | null;
+    }>();
+
+    let iframeRef: HTMLIFrameElement | null = $state(null);
+    let iframeLoaded = $state(false);
+    let isBodyCollapsed = $state(true);
+
+    $effect(() => {
+        return () => {
+            iframeLoaded = false;
+        };
+    });
 
     function formatEmailString(str: string) {
         const [email] = str.split("<");
@@ -169,27 +178,18 @@
     // Handle iframe load event
     function handleIframeLoad() {
         iframeLoaded = true;
-        if ($mailMessagesStore.selectedMail) {
-            const sanitizedContent = sanitizeHtml(
-                $mailMessagesStore.selectedMail.body,
-            );
+        if (selectedMail) {
+            const sanitizedContent = sanitizeHtml(selectedMail.body);
             writeToIframe(sanitizedContent);
         }
     }
 
     // Update iframe content when the selected mail changes
-    $: if (iframeLoaded && $mailMessagesStore.selectedMail) {
-        const sanitizedContent = sanitizeHtml(
-            $mailMessagesStore.selectedMail.body,
-        );
-        writeToIframe(sanitizedContent);
-    }
-
-    onMount(() => {
-        return () => {
-            // Cleanup if needed
-            iframeLoaded = false;
-        };
+    $effect(() => {
+        if (iframeLoaded && selectedMail) {
+            const sanitizedContent = sanitizeHtml(selectedMail.body);
+            writeToIframe(sanitizedContent);
+        }
     });
 </script>
 
@@ -199,7 +199,7 @@
         class_name,
     )}
 >
-    {#if $mailMessagesStore.selectedMail}
+    {#if selectedMail}
         <div class="flex flex-col h-full">
             <!-- Email header section - keep this fixed height -->
             <div class="flex items-center justify-between p-2 shrink-0">
@@ -216,7 +216,7 @@
                         variant="ghost"
                         size="icon"
                         class={cn(
-                            $mailMessagesStore.selectedMail.is_starred
+                            selectedMail.is_starred
                                 ? "text-yellow-500"
                                 : "text-muted-foreground",
                         )}
@@ -247,20 +247,16 @@
                 <ScrollArea class="flex-1 h-full">
                     <div class="p-4 space-y-4">
                         <h1 class="text-2xl font-bold">
-                            {$mailMessagesStore.selectedMail.subject}
+                            {selectedMail.subject}
                         </h1>
                         <div class="flex items-center gap-4">
                             <div>
                                 <div class="font-semibold">
-                                    {formatEmailString(
-                                        $mailMessagesStore.selectedMail.from,
-                                    )}
+                                    {formatEmailString(selectedMail.from)}
                                 </div>
                                 <div class="text-sm text-muted-foreground">
                                     {format(
-                                        new Date(
-                                            $mailMessagesStore.selectedMail.received_date,
-                                        ),
+                                        new Date(selectedMail.received_date),
                                         "MMM d, yyyy HH:mm",
                                     )}
                                 </div>
@@ -276,7 +272,7 @@
                             <!-- Use iframe for perfect style isolation -->
                             <iframe
                                 bind:this={iframeRef}
-                                on:load={handleIframeLoad}
+                                onload={() => (iframeLoaded = true)}
                                 title="Email content"
                                 sandbox="allow-same-origin"
                                 frameborder="0"
@@ -288,9 +284,7 @@
                                 <div
                                     class="email-content prose dark:prose-invert max-w-none"
                                 >
-                                    {@html sanitizeHtml(
-                                        $mailMessagesStore.selectedMail.body,
-                                    )}
+                                    {@html sanitizeHtml(selectedMail.body)}
                                 </div>
                             {/if}
                         </div>

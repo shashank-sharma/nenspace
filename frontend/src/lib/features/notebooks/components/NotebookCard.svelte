@@ -11,13 +11,14 @@
     } from "$lib/components/ui/card";
     import { Trash2 } from "lucide-svelte";
     import type { Notebook } from "../types";
+    import { createEventDispatcher } from "svelte";
 
-    export let notebook: Notebook;
-    export let onDelete: (id: string) => void;
+    let { notebook } = $props<{ notebook: Notebook }>();
+    const dispatch = createEventDispatcher();
 
     function handleDelete() {
         if (confirm("Are you sure you want to delete this notebook?")) {
-            onDelete(notebook.id);
+            dispatch("delete");
         }
     }
 </script>

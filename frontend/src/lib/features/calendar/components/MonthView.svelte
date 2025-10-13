@@ -4,30 +4,34 @@
     import SimpleEventCard from "./SimpleEventCard.svelte";
     import { createEventDispatcher } from "svelte";
 
-    export let events: CalendarEvent[] = [];
-    export let selectedDate: Date;
-    export let onDateSelect: (date: Date) => void;
-    export let onEventClick: (event: CalendarEvent, e?: MouseEvent) => void;
+    let { events = [], selectedDate } = $props<{
+        events?: CalendarEvent[];
+        selectedDate: Date;
+    }>();
 
-    const dispatch = createEventDispatcher();
+    const dispatch = createEventDispatcher<{
+        selectDate: Date;
+        eventClick: { event: CalendarEvent; e?: MouseEvent };
+        changeView: "day";
+    }>();
 
     const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-    $: monthDays = getMonthDays(selectedDate);
-    $: currentMonth = selectedDate.getMonth();
-    $: currentYear = selectedDate.getFullYear();
+    let monthDays = $derived(getMonthDays(selectedDate));
+    let currentMonth = $derived(selectedDate.getMonth());
+    let currentYear = $derived(selectedDate.getFullYear());
 
     function handleDateClick(date: Date) {
-        onDateSelect(date);
+        dispatch("selectDate", date);
     }
 
     function handleDblClick(date: Date) {
-        onDateSelect(date);
+        dispatch("selectDate", date);
         dispatch("changeView", "day");
     }
 
     function getEventsForDate(date: Date): CalendarEvent[] {
-        return events.filter((event) => {
+        return events.filter((event: CalendarEvent) => {
             const eventStartDate = new Date(event.start);
             return isSameDay(eventStartDate, date);
         });
@@ -47,13 +51,13 @@
             {@const isSelected = isSameDay(day, selectedDate)}
             {@const dayEvents = getEventsForDate(day)}
 
-            <div
-                class="aspect-square p-1 border rounded-lg transition-all duration-200 ease-in-out
+            <button
+                class="aspect-square p-1 border rounded-lg transition-all duration-200 ease-in-out text-left align-top
                        {isCurrentMonth ? 'bg-card' : 'bg-muted/30 opacity-50'}
                        {isSelected ? 'ring-2 ring-primary' : ''}
                        {isToday(day) ? 'border-primary' : 'border-border'}"
-                on:click={() => handleDateClick(day)}
-                on:dblclick={() => handleDblClick(day)}
+                onclick={() => handleDateClick(day)}
+                ondblclick={() => handleDblClick(day)}
             >
                 <div class="flex justify-between items-start">
                     <span
@@ -69,10 +73,18 @@
                 <div class="mt-1 space-y-1 overflow-hidden max-h-28">
                     {#each dayEvents.slice(0, 3) as event (event.id)}
                         <div
-                            class="cursor-pointer"
-                            on:click|stopPropagation={(e) => {
-                                e.preventDefault();
-                                onEventClick(event, e);
+                            class="cursor-pointer w-full"
+                            role="button"
+                            tabindex="0"
+                            onclick={(e) => {
+                                e.stopPropagation();
+                                dispatch("eventClick", { event, e });
+                            }}
+                            onkeydown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                    e.stopPropagation();
+                                    dispatch("eventClick", { event });
+                                }
                             }}
                         >
                             <SimpleEventCard {event} compact={true} />
@@ -87,7 +99,7 @@
                         </div>
                     {/if}
                 </div>
-            </div>
+            </button>
         {/each}
     </div>
 </div>

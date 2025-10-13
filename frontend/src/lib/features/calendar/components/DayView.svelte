@@ -2,11 +2,17 @@
     import type { CalendarEvent } from "../types";
     import { isToday, formatDateReadable } from "../utils/date";
     import SimpleEventCard from "./SimpleEventCard.svelte";
+    import { createEventDispatcher } from "svelte";
 
-    export let events: CalendarEvent[] = [];
-    export let selectedDate: Date;
-    export let onDateSelect: (date: Date) => void;
-    export let onEventClick: (event: CalendarEvent, e?: MouseEvent) => void;
+    let { events = [], selectedDate } = $props<{
+        events?: CalendarEvent[];
+        selectedDate: Date;
+    }>();
+
+    const dispatch = createEventDispatcher<{
+        selectDate: Date;
+        eventClick: { event: CalendarEvent; e?: MouseEvent };
+    }>();
 
     const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -31,8 +37,10 @@
         });
     }
 
-    $: dayEvents = filterEventsForDay(events, selectedDate);
-    $: allDayEvents = dayEvents.filter((event) => event.is_day_event);
+    let dayEvents = $derived(filterEventsForDay(events, selectedDate));
+    let allDayEvents = $derived(
+        dayEvents.filter((event) => event.is_day_event),
+    );
 
     function getEventsByHour(hour: number): CalendarEvent[] {
         return dayEvents.filter((event) => {
@@ -47,11 +55,11 @@
         if (event.key === "ArrowLeft") {
             const prevDay = new Date(selectedDate);
             prevDay.setDate(prevDay.getDate() - 1);
-            onDateSelect(prevDay);
+            dispatch("selectDate", prevDay);
         } else if (event.key === "ArrowRight") {
             const nextDay = new Date(selectedDate);
             nextDay.setDate(nextDay.getDate() + 1);
-            onDateSelect(nextDay);
+            dispatch("selectDate", nextDay);
         }
     }
 </script>
@@ -75,11 +83,12 @@
         <div class="flex gap-2">
             <button
                 class="p-2 rounded-full hover:bg-muted transition-colors"
-                on:click={() => {
+                onclick={() => {
                     const prevDay = new Date(selectedDate);
                     prevDay.setDate(prevDay.getDate() - 1);
-                    onDateSelect(prevDay);
+                    dispatch("selectDate", prevDay);
                 }}
+                aria-label="Previous day"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -96,9 +105,9 @@
 
             <button
                 class="p-2 rounded-full hover:bg-muted transition-colors"
-                on:click={() => {
+                onclick={() => {
                     const today = new Date();
-                    onDateSelect(today);
+                    dispatch("selectDate", today);
                 }}
             >
                 Today
@@ -106,11 +115,12 @@
 
             <button
                 class="p-2 rounded-full hover:bg-muted transition-colors"
-                on:click={() => {
+                onclick={() => {
                     const nextDay = new Date(selectedDate);
                     nextDay.setDate(nextDay.getDate() + 1);
-                    onDateSelect(nextDay);
+                    dispatch("selectDate", nextDay);
                 }}
+                aria-label="Next day"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -133,12 +143,13 @@
                 <h3 class="text-sm font-medium mb-2">All-day Events</h3>
                 <div class="space-y-2">
                     {#each allDayEvents as event (event.id)}
-                        <div
-                            class="cursor-pointer max-w-full"
-                            on:click={(e) => onEventClick(event, e)}
+                        <button
+                            class="cursor-pointer max-w-full text-left"
+                            onclick={(e) =>
+                                dispatch("eventClick", { event, e })}
                         >
                             <SimpleEventCard {event} maxWidth="100%" />
-                        </div>
+                        </button>
                     {/each}
                 </div>
             </div>
@@ -163,12 +174,13 @@
                     <div class="space-y-1 py-1 pr-1">
                         {#if hourEvents.length > 0}
                             {#each hourEvents as event (event.id)}
-                                <div
-                                    class="cursor-pointer max-w-full"
-                                    on:click={(e) => onEventClick(event, e)}
+                                <button
+                                    class="cursor-pointer max-w-full text-left"
+                                    onclick={(e) =>
+                                        dispatch("eventClick", { event, e })}
                                 >
                                     <SimpleEventCard {event} maxWidth="100%" />
-                                </div>
+                                </button>
                             {/each}
                         {:else if hour === 12 && dayEvents.length === 0}
                             <div class="text-sm text-muted-foreground italic">

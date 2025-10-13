@@ -14,10 +14,8 @@
 		Book,
 	} from "lucide-svelte";
 	import { browser } from "$app/environment";
-	import {
-		showInstallPrompt,
-		installPrompt,
-	} from "$lib/features/pwa/services";
+	// NOTE: PwaService is dynamically loaded in root layout, not here
+	// Homepage should be minimal and fast
 	import NenAura from "$lib/components/icons/NenAura.svelte";
 	import { spring } from "svelte/motion";
 
@@ -45,75 +43,56 @@
 			name: "Servers",
 			icon: Server,
 			description: "Monitor and manage your servers with precision",
-			nenType: "Enhancement",
-			color: "bg-orange-500/20 text-orange-600 dark:text-orange-400",
-			borderColor: "border-orange-500/50",
-			auraColor: "rgba(249, 115, 22, 0.2)",
+			nenType: "Backend",
+			color: "bg-primary/20 text-primary",
+			borderColor: "border-primary/50",
+			auraColor: "rgba(255, 98, 87, 0.2)",
 			nenTypeValue: "enhancement",
 		},
 		{
 			name: "Todo List",
 			icon: ListTodo,
 			description: "Track tasks and enhance your productivity",
-			nenType: "Manipulation",
-			color: "bg-sky-500/20 text-sky-600 dark:text-sky-400",
-			borderColor: "border-sky-500/50",
-			auraColor: "rgba(14, 165, 233, 0.2)",
+			nenType: "Frontend",
+			color: "bg-secondary/20 text-secondary-foreground dark:text-secondary",
+			borderColor: "border-secondary/50",
+			auraColor: "rgba(115, 153, 83, 0.2)",
 			nenTypeValue: "manipulation",
 		},
 		{
 			name: "Finance",
 			icon: Banknote,
 			description: "Analyze and control your financial resources",
-			nenType: "Transmutation",
-			color: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400",
-			borderColor: "border-emerald-500/50",
-			auraColor: "rgba(16, 185, 129, 0.2)",
+			nenType: "Backend",
+			color: "bg-primary/20 text-primary",
+			borderColor: "border-primary/50",
+			auraColor: "rgba(255, 98, 87, 0.2)",
 			nenTypeValue: "transmutation",
 		},
 		{
 			name: "Daily Notes",
 			icon: Book,
 			description: "Capture and materialize your thoughts and ideas",
-			nenType: "Conjuration",
-			color: "bg-purple-500/20 text-purple-600 dark:text-purple-400",
-			borderColor: "border-purple-500/50",
-			auraColor: "rgba(168, 85, 247, 0.2)",
+			nenType: "Frontend",
+			color: "bg-secondary/20 text-secondary-foreground dark:text-secondary",
+			borderColor: "border-secondary/50",
+			auraColor: "rgba(115, 153, 83, 0.2)",
 			nenTypeValue: "conjuration",
 		},
 	];
 
 	let auraInterval: ReturnType<typeof setInterval>;
 
-	function updateMousePosition(e: MouseEvent) {
-		mouseX = e.clientX;
-		mouseY = e.clientY;
-		coords.set({ x: mouseX, y: mouseY });
-
-		cursorVisible = true;
-		lastMouseMoveTime = Date.now();
-		clearTimeout(mouseMoveTimeout);
-
-		mouseMoveTimeout = setTimeout(() => {
-			if (Date.now() - lastMouseMoveTime > 2000) {
-				cursorVisible = false;
-			}
-		}, 2000);
-	}
-
 	function handleShowInstallPrompt() {
 		if (browser) {
-			// Use the service function directly
-			showInstallPrompt();
+			PwaService.showInstallPrompt();
 		}
 	}
 
-	function handleMouseMove(e: MouseEvent, index: number) {
+	function handleMouseMove(index: number) {
 		activeCategoryIndex = index;
 		categoryHovered = true;
 		auraVisible = true;
-
-		updateMousePosition(e);
 	}
 
 	function handleMouseLeave() {
@@ -121,10 +100,6 @@
 	}
 
 	onMount(() => {
-		if (browser) {
-			window.addEventListener("mousemove", updateMousePosition);
-		}
-
 		setTimeout(() => {
 			loaded = true;
 		}, 300);
@@ -143,36 +118,16 @@
 		}, 4000);
 
 		return () => {
-			if (browser) {
-				window.removeEventListener("mousemove", updateMousePosition);
-			}
 			clearInterval(auraInterval);
-			clearTimeout(mouseMoveTimeout);
 		};
 	});
 
 	onDestroy(() => {
 		clearInterval(auraInterval);
-		clearTimeout(mouseMoveTimeout);
 	});
 </script>
 
 <div class="min-h-screen flex flex-col relative">
-	{#if cursorVisible}
-		<div
-			class="nen-cursor fixed pointer-events-none z-50 transform -translate-x-1/2 -translate-y-1/2"
-			style="left: {$coords.x}px; top: {$coords.y}px;"
-		>
-			<div class="cursor-dot"></div>
-			<div
-				class="cursor-aura transition-all duration-500"
-				style="background: radial-gradient(circle, {categories[
-					activeCategoryIndex
-				].auraColor.replace('0.2', '0.8')} 0%, transparent 70%);"
-			></div>
-		</div>
-	{/if}
-
 	{#if auraVisible}
 		<div
 			class="absolute inset-0 pointer-events-none transition-opacity duration-1000 opacity-70"
@@ -302,11 +257,11 @@
 							delay: 1200 + i * 200,
 							easing: cubicOut,
 						}}
-						on:mouseenter={(e) => handleMouseMove(e, i)}
+						on:mouseenter={() => handleMouseMove(i)}
 						on:mouseleave={handleMouseLeave}
 					>
 						<Card
-							class={`relative h-full p-6 transition-all duration-500 overflow-hidden border-2 hover:shadow-xl ${category.borderColor} hover:border-primary/50`}
+							class={`relative h-full p-6 transition-all duration-500 overflow-hidden border-2 hover:shadow-xl ${category.borderColor} hover:border-primary/50 bg-card`}
 						>
 							<div
 								class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
@@ -327,9 +282,9 @@
 							<div class="relative z-10 flex flex-col h-full">
 								<Badge
 									variant="outline"
-									class={`self-start mb-4 ${category.color}`}
+									class={`self-start mb-4 ${category.color} border-none`}
 								>
-									{category.nenType} Type
+									{category.nenType}
 								</Badge>
 
 								<div
@@ -404,7 +359,7 @@
 	</section>
 
 	{#if browser}
-		{#if $installPrompt}
+		{#if PwaService.isPromptAvailable}
 			<div class="fixed top-4 right-4 z-50">
 				<Button
 					variant="default"
@@ -481,7 +436,6 @@
 	:global(html) {
 		scrollbar-width: thin;
 		scrollbar-color: hsl(var(--primary) / 0.3) transparent;
-		cursor: none;
 	}
 
 	:global(::-webkit-scrollbar) {

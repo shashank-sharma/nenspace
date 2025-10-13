@@ -3,25 +3,26 @@
     import { fly } from "svelte/transition";
     import { Input } from "$lib/components/ui/input";
     import { Button } from "$lib/components/ui/button";
-    import { tasksStore } from "../stores/tasks.store";
+    import { Plus, Send } from "lucide-svelte";
 
-    export let category: string;
+    let { category } = $props<{ category: string }>();
 
     const dispatch = createEventDispatcher();
-    let newTaskTitle = "";
+
+    let newTaskTitle = $state("");
 
     async function handleSubmit() {
         if (!newTaskTitle.trim()) return;
 
         try {
-            await tasksStore.createTask({
+            dispatch("add", {
                 title: newTaskTitle.trim(),
                 description: "",
                 category,
             });
             dispatch("close");
         } catch (error) {
-            console.error("Failed to create task:", error);
+            console.error("Failed to dispatch add event:", error);
         }
     }
 </script>

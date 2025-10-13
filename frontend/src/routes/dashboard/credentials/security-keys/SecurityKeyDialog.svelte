@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { onMount, afterUpdate } from "svelte";
     import { Eye, EyeOff, KeyRound, LoaderCircle, Lock } from "lucide-svelte";
     import * as Dialog from "$lib/components/ui/dialog";
     import {
@@ -23,52 +22,54 @@
     import type { SecurityKey } from "$lib/features/credentials/types";
     import { pb } from "$lib/config/pocketbase";
 
-    export let open = false;
-    export let onClose: () => void;
-    export let onSubmit: (data: any) => Promise<void>;
-    export let selectedKey: SecurityKey | null = null;
+    let {
+        open = $bindable(),
+        onClose,
+        onSubmit,
+        selectedKey = null,
+    } = $props<{
+        open?: boolean;
+        onClose: () => void;
+        onSubmit: (data: any) => Promise<void>;
+        selectedKey: SecurityKey | null;
+    }>();
 
-    let showPrivateKey = false;
-    let formData = { ...DEFAULT_SECURITY_KEY_FORM };
-    let isSubmitting = false;
-    let selectedKeyType = "ed25519";
-    let isGenerating = false;
-    let formInitialized = false;
+    let showPrivateKey = $state(false);
+    let formData = $state({ ...DEFAULT_SECURITY_KEY_FORM });
+    let isSubmitting = $state(false);
+    let selectedKeyType = $state("ed25519");
+    let isGenerating = $state(false);
 
-    // Initialize form data when needed
-    function initializeForm() {
-        if (selectedKey) {
-            // For editing: Make a deep copy to prevent reference issues
-            formData = JSON.parse(
-                JSON.stringify({
-                    ...DEFAULT_SECURITY_KEY_FORM,
-                    ...selectedKey,
-                    // Ensure is_active is a boolean
-                    is_active:
-                        selectedKey.is_active === undefined
-                            ? true
-                            : !!selectedKey.is_active,
-                }),
-            );
-        } else {
-            // For new keys: Reset to default
-            formData = { ...DEFAULT_SECURITY_KEY_FORM };
+    // Effect to initialize form data when the dialog opens or the selected key changes
+    $effect(() => {
+        if (open) {
+            if (selectedKey) {
+                // For editing: Make a deep copy to prevent reference issues
+                formData = JSON.parse(
+                    JSON.stringify({
+                        ...DEFAULT_SECURITY_KEY_FORM,
+                        ...selectedKey,
+                        // Ensure is_active is a boolean
+                        is_active:
+                            selectedKey.is_active === undefined
+                                ? true
+                                : !!selectedKey.is_active,
+                    }),
+                );
+            } else {
+                // For new keys: Reset to default
+                formData = { ...DEFAULT_SECURITY_KEY_FORM };
+            }
         }
-        formInitialized = true;
-    }
-
-    // Reset the form when dialog opens/closes
-    $: if (open) {
-        initializeForm();
-    } else {
-        formInitialized = false;
-    }
+    });
 
     // Additional cleanup when dialog closes
-    $: if (!open) {
-        showPrivateKey = false;
-        isGenerating = false;
-    }
+    $effect(() => {
+        if (!open) {
+            showPrivateKey = false;
+            isGenerating = false;
+        }
+    });
 
     function generateRandomName() {
         const adjectives = [
@@ -104,8 +105,10 @@
         return `${randomAdjective}-${randomNoun}-${randomNumbers}`;
     }
 
-    function handleKeyChange(value: string) {
-        selectedKeyType = value;
+    function handleKeyChange(value: string | undefined) {
+        if (value) {
+            selectedKeyType = value;
+        }
     }
 
     async function generateSSHKey() {
@@ -201,7 +204,7 @@
             </Dialog.Description>
         </Dialog.Header>
 
-        <form class="space-y-4" on:submit|preventDefault={handleSubmit}>
+        <form class="space-y-4" onsubmit={handleSubmit}>
             <div class="space-y-2">
                 <Label for="name">Key Name *</Label>
                 <Input
@@ -234,7 +237,7 @@
                             <Label for="key-type" class="text-xs"
                                 >Key Type</Label
                             >
-                            <Select>
+                            <Select onValueChange={handleKeyChange}>
                                 <SelectTrigger id="key-type" class="w-full">
                                     <SelectValue
                                         placeholder="Select key type"
@@ -242,11 +245,7 @@
                                 </SelectTrigger>
                                 <SelectContent>
                                     {#each KEY_TYPES as keyType}
-                                        <SelectItem
-                                            value={keyType.value}
-                                            on:click={() =>
-                                                handleKeyChange(keyType.value)}
-                                        >
+                                        <SelectItem value={keyType.value}>
                                             {keyType.label}
                                         </SelectItem>
                                     {/each}
@@ -258,7 +257,7 @@
                                 type="button"
                                 variant="ghost"
                                 class="w-full"
-                                on:click={generateSSHKey}
+                                onclick={generateSSHKey}
                                 disabled={isGenerating}
                             >
                                 {#if isGenerating}
@@ -303,7 +302,7 @@
                         variant="ghost"
                         size="sm"
                         class="h-7 px-2"
-                        on:click={() => (showPrivateKey = !showPrivateKey)}
+                        onclick={() => (showPrivateKey = !showPrivateKey)}
                     >
                         {#if showPrivateKey}
                             <EyeOff class="w-3 h-3 mr-1" /> Hide
@@ -339,7 +338,7 @@
                 <Switch
                     id="is_active"
                     checked={formData.is_active}
-                    onCheckedChange={(checked) => {
+                    onCheckedChange={(checked: boolean) => {
                         formData.is_active = checked;
                     }}
                 />
@@ -360,7 +359,7 @@
                     type="button"
                     variant="outline"
                     class="w-full sm:w-auto"
-                    on:click={onClose}
+                    onclick={onClose}
                 >
                     Cancel
                 </Button>
@@ -383,7 +382,5 @@
 </Dialog.Root>
 
 <style>
-    .text-password {
-        -webkit-text-security: disc;
-    }
+    /* No custom styles needed */
 </style>

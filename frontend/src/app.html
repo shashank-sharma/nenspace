@@ -9,11 +9,12 @@
 	<meta name="theme-color" content="#000000" />
 	<meta name="description" content="Nen Space - Your personal dashboard for productivity and organization" />
 	<meta name="mobile-web-app-capable" content="yes" />
-	<meta name="mobile-web-app-status-bar-style" content="black" />
-	<meta name="mobile-web-app-title" content="Nen Space" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+	<meta name="apple-mobile-web-app-title" content="Nen Space" />
 	<title>Nen Space</title>
 	<link rel="apple-touch-icon" href="%sveltekit.assets%/icons/apple-icon-180.png" />
-	<link rel="manifest" href="%sveltekit.assets%/manifest.json" />
+	<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
 	<script>
 		// On page load or when changing themes, best to add inline in `head` to avoid FOUC
 		if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {

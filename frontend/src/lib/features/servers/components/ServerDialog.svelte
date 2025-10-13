@@ -9,22 +9,49 @@
     import * as Select from "$lib/components/ui/select";
     import { PROVIDERS } from "../constants";
     import { DEFAULT_SERVER_FORM } from "../types";
-    import type { Server } from "../types";
+    import type { SecurityKey, Server } from "../types";
     import { toast } from "svelte-sonner";
     import { pb } from "$lib/config/pocketbase";
+    import { createEventDispatcher } from "svelte";
+    import {
+        SelectTrigger,
+        SelectValue,
+        SelectContent,
+        SelectItem,
+    } from "$lib/components/ui/select";
+    import { Loader2 } from "lucide-svelte";
     import type { SecurityKey } from "$lib/features/credentials/types";
 
-    export let open = false;
-    export let onClose: () => void;
-    export let onSubmit: (data: any) => Promise<void>;
-    export let selectedServer: Server | null = null;
+    let {
+        open = $bindable(),
+        onClose,
+        onSubmit,
+        selectedServer = null,
+    } = $props<{
+        open?: boolean;
+        onClose: () => void;
+        onSubmit: (data: any) => Promise<void>;
+        selectedServer: Server | null;
+    }>();
 
-    let formData = { ...DEFAULT_SERVER_FORM };
-    let isSubmitting = false;
-    let securityKeys: SecurityKey[] = [];
-    let loadingKeys = false;
+    const dispatch = createEventDispatcher();
 
-    $: if (open) {
+    let formData = $state({ ...DEFAULT_SERVER_FORM });
+    let isSubmitting = $state(false);
+    let securityKeys = $state<SecurityKey[]>([]);
+    let loadingKeys = $state(false);
+    let formInitialized = $state(false);
+    let showPrivateKey = $state(false);
+
+    $effect(() => {
+        if (open && !formInitialized) {
+            initializeForm();
+        } else if (!open) {
+            formInitialized = false; // Reset for next open
+        }
+    });
+
+    function initializeForm() {
         if (selectedServer) {
             formData = { ...selectedServer };
             loadSecurityKeys();
@@ -87,60 +114,53 @@
     <Dialog.Content class="sm:max-w-[500px]">
         <Dialog.Header>
             <Dialog.Title>
-                {selectedServer ? "Edit Server" : "Add New Server"}
+                {selectedServer ? "Edit Server" : "Create New Server"}
             </Dialog.Title>
             <Dialog.Description>
                 {selectedServer
                     ? "Modify your server details"
-                    : "Add a new server for SSH connection"}
+                    : "Add a new server to manage"}
             </Dialog.Description>
         </Dialog.Header>
 
-        <form class="space-y-4 mt-4" on:submit|preventDefault={handleSubmit}>
-            <div class="space-y-4">
-                <div class="grid grid-cols-1 gap-4">
-                    <div class="space-y-2">
-                        <Label for="name" class="flex items-center gap-1">
-                            <ServerIcon class="h-3.5 w-3.5" />
-                            <span>Server Name *</span>
-                        </Label>
-                        <Input
-                            id="name"
-                            bind:value={formData.name}
-                            placeholder="Enter server name"
-                            required
-                        />
-                    </div>
+        <form onsubmit={handleSubmit} class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-2">
+                    <Label for="name">Server Name</Label>
+                    <Input
+                        id="name"
+                        bind:value={formData.name}
+                        placeholder="Enter server name"
+                        required
+                    />
+                </div>
 
-                    <div class="space-y-2">
-                        <Label for="provider">Provider *</Label>
-                        <div class="relative w-full">
-                            <select
-                                id="provider"
-                                class="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                bind:value={formData.provider}
-                            >
-                                <option value="" disabled
-                                    >Select provider</option
+                <div class="space-y-2">
+                    <Label for="provider">Provider *</Label>
+                    <div class="relative w-full">
+                        <select
+                            id="provider"
+                            class="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            bind:value={formData.provider}
+                        >
+                            <option value="" disabled>Select provider</option>
+                            {#each PROVIDERS as provider}
+                                <option value={provider.value}
+                                    >{provider.label}</option
                                 >
-                                {#each PROVIDERS as provider}
-                                    <option value={provider.value}
-                                        >{provider.label}</option
-                                    >
-                                {/each}
-                            </select>
-                        </div>
+                            {/each}
+                        </select>
                     </div>
+                </div>
 
-                    <div class="space-y-2">
-                        <Label for="ip">IP Address *</Label>
-                        <Input
-                            id="ip"
-                            bind:value={formData.ip}
-                            placeholder="Enter server IP address"
-                            required
-                        />
-                    </div>
+                <div class="space-y-2">
+                    <Label for="ip">IP Address *</Label>
+                    <Input
+                        id="ip"
+                        bind:value={formData.ip}
+                        placeholder="Enter server IP address"
+                        required
+                    />
                 </div>
             </div>
 
@@ -157,8 +177,9 @@
                     </div>
                     <Switch
                         checked={formData.ssh_enabled}
-                        onCheckedChange={(checked) =>
-                            (formData.ssh_enabled = checked)}
+                        onCheckedChange={(checked: boolean) => {
+                            formData.ssh_enabled = checked;
+                        }}
                     />
                 </div>
 
@@ -226,18 +247,15 @@
                 {/if}
             </div>
 
-            <div class="flex items-center justify-between pt-2">
-                <div class="flex flex-col">
-                    <h3 class="text-sm font-medium">Server Active</h3>
-                    <p class="text-xs text-muted-foreground">
-                        Enable or disable this server
-                    </p>
-                </div>
+            <div class="flex items-center space-x-2">
                 <Switch
+                    id="is_active"
                     checked={formData.is_active}
-                    onCheckedChange={(checked) =>
-                        (formData.is_active = checked)}
+                    onCheckedChange={(checked: boolean) => {
+                        formData.is_active = checked;
+                    }}
                 />
+                <Label for="is_active">Active</Label>
             </div>
 
             <Dialog.Footer class="mt-6">

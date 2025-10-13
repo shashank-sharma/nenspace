@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { onMount } from "svelte";
     import { notebooksService } from "../services/notebooks.service";
     import { pythonService } from "../services/python.service";
     import { Button } from "$lib/components/ui/button";
@@ -9,39 +8,43 @@
     import type { Notebook, Cell } from "../types";
     import NotebookCell from "./NotebookCell.svelte";
 
-    export let id: string;
+    let { id } = $props<{ id: string }>();
 
-    let notebook: Notebook | null = null;
-    let loading = true;
-    let saving = false;
+    let notebook = $state<Notebook | null>(null);
+    let isLoading = $state(true);
+    let isSaving = $state(false);
 
     async function loadNotebook() {
+        isLoading = true;
         try {
             notebook = await notebooksService.getNotebook(id);
         } catch (error) {
             toast.error("Failed to load notebook");
         } finally {
-            loading = false;
+            isLoading = false;
         }
     }
 
     async function saveNotebook() {
         if (!notebook) return;
-
-        saving = true;
+        isSaving = true;
         try {
-            await notebooksService.updateNotebook(id, notebook);
-            toast.success("Notebook saved successfully");
+            // Create a serializable version of the notebook cells
+            const notebookDataToSave = {
+                ...notebook,
+                cells: notebook.cells.map(({ ...cell }) => cell),
+            };
+            await notebooksService.updateNotebook(id, notebookDataToSave);
+            toast.success("Notebook saved");
         } catch (error) {
             toast.error("Failed to save notebook");
         } finally {
-            saving = false;
+            isSaving = false;
         }
     }
 
     function addCell(type: "code" | "markdown") {
         if (!notebook) return;
-
         const newCell: Cell = {
             id: crypto.randomUUID(),
             type,
@@ -49,8 +52,7 @@
             output: "",
             language: type === "code" ? "python" : "markdown",
         };
-
-        notebook.cells = [...notebook.cells, newCell];
+        notebook.cells.push(newCell);
     }
 
     async function executeCell(cellId: string) {
@@ -59,65 +61,44 @@
 
         try {
             const output = await pythonService.executeCode(cell.content);
-            updateCell(cellId, { output });
-        } catch (error) {
-            updateCell(cellId, { output: `Error: ${error.message}` });
-            throw error;
+            cell.output = output;
+        } catch (error: any) {
+            cell.output = `Error: ${error.message}`;
         }
     }
-
-    function updateCell(cellId: string, updates: Partial<Cell>) {
-        if (!notebook) return;
-        notebook.cells = notebook.cells.map((cell) =>
-            cell.id === cellId ? { ...cell, ...updates } : cell,
-        );
-        debouncedSave();
-    }
-
-    let savingTimeout: NodeJS.Timeout;
-    function debouncedSave() {
-        if (savingTimeout) clearTimeout(savingTimeout);
-        savingTimeout = setTimeout(() => saveNotebook(), 2000);
-    }
-
-    onMount(async () => {
-        try {
-            await loadNotebook();
-            await pythonService.initialize();
-        } catch (error) {
-            toast.error("Failed to initialize notebook");
-        } finally {
-            loading = false;
-        }
-    });
 
     function deleteCell(cellId: string) {
         if (!notebook) return;
-
         notebook.cells = notebook.cells.filter((cell) => cell.id !== cellId);
     }
 
-    function toggleCellType(cellId: string) {
+    function updateCellContent(cellId: string, content: string) {
         if (!notebook) return;
-
-        notebook.cells = notebook.cells.map((cell) =>
-            cell.id === cellId
-                ? {
-                      ...cell,
-                      type: cell.type === "code" ? "markdown" : "code",
-                      language: cell.type === "code" ? "markdown" : "python",
-                      output: "",
-                  }
-                : cell,
-        );
+        const cell = notebook.cells.find((c) => c.id === cellId);
+        if (cell) {
+            cell.content = content;
+        }
     }
+
+    $effect(() => {
+        loadNotebook();
+        pythonService.initialize();
+    });
+
+    // Autosave effect
+    $effect(() => {
+        if (notebook) {
+            const timeout = setTimeout(() => {
+                saveNotebook();
+            }, 2000);
+            return () => clearTimeout(timeout);
+        }
+    });
 </script>
 
 <div class="max-w-4xl mx-auto space-y-6 p-4">
-    {#if loading}
-        <div class="text-center py-12">
-            <p class="text-muted-foreground">Loading notebook...</p>
-        </div>
+    {#if isLoading}
+        <p>Loading notebook...</p>
     {:else if notebook}
         <div class="flex justify-between items-center">
             <Input
@@ -125,48 +106,48 @@
                 bind:value={notebook.name}
                 class="text-2xl font-bold bg-transparent border-none h-auto p-0 focus-visible:ring-0"
             />
-
             <div class="flex gap-2">
-                <Button
-                    on:click={saveNotebook}
-                    disabled={saving}
-                    class="flex items-center gap-2"
-                >
-                    <Save class="w-4 h-4" />
-                    {saving ? "Saving..." : "Save"}
+                <Button on:click={saveNotebook} disabled={isSaving}>
+                    <Save class="w-4 h-4 mr-2" />
+                    {isSaving ? "Saving..." : "Save"}
                 </Button>
-
-                <div class="flex gap-2">
-                    <Button
-                        on:click={() => addCell("code")}
-                        variant="outline"
-                        class="flex items-center gap-2"
-                    >
-                        <Plus class="w-4 h-4" />
-                        Code
-                    </Button>
-                    <Button
-                        on:click={() => addCell("markdown")}
-                        variant="outline"
-                        class="flex items-center gap-2"
-                    >
-                        <Type class="w-4 h-4" />
-                        Text
-                    </Button>
-                </div>
+                <Button on:click={() => addCell("code")} variant="outline">
+                    <Plus class="w-4 h-4 mr-2" /> Code
+                </Button>
+                <Button on:click={() => addCell("markdown")} variant="outline">
+                    <Type class="w-4 h-4 mr-2" /> Text
+                </Button>
             </div>
         </div>
 
         <div class="space-y-4">
-            {#each notebook.cells as cell (cell.id)}
+            {#each notebook.cells as cell, i (cell.id)}
                 <NotebookCell
-                    {cell}
-                    onUpdate={(updates) => updateCell(cell.id, updates)}
-                    onDelete={() => deleteCell(cell.id)}
-                    onToggleType={() => toggleCellType(cell.id)}
-                    onExecute={executeCell}
+                    cell={{
+                        type: cell.type,
+                        output: cell.output,
+                        error: cell.error || "",
+                    }}
+                    index={i}
+                    bind:content={cell.content}
+                    on:change={() => {}}
+                    on:delete={() => deleteCell(i)}
+                    on:execute={() => executeCell(i)}
                 />
             {/each}
+        </div>
+
+        <div class="flex justify-center gap-2 mt-4">
+            <Button on:click={saveNotebook} disabled={isSaving}>
+                <Save class="w-4 h-4 mr-2" />
+                {isSaving ? "Saving..." : "Save"}
+            </Button>
+            <Button on:click={() => addCell("code")} variant="outline">
+                <Plus class="w-4 h-4 mr-2" /> Code
+            </Button>
+            <Button on:click={() => addCell("markdown")} variant="outline">
+                <Type class="w-4 h-4 mr-2" /> Text
+            </Button>
         </div>
     {/if}
 </div>

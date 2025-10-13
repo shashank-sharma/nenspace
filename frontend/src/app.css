@@ -3,73 +3,172 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 72.2% 50.6%;
-    --destructive-foreground: 210 40% 98%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
-	--sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
+	[data-theme='light'] {
+		--background: 34 44% 95%;
+		--foreground: 225 8% 18%;
+		--muted: 210 40% 96.1%;
+		--muted-foreground: 215.4 16.3% 46.9%;
+		--popover: 0 0% 100%;
+		--popover-foreground: 225 8% 18%;
+		--card: 0 0% 100%;
+		--card-foreground: 225 8% 18%;
+		--border: 214.3 31.8% 91.4%;
+		--input: 214.3 31.8% 91.4%;
+		--primary: 5 100% 69%;
+		--primary-foreground: 0 0% 100%;
+		--secondary: 75 25% 48%;
+		--secondary-foreground: 0 0% 100%;
+		--accent: 75 25% 48%;
+		--accent-foreground: 0 0% 100%;
+		--destructive: 0 72% 51%;
+		--destructive-foreground: 210 40% 98%;
+		--ring: 75 25% 48%;
+		--radius: 0.5rem;
+		--completed: 34 44% 75%;
+		--completed-foreground: 225 8% 18%;
+		--sidebar-background: 0 0% 98%;
+		--sidebar-foreground: 240 5.3% 26.1%;
+		--sidebar-primary: 240 5.9% 10%;
+		--sidebar-primary-foreground: 0 0% 98%;
+		--sidebar-accent: 240 4.8% 95.9%;
+		--sidebar-accent-foreground: 240 5.9% 10%;
+		--sidebar-border: 220 13% 91%;
+		--sidebar-ring: 217.2 91.2% 59.8%;
+	}
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --ring: 212.7 26.8% 83.9%;
-	--sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
+	[data-theme='dark'] {
+		--background: 222.2 84% 4.9%;
+		--foreground: 210 40% 98%;
+		--muted: 217.2 32.6% 17.5%;
+		--muted-foreground: 215 20.2% 65.1%;
+		--popover: 222.2 84% 4.9%;
+		--popover-foreground: 210 40% 98%;
+		--card: 222.2 84% 4.9%;
+		--card-foreground: 210 40% 98%;
+		--border: 217.2 32.6% 17.5%;
+		--input: 217.2 32.6% 17.5%;
+		--primary: 210 40% 98%;
+		--primary-foreground: 222.2 47.4% 11.2%;
+		--secondary: 217.2 32.6% 17.5%;
+		--secondary-foreground: 210 40% 98%;
+		--accent: 217.2 32.6% 17.5%;
+		--accent-foreground: 210 40% 98%;
+		--destructive: 0 62.8% 30.6%;
+		--destructive-foreground: 210 40% 98%;
+		--ring: 212.7 26.8% 83.9%;
+		--completed: 34 44% 75%;
+		--completed-foreground: 225 8% 18%;
+		--sidebar-background: 240 5.9% 10%;
+		--sidebar-foreground: 240 4.8% 95.9%;
+		--sidebar-primary: 224.3 76.3% 48%;
+		--sidebar-primary-foreground: 0 0% 100%;
+		--sidebar-accent: 240 3.7% 15.9%;
+		--sidebar-accent-foreground: 240 4.8% 95.9%;
+		--sidebar-border: 240 3.7% 15.9%;
+		--sidebar-ring: 217.2 91.2% 59.8%;
+	}
+
+	[data-theme='nature'] {
+		--background: 225 8% 18%;
+		--foreground: 0 0% 88%;
+		--muted: 225 8% 25%;
+		--muted-foreground: 225 8% 50%;
+		--popover: 225 8% 18%;
+		--popover-foreground: 0 0% 88%;
+		--card: 225 8% 32%;
+		--card-foreground: 0 0% 88%;
+		--border: 225 8% 25%;
+		--input: 225 8% 25%;
+		--primary: 5 100% 69%;
+		--primary-foreground: 0 0% 100%;
+		--secondary: 75 25% 48%;
+		--secondary-foreground: 0 0% 100%;
+		--accent: 75 25% 48%;
+		--accent-foreground: 0 0% 100%;
+		--destructive: 0 72% 51%;
+		--destructive-foreground: 210 40% 98%;
+		--ring: 75 25% 48%;
+		--completed: 34 44% 75%;
+		--completed-foreground: 225 8% 18%;
+		--sidebar-background: 225 8% 32%;
+		--sidebar-foreground: 0 0% 88%;
+		--sidebar-primary: 224.3 76.3% 48%;
+		--sidebar-primary-foreground: 0 0% 100%;
+		--sidebar-accent: 240 3.7% 15.9%;
+		--sidebar-accent-foreground: 240 4.8% 95.9%;
+		--sidebar-border: 240 3.7% 15.9%;
+		--sidebar-ring: 217.2 91.2% 59.8%;
+	}
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
+	* {
+		@apply border-border;
+	}
+	body {
+		@apply bg-background text-foreground;
+	}
+}
+
+@layer components {
+	/* Rich text formatting for task descriptions */
+	.rich-text {
+		@apply text-sm;
+	}
+
+	.rich-text p {
+		@apply mb-2 last:mb-0;
+	}
+
+	.rich-text strong,
+	.rich-text b {
+		@apply font-semibold;
+	}
+
+	.rich-text em,
+	.rich-text i {
+		@apply italic;
+	}
+
+	.rich-text ul,
+	.rich-text ol {
+		@apply ml-4 mb-2;
+	}
+
+	.rich-text ul {
+		@apply list-disc;
+	}
+
+	.rich-text ol {
+		@apply list-decimal;
+	}
+
+	.rich-text li {
+		@apply mb-1;
+	}
+
+	.rich-text a {
+		@apply text-primary underline hover:text-primary/80;
+	}
+
+	.rich-text code {
+		@apply bg-muted px-1 py-0.5 rounded text-xs font-mono;
+	}
+
+	.rich-text blockquote {
+		@apply border-l-2 border-muted-foreground/20 pl-3 italic;
+	}
+
+	.rich-text h1,
+	.rich-text h2,
+	.rich-text h3,
+	.rich-text h4,
+	.rich-text h5,
+	.rich-text h6 {
+		@apply font-semibold mb-2;
+	}
+
+	.rich-text h1 { @apply text-lg; }
+	.rich-text h2 { @apply text-base; }
+	.rich-text h3 { @apply text-sm; }
 }

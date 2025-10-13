@@ -1,7 +1,7 @@
 <script lang="ts">
     import { Button } from "$lib/components/ui/button";
     import { Card } from "$lib/components/ui/card";
-    import { Trash2, Play, Type } from "lucide-svelte";
+    import { Trash2, Play, Type, Loader2 } from "lucide-svelte";
     import type { Cell } from "../types";
     import { basicSetup } from "codemirror";
     import { EditorView, keymap } from "@codemirror/view";
@@ -10,41 +10,48 @@
     import { markdown } from "@codemirror/lang-markdown";
     import { indentUnit } from "@codemirror/language";
     import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-    import { tags as t } from "@lezer/highlight";
-    import { pythonService } from "../services/python.service";
+    import { tags } from "@lezer/highlight";
     import { toast } from "svelte-sonner";
+    import { createEventDispatcher } from "svelte";
+    import { pb } from "$lib/config/pocketbase";
 
-    export let cell: Cell;
-    export let onUpdate: (updates: Partial<Cell>) => void;
-    export let onDelete: () => void;
-    export let onToggleType: () => void;
+    let {
+        cell,
+        index,
+        content = $bindable(),
+    } = $props<{
+        cell: { type: string; output: string; error: string };
+        index: number;
+        content: string;
+    }>();
 
-    let isExecuting = false;
-    let editorElement: HTMLElement;
-    let editor: EditorView;
+    const dispatch = createEventDispatcher();
+    let editorEl: HTMLDivElement;
+    let view: EditorView;
+    let isExecuting = $state(false);
 
     const customTheme = HighlightStyle.define([
-        { tag: t.keyword, color: "var(--code-keyword, #c792ea)" },
-        { tag: t.operator, color: "var(--code-operator, #89ddff)" },
-        { tag: t.string, color: "var(--code-string, #c3e88d)" },
-        { tag: t.number, color: "var(--code-number, #f78c6c)" },
+        { tag: tags.keyword, color: "var(--code-keyword, #c792ea)" },
+        { tag: tags.operator, color: "var(--code-operator, #89ddff)" },
+        { tag: tags.string, color: "var(--code-string, #c3e88d)" },
+        { tag: tags.number, color: "var(--code-number, #f78c6c)" },
         {
-            tag: t.comment,
+            tag: tags.comment,
             color: "var(--code-comment, #546e7a)",
             fontStyle: "italic",
         },
         {
-            tag: t.function(t.variableName),
+            tag: tags.function(tags.variableName),
             color: "var(--code-function, #82aaff)",
         },
         {
-            tag: t.definition(t.variableName),
+            tag: tags.definition(tags.variableName),
             color: "var(--code-variable, #f07178)",
         },
-        { tag: t.className, color: "var(--code-class, #ffcb6b)" },
+        { tag: tags.className, color: "var(--code-class, #ffcb6b)" },
     ]);
 
-    function createEditor(element: HTMLElement) {
+    function createEditor() {
         const extensions = [
             basicSetup,
             indentUnit.of("    "),
@@ -57,7 +64,7 @@
                     key: "Shift-Enter",
                     run: () => {
                         if (cell.type === "code") {
-                            executeCell();
+                            executeCode();
                         }
                         return true;
                     },
@@ -65,85 +72,93 @@
             ]),
             EditorView.updateListener.of((update) => {
                 if (update.docChanged) {
-                    onUpdate({ content: update.state.doc.toString() });
+                    content = update.state.doc.toString();
                 }
             }),
         ];
 
-        editor = new EditorView({
-            doc: cell.content,
+        view = new EditorView({
+            doc: content,
             extensions,
-            parent: element,
+            parent: editorEl,
+            dispatch: (tr: any) => {
+                view.update([tr]);
+                if (tr.docChanged) {
+                    content = view.state.doc.toString();
+                }
+            },
         });
     }
 
-    async function executeCell() {
-        if (cell.type !== "code" || isExecuting) return;
-
+    async function executeCode() {
+        if (isExecuting) return;
         isExecuting = true;
         try {
-            const result = await pythonService.executeCode(cell.content);
-            onUpdate({ output: result }); // This updates the cell's output
-            toast.success("Code executed successfully");
-        } catch (error) {
-            onUpdate({ output: `Error: ${error.message}` });
-            toast.error("Failed to execute code");
+            const result = await pb.send("/api/notebooks/execute", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code: content }),
+            });
+            cell.output = result.output;
+            cell.error = result.error;
+        } catch (error: any) {
+            cell.error = error.message || "An unknown error occurred";
+            toast.error("Execution failed: " + cell.error);
         } finally {
             isExecuting = false;
         }
     }
 </script>
 
-<Card class="p-4">
-    <div class="flex gap-2 mb-2">
-        <Button
-            size="icon"
-            variant="outline"
-            on:click={onToggleType}
-            title={cell.type === "code" ? "Switch to text" : "Switch to code"}
-        >
+<div
+    class="cell-container"
+    class:markdown={cell.type === "markdown"}
+    class:code={cell.type === "code"}
+>
+    <div class="cell-toolbar">
+        <span class="cell-type-label">{cell.type}</span>
+        <div class="cell-actions">
             {#if cell.type === "code"}
-                <Type class="w-4 h-4" />
-            {:else}
-                <Play class="w-4 h-4" />
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-7 w-7"
+                    onclick={executeCode}
+                    disabled={isExecuting}
+                >
+                    {#if isExecuting}
+                        <Loader2 class="h-4 w-4 animate-spin" />
+                    {:else}
+                        <Play class="h-4 w-4" />
+                    {/if}
+                </Button>
             {/if}
-        </Button>
-
-        {#if cell.type === "code"}
             <Button
+                variant="ghost"
                 size="icon"
-                variant="outline"
-                on:click={executeCell}
-                disabled={isExecuting}
-                title="Run cell (Shift+Enter)"
+                class="h-7 w-7"
+                onclick={() => dispatch("delete")}
             >
-                <Play class="w-4 h-4" />
+                <Trash2 class="h-4 w-4" />
             </Button>
-        {/if}
-
-        <Button
-            size="icon"
-            variant="outline"
-            on:click={onDelete}
-            title="Delete cell"
-        >
-            <Trash2 class="w-4 h-4" />
-        </Button>
+        </div>
     </div>
 
-    <div
-        class="editor-container min-h-[100px] border rounded-md"
-        bind:this={editorElement}
-        use:createEditor
-    />
+    <div class="editor-wrapper">
+        <div bind:this={editorEl} class="editor-content"></div>
+    </div>
 
-    {#if cell.type === "code" && cell.output}
-        <div class="mt-2 bg-muted p-4 rounded-md">
-            <pre
-                class="whitespace-pre-wrap font-mono text-sm overflow-x-auto">{cell.output}</pre>
+    {#if cell.type === "code" && (cell.output || cell.error)}
+        <div class="cell-output-container">
+            {#if cell.output}
+                <pre class="cell-output">{cell.output}</pre>
+            {/if}
+            {#if cell.error}
+                <pre class="cell-error">{cell.error}</pre>
+            {/if}
         </div>
     {/if}
-</Card>
+</div>
 
 <style>
     :global(.editor-container .cm-editor) {

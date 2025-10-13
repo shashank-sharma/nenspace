@@ -1,17 +1,25 @@
 <script lang="ts">
     import { Input } from "$lib/components/ui/input";
 
-    export let value: number;
-    export let min: number | undefined = undefined;
-    export let max: number | undefined = undefined;
-    export let step: number = 1;
-    export let onChange: (value: number) => void = () => {};
+    let {
+        value,
+        min = undefined,
+        max = undefined,
+        step = 1,
+        onChange = () => {},
+    } = $props<{
+        value: number;
+        min?: number | undefined;
+        max?: number | undefined;
+        step?: number;
+        onChange?: (value: number) => void;
+    }>();
 
     function handleChange(event: Event) {
         const input = event.target as HTMLInputElement;
         const newValue = parseFloat(input.value);
         if (!isNaN(newValue)) {
-            value = newValue;
+            // Props are readonly, so we call the callback to update the parent's state.
             onChange(newValue);
         }
     }

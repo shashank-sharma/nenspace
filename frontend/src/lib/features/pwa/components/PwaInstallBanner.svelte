@@ -1,173 +1,98 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fly } from "svelte/transition";
-  import { X, Download, Info, Chrome, Menu, ArrowRight } from "lucide-svelte";
+  import { X, Download, Info, Menu } from "lucide-svelte";
   import { Button } from "$lib/components/ui/button";
-  import {
-    installPrompt,
-    isPwaInstalled,
-    showInstallPrompt,
-    promptUnavailableReason,
-    isDebugModeEnabled,
-    devControls,
-  } from "$lib/features/pwa/services";
+  import { PwaService } from "$lib/features/pwa/services/pwa.service.svelte";
   import { browser } from "$app/environment";
 
-  // Control when to show the banner
-  let show = false;
-  let installable = false;
-  let dismissed = false;
-  let showManualInstructions = false;
-  let unavailabilityReason = "Unknown reason";
-  let isDebugMode = false;
-  let debug = {
-    isInstalled: false,
-    hasPrompt: false,
-    isDismissed: false,
-    isDevMode: false,
-    reason: "",
-  };
+  // Most state is now derived from the PwaService
+  let show = $state(false);
+  let dismissed = $state(false);
+  let showManualInstructions = $state(false);
+  let unavailabilityReason = $state("Unknown reason");
 
   // Browser detection for installation instructions
-  let browserInfo = {
+  let browserInfo = $state({
     isChrome: false,
     isFirefox: false,
     isSafari: false,
     isEdge: false,
     isIOS: false,
-    isAndroid: false,
     name: "your browser",
-  };
+  });
 
-  const checkDismissed = () => {
-    const sessionDismissed = sessionStorage.getItem("pwa-banner-dismissed");
-    if (sessionDismissed === "true") {
-      dismissed = true;
-      debug.isDismissed = true;
+  function checkDismissed() {
+    if (browser) {
+      dismissed = sessionStorage.getItem("pwa-banner-dismissed") === "true";
     }
-  };
+  }
 
-  const dismiss = () => {
+  function dismiss() {
     show = false;
     dismissed = true;
     showManualInstructions = false;
-    debug.isDismissed = true;
-    sessionStorage.setItem("pwa-banner-dismissed", "true");
-  };
+    if (browser) {
+      sessionStorage.setItem("pwa-banner-dismissed", "true");
+    }
+  }
 
-  const forceShow = () => {
-    dismissed = false;
-    debug.isDismissed = false;
-    sessionStorage.removeItem("pwa-banner-dismissed");
-    updateShowState(true);
-  };
-
-  const handleInstall = async () => {
-    const outcome = await showInstallPrompt();
-
-    if (outcome === "unavailable") {
-      // If no prompt is available, show manual instructions
+  async function handleInstall() {
+    await PwaService.showInstallPrompt();
+    // If the prompt was shown, the service will handle the state.
+    // If it was unavailable, we might want to show manual instructions.
+    if (!PwaService.isPromptAvailable) {
       showManualInstructions = true;
     } else {
       dismiss();
     }
-  };
+  }
 
   function detectBrowser() {
     if (!browser) return;
-
     const ua = navigator.userAgent;
-
-    browserInfo.isIOS =
+    const isIOS =
       /iPad|iPhone|iPod/.test(ua) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    browserInfo.isAndroid = /Android/.test(ua);
+    const isChrome = /CriOS|Chrome/.test(ua) && !/Edge/.test(ua);
+    const isFirefox = /Firefox/.test(ua);
+    const isSafari = /Safari/.test(ua) && !/Chrome/.test(ua);
+    const isEdge = /Edge/.test(ua);
 
-    if (/CriOS|Chrome/.test(ua) && !/Edge/.test(ua)) {
-      browserInfo.isChrome = true;
-      browserInfo.name = "Chrome";
-    } else if (/Firefox/.test(ua)) {
-      browserInfo.isFirefox = true;
-      browserInfo.name = "Firefox";
-    } else if (/Safari/.test(ua) && !/Chrome/.test(ua)) {
-      browserInfo.isSafari = true;
-      browserInfo.name = "Safari";
-    } else if (/Edge/.test(ua)) {
-      browserInfo.isEdge = true;
-      browserInfo.name = "Edge";
-    }
+    browserInfo = {
+      isIOS,
+      isChrome,
+      isFirefox,
+      isSafari,
+      isEdge,
+      name: isChrome
+        ? "Chrome"
+        : isFirefox
+          ? "Firefox"
+          : isSafari
+            ? "Safari"
+            : isEdge
+              ? "Edge"
+              : "your browser",
+    };
   }
 
-  function updateShowState(force = false) {
-    const isInstalled = $isPwaInstalled || $devControls.simulateInstalled;
+  // Reactive effect to control banner visibility
+  $effect(() => {
+    if (!browser) return;
 
-    if (isInstalled) {
-      show = false;
-      return;
-    }
-
-    if (force) {
-      show = true;
-    } else {
-      show = (installable || $devControls.showInstallPrompt) && !dismissed;
-    }
-  }
-
-  function handleStorageEvent(e: StorageEvent) {
-    if (e.key === "pwa-banner-dismissed") {
-      checkDismissed();
-      updateShowState();
-    }
-  }
+    const shouldShow =
+      PwaService.isPromptAvailable &&
+      !PwaService.effectiveInstallStatus &&
+      !dismissed;
+    show = shouldShow;
+  });
 
   onMount(() => {
     if (!browser) return;
-
-    // Check if debug mode is enabled
-    isDebugMode = isDebugModeEnabled();
-    debug.isDevMode = isDebugMode;
-
     checkDismissed();
     detectBrowser();
-
-    const unsubscribePrompt = installPrompt.subscribe((value) => {
-      installable = !!value;
-      debug.hasPrompt = installable;
-      updateShowState();
-    });
-
-    const unsubscribeInstalled = isPwaInstalled.subscribe((value) => {
-      debug.isInstalled = value;
-      updateShowState();
-    });
-
-    const unsubscribeReason = promptUnavailableReason.subscribe((value) => {
-      if (value) {
-        unavailabilityReason = value;
-        debug.reason = value;
-      }
-    });
-
-    const unsubscribeDev = devControls.subscribe((devState) => {
-      updateShowState();
-    });
-
-    window.addEventListener("storage", handleStorageEvent);
-
-    if (browser && window.location.search.includes("showPwaInstall=true")) {
-      forceShow();
-    }
-
-    return () => {
-      unsubscribePrompt();
-      unsubscribeInstalled();
-      unsubscribeDev();
-      unsubscribeReason();
-      window.removeEventListener("storage", handleStorageEvent);
-    };
   });
-
-  export { forceShow };
 </script>
 
 {#if show}
@@ -194,9 +119,8 @@
           <!-- Show the specific reason why automatic installation isn't available -->
           <div class="bg-muted/50 p-2 rounded text-muted-foreground mb-2">
             <p>
-              Automatic installation is unavailable: <strong
-                >{unavailabilityReason}</strong
-              >
+              Automatic installation is unavailable:
+              <strong>{unavailabilityReason}</strong>
             </p>
           </div>
 
@@ -205,18 +129,19 @@
             <p>To install Nen Space on your iPhone or iPad:</p>
             <ol class="list-decimal space-y-2 pl-5">
               <li>
-                Tap the <span class="inline-block px-2 font-semibold"
-                  >Share</span
-                > button in Safari
+                Tap the
+                <span class="inline-block px-2 font-semibold"> Share </span> button
+                in Safari
               </li>
               <li>
-                Scroll down and tap <span
-                  class="inline-block px-2 font-semibold"
-                  >Add to Home Screen</span
-                >
+                Scroll down and tap
+                <span class="inline-block px-2 font-semibold">
+                  Add to Home Screen
+                </span>
               </li>
               <li>
-                Tap <span class="inline-block px-2 font-semibold">Add</span>
+                Tap
+                <span class="inline-block px-2 font-semibold"> Add </span>
               </li>
             </ol>
           {:else if browserInfo.isChrome}
@@ -224,19 +149,20 @@
             <p>To install Nen Space in Chrome:</p>
             <ol class="list-decimal space-y-2 pl-5">
               <li>
-                Click the menu button <span
-                  class="inline-block px-2 font-semibold"
-                  ><Menu class="h-4 w-4 inline" /></span
-                > in the top right
+                Click the menu button
+                <span class="inline-block px-2 font-semibold">
+                  <Menu class="h-4 w-4 inline" />
+                </span> in the top right
               </li>
               <li>
-                Select <span class="inline-block px-2 font-semibold"
-                  >Install App</span
-                >
+                Select
+                <span class="inline-block px-2 font-semibold">
+                  Install App
+                </span>
                 or
-                <span class="inline-block px-2 font-semibold"
-                  >Install Nen Space</span
-                >
+                <span class="inline-block px-2 font-semibold">
+                  Install Nen Space
+                </span>
               </li>
             </ol>
           {:else if browserInfo.isFirefox}
@@ -244,19 +170,20 @@
             <p>To install Nen Space in Firefox:</p>
             <ol class="list-decimal space-y-2 pl-5">
               <li>
-                Click the menu button <span
-                  class="inline-block px-2 font-semibold"
-                  ><Menu class="h-4 w-4 inline" /></span
-                > in the top right
+                Click the menu button
+                <span class="inline-block px-2 font-semibold">
+                  <Menu class="h-4 w-4 inline" />
+                </span> in the top right
               </li>
               <li>
-                Select <span class="inline-block px-2 font-semibold"
-                  >Install App</span
-                >
+                Select
+                <span class="inline-block px-2 font-semibold">
+                  Install App
+                </span>
                 or
-                <span class="inline-block px-2 font-semibold"
-                  >Add to Home Screen</span
-                >
+                <span class="inline-block px-2 font-semibold">
+                  Add to Home Screen
+                </span>
               </li>
             </ol>
           {:else}
@@ -267,15 +194,16 @@
                 Open the menu in {browserInfo.name}
               </li>
               <li>
-                Look for an option like <span
-                  class="inline-block px-2 font-semibold">Install App</span
-                >,
-                <span class="inline-block px-2 font-semibold"
-                  >Add to Home Screen</span
-                >, or
-                <span class="inline-block px-2 font-semibold"
-                  >Install Nen Space</span
-                >
+                Look for an option like
+                <span class="inline-block px-2 font-semibold">
+                  Install App
+                </span>,
+                <span class="inline-block px-2 font-semibold">
+                  Add to Home Screen
+                </span>, or
+                <span class="inline-block px-2 font-semibold">
+                  Install Nen Space
+                </span>
               </li>
             </ol>
           {/if}
@@ -321,22 +249,4 @@
   </div>
 {/if}
 
-<!-- Debug UI - only visible in debug mode -->
-{#if isDebugMode}
-  <div class="fixed bottom-20 right-4 z-50">
-    <Button variant="outline" size="sm" on:click={forceShow}>
-      Test PWA Banner
-    </Button>
-    <div class="mt-2 text-xs bg-card p-2 rounded border shadow-sm">
-      <div><strong>Debug:</strong></div>
-      <div>Installed: {debug.isInstalled ? "✅" : "❌"}</div>
-      <div>Has Prompt: {debug.hasPrompt ? "✅" : "❌"}</div>
-      <div>Dismissed: {debug.isDismissed ? "✅" : "❌"}</div>
-      <div>Debug Mode: {debug.isDevMode ? "✅" : "❌"}</div>
-      <div>Browser: {browserInfo.name}</div>
-      {#if debug.reason}
-        <div class="text-amber-500">Reason: {debug.reason}</div>
-      {/if}
-    </div>
-  </div>
-{/if}
+<!-- Debug UI removed as it's now in the main debug panel -->

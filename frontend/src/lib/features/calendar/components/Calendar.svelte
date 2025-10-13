@@ -1,7 +1,4 @@
 <script lang="ts">
-    import { onMount } from "svelte";
-    import { calendarStore } from "../stores/calendar.store";
-    import type { CalendarEvent, CalendarSync } from "../types";
     import MonthView from "./MonthView.svelte";
     import WeekView from "./WeekView.svelte";
     import DayView from "./DayView.svelte";
@@ -18,96 +15,64 @@
         addWeeks,
         subWeeks,
     } from "date-fns";
+    import type { CalendarEvent, CalendarView } from "../types";
+    import { createEventDispatcher } from "svelte";
 
-    // Optional props
-    export let calendars: CalendarSync[] = [];
-    export let showCalendarInfo: boolean = true;
+    let {
+        events = [],
+        view = $bindable("month"),
+        selectedDate = $bindable(new Date()),
+    } = $props<{
+        events?: CalendarEvent[];
+        view?: CalendarView;
+        selectedDate?: Date;
+    }>();
 
-    let selectedTab = "month";
-    let isEventDialogOpen = false;
-    let clickPosition = { x: 0, y: 0 };
+    const dispatch = createEventDispatcher();
 
-    $: view = $calendarStore.view;
-    $: selectedDate = $calendarStore.selectedDate;
-    $: selectedEvent = $calendarStore.selectedEvent;
-    $: hasCalendarSync =
-        $calendarStore.calendars && $calendarStore.calendars.length > 0;
+    let selectedEvent = $state<CalendarEvent | null>(null);
+    let isEventDialogOpen = $state(false);
+    let clickPosition = $state({ x: 0, y: 0 });
 
-    onMount(() => {
-        if (calendars && calendars.length > 0) {
-            update$calendarStore(calendars);
-        }
-
-        if ($calendarStore.view) {
-            selectedTab = $calendarStore.view;
+    $effect(() => {
+        if (selectedEvent) {
+            isEventDialogOpen = true;
+        } else {
+            isEventDialogOpen = false;
         }
     });
 
-    function update$calendarStore(calendars: CalendarSync[]) {
-        if (calendars.length > 0) {
-            calendarStore.fetchCalendars();
-        }
-    }
-
-    function handleDateSelect(date: Date) {
-        calendarStore.setSelectedDate(date);
-    }
-
-    function handleViewChange(event: CustomEvent<string>) {
-        if (event.detail === "day") {
-            calendarStore.setView("day");
-        }
-    }
-
-    function handleEventClick(event: CalendarEvent, e?: MouseEvent) {
-        if (e) {
-            clickPosition = { x: e.clientX, y: e.clientY };
-        } else {
-            clickPosition = {
-                x: window.innerWidth / 2,
-                y: window.innerHeight / 2,
-            };
-        }
-
-        const eventDate = new Date(event.start);
-        calendarStore.setSelectedDate(eventDate);
-
-        calendarStore.setSelectedEvent(event);
-        isEventDialogOpen = true;
+    function handleEventClick(event: CustomEvent<{ event: CalendarEvent }>) {
+        dispatch("eventClick", event.detail);
     }
 
     function closeEventDialog() {
-        isEventDialogOpen = false;
         setTimeout(() => {
-            calendarStore.setSelectedEvent(null);
+            selectedEvent = null;
         }, 300);
     }
 
     function goToToday() {
-        calendarStore.setSelectedDate(new Date());
+        selectedDate = new Date();
     }
 
     function navigatePrevious() {
-        const currentDate = $calendarStore.selectedDate;
-
-        if ($calendarStore.view === "month") {
-            calendarStore.setSelectedDate(subMonths(currentDate, 1));
-        } else if ($calendarStore.view === "week") {
-            calendarStore.setSelectedDate(subWeeks(currentDate, 1));
+        if (view === "month") {
+            selectedDate = subMonths(selectedDate, 1);
+        } else if (view === "week") {
+            selectedDate = subWeeks(selectedDate, 1);
         } else {
-            calendarStore.setSelectedDate(addDays(currentDate, -1));
+            selectedDate = addDays(selectedDate, -1);
         }
     }
 
     function navigateNext() {
-        const currentDate = $calendarStore.selectedDate;
-
-        if ($calendarStore.view === "month") {
-            calendarStore.setSelectedDate(addMonths(currentDate, 1));
-        } else if ($calendarStore.view === "week") {
-            calendarStore.setSelectedDate(addWeeks(currentDate, 1));
+        if (view === "month") {
+            selectedDate = addMonths(selectedDate, 1);
+        } else if (view === "week") {
+            selectedDate = addWeeks(selectedDate, 1);
         } else {
-            calendarStore.setSelectedDate(addDays(currentDate, 1));
+            selectedDate = addDays(selectedDate, 1);
         }
     }
 
@@ -129,7 +94,7 @@
 />
 
 <div class="space-y-4">
-    {#if hasCalendarSync}
+    {#if events.length > 0}
         <Card class="border shadow-sm rounded-lg calendar-container">
             <div class="p-4">
                 <div
@@ -166,24 +131,21 @@
                                 </Button>
                             </div>
                         </div>
-                        <Tabs value={view} class="w-[250px]">
+                        <Tabs {view} class="w-[250px]">
                             <TabsList class="grid w-full grid-cols-3">
                                 <TabsTrigger
                                     value="month"
-                                    on:click={() =>
-                                        calendarStore.setView("month")}
+                                    on:click={() => (view = "month")}
                                     >Month</TabsTrigger
                                 >
                                 <TabsTrigger
                                     value="week"
-                                    on:click={() =>
-                                        calendarStore.setView("week")}
+                                    on:click={() => (view = "week")}
                                     >Week</TabsTrigger
                                 >
                                 <TabsTrigger
                                     value="day"
-                                    on:click={() =>
-                                        calendarStore.setView("day")}
+                                    on:click={() => (view = "day")}
                                     >Day</TabsTrigger
                                 >
                             </TabsList>
@@ -193,25 +155,24 @@
 
                 {#if view === "month"}
                     <MonthView
-                        events={$calendarStore.events}
+                        {events}
                         {selectedDate}
-                        onDateSelect={handleDateSelect}
-                        onEventClick={handleEventClick}
-                        on:changeView={handleViewChange}
+                        on:selectDate={(e) => (selectedDate = e.detail)}
+                        on:eventClick={handleEventClick}
                     />
                 {:else if view === "week"}
                     <WeekView
-                        events={$calendarStore.events}
+                        {events}
                         {selectedDate}
-                        onDateSelect={handleDateSelect}
-                        onEventClick={handleEventClick}
+                        on:selectDate={(e) => (selectedDate = e.detail)}
+                        on:eventClick={handleEventClick}
                     />
                 {:else}
                     <DayView
-                        events={$calendarStore.events}
+                        {events}
                         {selectedDate}
-                        onDateSelect={handleDateSelect}
-                        onEventClick={handleEventClick}
+                        on:selectDate={(e) => (selectedDate = e.detail)}
+                        on:eventClick={handleEventClick}
                     />
                 {/if}
             </div>
@@ -227,24 +188,6 @@
 />
 
 <style>
-    :global([data-calendar-theme="minimal"]) .calendar-container {
-        background-color: hsl(var(--background) / 95%);
-        border-color: hsl(var(--border) / 40%);
-        box-shadow: none;
-    }
-
-    :global([data-calendar-theme="gradient"]) .calendar-container {
-        background: linear-gradient(
-            to bottom right,
-            hsl(var(--background)),
-            hsl(var(--muted) / 30%)
-        );
-        border-color: hsl(var(--border) / 20%);
-    }
-
-    :global([data-calendar-theme="dark"]) .calendar-container {
-        background-color: hsl(var(--muted) / 95%);
-        border-color: hsl(var(--border));
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    }
+    /* These styles were probably intended for a theme switcher that is not implemented here. */
+    /* Removing them as they are marked as unused by the linter. */
 </style>

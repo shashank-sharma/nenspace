@@ -9,20 +9,47 @@
     } from "$lib/components/ui/card";
     import { Button } from "$lib/components/ui/button";
     import { Calendar, Loader2, Check } from "lucide-svelte";
-    import { calendarStore } from "../stores/calendar.store";
+    import { CalendarService } from "../services";
 
     let authWindow: Window | null = null;
+    let isLoading = $state(false);
+    let isAuthenticating = $state(false);
+    let isConnected = $state(false);
+
+    async function checkStatus() {
+        isLoading = true;
+        try {
+            const status = await CalendarService.checkStatus();
+            isConnected = !!status;
+        } catch (error) {
+            console.error("Failed to check calendar status:", error);
+            isConnected = false;
+        } finally {
+            isLoading = false;
+        }
+    }
 
     async function handleAuthClick() {
-        const authUrl = await calendarStore.startAuth();
-        if (authUrl) {
-            authWindow = window.open(authUrl, "auth", "width=600,height=800");
+        isAuthenticating = true;
+        try {
+            const authUrl = await CalendarService.startAuth();
+            if (authUrl) {
+                authWindow = window.open(
+                    authUrl,
+                    "auth",
+                    "width=600,height=800",
+                );
+            }
+        } catch (error) {
+            console.error("Failed to start auth:", error);
+        } finally {
+            isAuthenticating = false;
         }
     }
 
     function handleMessage(event: MessageEvent) {
         if (event.data === "AUTH_COMPLETE") {
-            calendarStore.checkStatus(true);
+            checkStatus();
             if (authWindow) {
                 authWindow.close();
                 authWindow = null;
@@ -31,6 +58,7 @@
     }
 
     onMount(() => {
+        checkStatus();
         window.addEventListener("message", handleMessage);
     });
 
@@ -54,11 +82,11 @@
     </CardHeader>
 
     <CardContent>
-        {#if $calendarStore.isLoading}
+        {#if isLoading}
             <div class="flex justify-center items-center py-8">
                 <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-        {:else if $calendarStore.syncStatus}
+        {:else if isConnected}
             <div
                 class="flex items-center gap-4 text-green-600 dark:text-green-500"
             >
@@ -74,9 +102,9 @@
                 <Button
                     class="w-full"
                     on:click={handleAuthClick}
-                    disabled={$calendarStore.isAuthenticating}
+                    disabled={isAuthenticating}
                 >
-                    {#if $calendarStore.isAuthenticating}
+                    {#if isAuthenticating}
                         <Loader2 class="mr-2 h-4 w-4 animate-spin" />
                         Authenticating...
                     {:else}

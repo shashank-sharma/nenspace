@@ -1,2 +1,6 @@
-export * from './chronicles.store';
-export * from './weather.store'; 
+/**
+ * Chronicles Stores Barrel Export
+ */
+
+export { chroniclesStore } from './chronicles.store.svelte';
+export { weatherStore } from './weather.store.svelte';

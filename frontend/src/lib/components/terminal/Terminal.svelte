@@ -1,40 +1,61 @@
 <script lang="ts">
-    import { onMount, onDestroy, createEventDispatcher } from "svelte";
+    import { createEventDispatcher } from "svelte";
     import { Terminal as XTerm } from "xterm";
     import { FitAddon } from "xterm-addon-fit";
     import { WebLinksAddon } from "xterm-addon-web-links";
 
     import "xterm/css/xterm.css";
 
-    export let id = "terminal-" + Math.random().toString(36).substr(2, 9);
-    export let initialText = "";
-    export let autoFocus = true;
-    export let theme = {
-        background: "#1e1e1e",
-        foreground: "#f0f0f0",
-        cursor: "#ffffff",
-        cursorAccent: "#000000",
-        selection: "rgba(255, 255, 255, 0.3)",
-        black: "#000000",
-        red: "#e06c75",
-        green: "#98c379",
-        yellow: "#e5c07b",
-        blue: "#61afef",
-        magenta: "#c678dd",
-        cyan: "#56b6c2",
-        white: "#dcdfe4",
-    };
+    let {
+        id = "terminal-" + Math.random().toString(36).substr(2, 9),
+        initialText = "",
+        autoFocus = true,
+        theme = {
+            background: "#1e1e1e",
+            foreground: "#f0f0f0",
+            cursor: "#ffffff",
+            cursorAccent: "#000000",
+            selection: "rgba(255, 255, 255, 0.3)",
+            black: "#000000",
+            red: "#e06c75",
+            green: "#98c379",
+            yellow: "#e5c07b",
+            blue: "#61afef",
+            magenta: "#c678dd",
+            cyan: "#56b6c2",
+            white: "#dcdfe4",
+        },
+    } = $props<{
+        id?: string;
+        initialText?: string;
+        autoFocus?: boolean;
+        theme?: {
+            background: string;
+            foreground: string;
+            cursor: string;
+            cursorAccent: string;
+            selection: string;
+            black: string;
+            red: string;
+            green: string;
+            yellow: string;
+            blue: string;
+            magenta: string;
+            cyan: string;
+            white: string;
+        };
+    }>();
 
     // Local state
     let terminalElement: HTMLElement;
-    let terminal: XTerm;
-    let fitAddon: FitAddon;
-    let resizeObserver: ResizeObserver;
-    let isReady = false;
+    let terminal: XTerm | undefined;
+    let fitAddon: FitAddon | undefined;
+    let resizeObserver: ResizeObserver | undefined;
+    let isReady = $state(false);
 
     const dispatch = createEventDispatcher();
 
-    onMount(() => {
+    $effect(() => {
         terminal = new XTerm({
             fontFamily: 'Menlo, Monaco, "Courier New", monospace',
             fontSize: isMobile() ? 12 : 14,
@@ -56,7 +77,7 @@
         terminal.open(terminalElement);
 
         setTimeout(() => {
-            fitAddon.fit();
+            fitAddon?.fit();
             if (terminal) {
                 dispatch("resize", {
                     cols: terminal.cols,
@@ -100,19 +121,15 @@
 
         isReady = true;
         dispatch("ready");
-    });
 
-    onDestroy(() => {
-        if (resizeObserver) {
-            resizeObserver.disconnect();
-        }
-        if (terminal) {
-            terminal.dispose();
-        }
-        window.removeEventListener(
-            "orientationchange",
-            handleOrientationChange,
-        );
+        return () => {
+            resizeObserver?.disconnect();
+            terminal?.dispose();
+            window.removeEventListener(
+                "orientationchange",
+                handleOrientationChange,
+            );
+        };
     });
 
     function handleOrientationChange() {

@@ -22,11 +22,13 @@
     } from "$lib/components/ui/card";
     import type { Server } from "../types";
 
-    export let server: Server;
-    export let onEdit: (server: Server) => void;
-    export let onDelete: (id: string) => void;
-    export let onToggleStatus: (id: string, status: boolean) => void;
-    export let onSSH: (server: Server) => void;
+    let { server, onEdit, onDelete, onToggleStatus, onSSH } = $props<{
+        server: Server;
+        onEdit: (server: Server) => void;
+        onDelete: (id: string) => void;
+        onToggleStatus: (id: string, status: boolean) => void;
+        onSSH: (server: Server) => void;
+    }>();
 
     const serverDetailUrl = `/dashboard/servers/${server.id}`;
 

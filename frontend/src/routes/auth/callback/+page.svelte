@@ -3,7 +3,7 @@
     import { page } from "$app/stores";
     import { Loader2 } from "lucide-svelte";
     import { mailStore } from "$lib/features/mail";
-    import { calendarStore } from "$lib/features/calendar/stores/calendar.store";
+    import { CalendarService } from "$lib/features/calendar";
 
     let error: string | null = null;
     let isProcessing = true;
@@ -19,40 +19,39 @@
         }
 
         try {
-            let success = false;
-
             // Check if the scope is for email or calendar
             console.log("scope", scope);
             if (scope.includes("gmail.readonly")) {
                 console.log("email");
-                success = await mailStore.completeAuth(code);
+                const success = await mailStore.completeAuth(code);
                 if (success) {
                     // Wait for status check to complete before closing
                     await mailStore.checkStatus(true);
                 }
+                if (!success) {
+                    throw new Error("Email authentication failed");
+                }
             } else if (scope.includes("calendar.readonly")) {
                 console.log("calendar");
-                success = await calendarStore.completeAuth(code);
-                console.log("success", success);
-                if (success) {
-                    // Wait for status check to complete before closing
-                    await calendarStore.checkStatus(true);
-                }
+                await CalendarService.completeAuth(code);
+                console.log("Calendar auth completed");
+                // Wait for status check to complete before closing
+                await CalendarService.checkStatus(true);
             } else {
                 throw new Error("Unknown authentication scope");
             }
 
-            if (success) {
-                window.close();
-                // Optionally notify the opener window
-                if (window.opener) {
-                    window.opener.postMessage("AUTH_COMPLETE", "*");
-                }
-            } else {
-                throw new Error("Authentication failed");
+            window.close();
+            // Optionally notify the opener window
+            if (window.opener) {
+                window.opener.postMessage("AUTH_COMPLETE", "*");
             }
         } catch (e) {
-            error = "Failed to complete authentication";
+            console.error("Auth callback error:", e);
+            error =
+                e instanceof Error
+                    ? e.message
+                    : "Failed to complete authentication";
         } finally {
             isProcessing = false;
         }
