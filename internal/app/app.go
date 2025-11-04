@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -46,7 +48,7 @@ type Application struct {
 }
 
 // New creates and initializes a new Application instance
-func New(configFlags config.ConfigFlags) *Application {
+func New(configFlags config.ConfigFlags) (*Application, error) {
 	pb := pocketbase.NewWithConfig(pocketbase.Config{
 		DefaultDataDir:  "./pb_data",
 		HideStartBanner: false,
@@ -54,7 +56,9 @@ func New(configFlags config.ConfigFlags) *Application {
 	})
 
 	store.InitApp(pb)
-	config.Init(pb, configFlags)
+	if err := config.Init(pb, configFlags); err != nil {
+		return nil, fmt.Errorf("failed to initialize configuration: %w", err)
+	}
 
 	app := &Application{
 		Pb:            pb,
@@ -90,7 +94,7 @@ func New(configFlags config.ConfigFlags) *Application {
 		return e.Next()
 	})
 
-	return app
+	return app, nil
 }
 
 // initializeServices creates and initializes all application services
@@ -100,13 +104,18 @@ func (app *Application) initializeServices() {
 	// app.initializeSearchService()
 	// app.initializeContainerService()
 	app.initializeAIServices()
-	
+
 	logger.LogInfo("All services initialized successfully")
 }
 
 // initializeBaseServices initializes core application services
 func (app *Application) initializeBaseServices() {
-	app.FoldService = fold.NewFoldService("https://api.fold.money/api")
+	// Get Fold API URL from config (defaults to production URL)
+	foldAPIURL, _ := app.Pb.Store().Get("FOLD_API_URL").(string)
+	if foldAPIURL == "" {
+		foldAPIURL = "https://api.fold.money/api"
+	}
+	app.FoldService = fold.NewFoldService(foldAPIURL)
 	app.CalendarService = calendar.NewCalendarService()
 	app.MailService = mail.NewMailService()
 	app.WorkflowEngine = workflow.NewWorkflowEngine(app.Pb)
@@ -121,7 +130,7 @@ func (app *Application) initializeSearchService() {
 		logger.LogInfo("Continuing without full-text search functionality")
 		return
 	}
-	
+
 	logger.LogInfo("Full-text search service initialized successfully")
 }
 
@@ -150,8 +159,8 @@ func (app *Application) initializeAIServices() {
 }
 
 // initializeContainerService initializes the container service
-    // TODO: For local testing in macos, we can use the following path
-    // defaultConfig.StoragePath = "/home/shasharma.linux/container_data"
+// TODO: For local testing in macos, we can use the following path
+// defaultConfig.StoragePath = "/home/shasharma.linux/container_data"
 func (app *Application) initializeContainerService() {
 	containerService, err := container.NewContainerService(container.DefaultAppContainerConfig)
 	if err != nil {
@@ -169,22 +178,52 @@ func (app *Application) initializeContainerService() {
 // configureRoutes sets up API routes for the application
 func (app *Application) configureRoutes(e *core.ServeEvent) {
 	apiRouter := e.Router.Group("/api")
+
+	// Register panic recovery middleware first
+	apiRouter.BindFunc(middleware.PanicRecoveryMiddleware())
+
+	// Then register metrics middleware
 	apiRouter.BindFunc(middleware.RouteMetricsMiddleware)
 
 	// Register core API routes
 	routes.RegisterWorkflowRoutes(apiRouter, "/workflows", app.WorkflowEngine)
 	routes.RegisterFeedRoutes(apiRouter, "/feeds", *app.FeedService)
 	routes.RegisterCredentialRoutes(e)
+	routes.RegisterDevTokenRoutes(e)
 	routes.RegisterTrackRoutes(apiRouter, "/track")
-	routes.RegisterCalendarRoutes(apiRouter, "/calendar", app.CalendarService)
-	routes.RegisterMailRoutes(apiRouter, "/mail", app.MailService)
-	routes.RegisterFoldRoutes(apiRouter, "/fold", app.FoldService)
+
+	// Register sync routes with dev token middleware
+	syncRouter := apiRouter.Group("/sync")
+	syncRouter.BindFunc(middleware.DevTokenAuthMiddleware())
+	routes.RegisterBrowsingActivitySyncRoutes(syncRouter, "")
+	routes.RegisterBrowserHistorySyncRoutes(syncRouter, "")
+
+	// Register routes with authentication middleware
+	calendarRouter := apiRouter.Group("/calendar")
+	calendarRouter.BindFunc(middleware.AuthMiddleware())
+	routes.RegisterCalendarRoutes(calendarRouter, "", app.CalendarService)
+
+	mailRouter := apiRouter.Group("/mail")
+	mailRouter.BindFunc(middleware.AuthMiddleware())
+	routes.RegisterMailRoutes(mailRouter, "", app.MailService)
+
+	foldRouter := apiRouter.Group("/fold")
+	foldRouter.BindFunc(middleware.AuthMiddleware())
+	routes.RegisterFoldRoutes(foldRouter, "", app.FoldService)
+
 	routes.RegisterSSHRoutes(apiRouter, "/ssh")
-	routes.RegisterWeatherRoutes(apiRouter, "/weather", app.WeatherService)
+
+	weatherRouter := apiRouter.Group("/weather")
+	weatherRouter.BindFunc(middleware.AuthMiddleware())
+	routes.RegisterWeatherRoutes(weatherRouter, "", app.WeatherService)
+
+	routes.RegisterTestRoutes(apiRouter, "/test")
 
 	// Register optional service routes
 	if app.ContainerService != nil {
-		routes.RegisterContainerRoutes(apiRouter, "/containers", app.ContainerService)
+		containerRouter := apiRouter.Group("/containers")
+		containerRouter.BindFunc(middleware.AuthMiddleware())
+		routes.RegisterContainerRoutes(containerRouter, "", app.ContainerService)
 	}
 
 	if app.SearchService != nil {
@@ -200,13 +239,26 @@ func (app *Application) configureRoutes(e *core.ServeEvent) {
 // initMemorySystem initializes the memory system
 func (app *Application) initMemorySystem() {
 	memSystem := memorysystem.New()
-	
+
 	app.Pb.OnRecordAfterCreateSuccess("tasks").BindFunc(func(e *core.RecordEvent) error {
+		// Process record asynchronously with context for cancellation
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
 		go func() {
+			defer cancel()
 			if err := memSystem.ProcessRecord("tasks", *e.Record); err != nil {
-				logger.LogError("Error processing task record: %v", err)
+				logger.LogError("Error processing task record", "error", err, "recordId", e.Record.Id)
 			}
 		}()
+
+		// Monitor context for timeout/cancellation
+		go func() {
+			<-ctx.Done()
+			if ctx.Err() == context.DeadlineExceeded {
+				logger.LogWarning("Task record processing timed out", "recordId", e.Record.Id)
+			}
+		}()
+
 		return e.Next()
 	})
 
@@ -352,6 +404,7 @@ func (app *Application) InitMemorySystem() {
 	routes.InitMemorySystem()
 	logger.Debug.Println("Memory system initialized")
 }
+
 // RegisterMemorySystemHooks registers hooks for the memory system
 // func (app *Application) RegisterMemorySystemHooks() {
 // 	// Register hooks for various collections
@@ -403,4 +456,3 @@ func (app *Application) InitMemorySystem() {
 
 // 	logger.Debug.Println("Memory system routes configured")
 // }
-

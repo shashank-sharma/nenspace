@@ -585,25 +585,19 @@ func RateInsight(e *core.RequestEvent) error {
 
 // CreateMemory creates a new memory
 func CreateMemory(e *core.RequestEvent) error {
-	token := e.Request.Header.Get("Authorization")
-	userId, err := util.GetUserId(token)
-	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Failed to authenticate user",
-		})
+	userId, ok := e.Get("userId").(string)
+	if !ok || userId == "" {
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
 	data := &CreateMemoryRequest{}
 	if err := e.BindBody(data); err != nil {
-		return e.JSON(http.StatusBadRequest, map[string]interface{}{
-			"message": "Invalid request data",
-		})
+		logger.LogError("Failed to parse request body", "error", err)
+		return util.RespondError(e, util.NewBadRequestError("Invalid request body"))
 	}
 
 	if data.Title == "" || data.Content == "" {
-		return e.JSON(http.StatusBadRequest, map[string]interface{}{
-			"message": "Title and content are required",
-		})
+		return util.RespondError(e, util.NewValidationError("title,content", "Title and content are required"))
 	}
 
 	input := memorysystem.MemoryInput{
@@ -621,13 +615,11 @@ func CreateMemory(e *core.RequestEvent) error {
 
 	memory, err := memSystem.CreateMemory(input)
 	if err != nil {
-		logger.LogError("Error creating memory:", err)
-		return e.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"message": "Failed to create memory",
-		})
+		logger.LogError("Failed to create memory", "error", err, "userId", userId)
+		return util.RespondWithError(e, util.ErrInternalServer, err)
 	}
 
-	return e.JSON(http.StatusOK, map[string]interface{}{
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{
 		"message": "Memory created successfully",
 		"memory":  memory,
 	})
@@ -1023,7 +1015,7 @@ func RecordHookHandler(e *core.RecordEvent) error {
 
 	go func() {
 		record := *e.Record
-		
+
 		if err := memSystem.ProcessRecord(e.Record.Collection().Name, record); err != nil {
 			logger.Error.Printf("Error processing record for memory system: %s", err)
 		}
@@ -1031,7 +1023,6 @@ func RecordHookHandler(e *core.RecordEvent) error {
 
 	return e.Next()
 }
-
 
 func sortByCreationTime(memories []*models.Memory, ascending bool) {
 	if ascending {

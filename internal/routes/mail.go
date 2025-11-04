@@ -1,10 +1,8 @@
 package routes
 
 import (
-	"context"
 	"net/http"
 
-	"github.com/labstack/echo/v5"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 	"github.com/pocketbase/pocketbase/tools/types"
@@ -43,40 +41,36 @@ func RegisterMailRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path 
 
 // MailAuthHandler initiates the OAuth flow for Gmail
 func MailAuthHandler(ms *mail.MailService, e *core.RequestEvent) error {
-	return e.JSON(http.StatusOK, map[string]interface{}{
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{
 		"url": ms.GetAuthUrl(),
 	})
 }
 
 // MailAuthCallback handles the OAuth callback from Gmail
 func MailAuthCallback(ms *mail.MailService, e *core.RequestEvent) error {
-	pbToken := e.Request.Header.Get("Authorization")
-	userId, err := util.GetUserId(pbToken)
-	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Invalid authorization",
-		})
+	userId, ok := e.Get("userId").(string)
+	if !ok || userId == "" {
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
 	mailAuthData := &MailAuthData{}
 	if err := e.BindBody(mailAuthData); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "Invalid input")
+		logger.LogError("Failed to parse request body", "error", err)
+		return util.RespondError(e, util.NewBadRequestError("Invalid request body"))
 	}
 
 	googleConfig := ms.GetConfig()
-	token, err := googleConfig.Exchange(context.Background(), mailAuthData.Code)
+	token, err := googleConfig.Exchange(e.Request.Context(), mailAuthData.Code)
 	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Invalid token exchange",
-		})
+		logger.LogError("Token exchange failed", "error", err)
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
-	client := googleConfig.Client(context.Background(), token)
+	client := googleConfig.Client(e.Request.Context(), token)
 	userInfo, err := oauth.FetchUserInfo(client)
 	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Failed to fetch userinfo",
-		})
+		logger.LogError("Failed to fetch user info", "error", err)
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
 	expiry := types.DateTime{}
@@ -94,47 +88,47 @@ func MailAuthCallback(ms *mail.MailService, e *core.RequestEvent) error {
 		IsActive:     true,
 	}
 
-	if err := query.UpsertRecord[*models.Token](mailToken, map[string]interface{}{
-		"provider": "gmail",
-		"account":  userInfo.Email,
-	}); err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Error saving token",
-		})
+	// Use typed filter for token upsert
+	tokenFilter := &query.TokenFilter{
+		BaseFilter: query.BaseFilter{},
+		Provider:   "gmail",
+		Account:    userInfo.Email,
+	}
+	if err := query.UpsertRecord[*models.Token](mailToken, tokenFilter.ToMap()); err != nil {
+		logger.LogError("Failed to save token", "error", err, "userId", userId)
+		return util.RespondWithError(e, util.ErrInternalServer, err)
 	}
 
 	_, err = ms.InitializeLabels(mailToken.Id, userId)
 	if err != nil {
-		return e.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"message": "Error initializing labels: " + err.Error(),
-		})
+		logger.LogError("Failed to initialize labels", "error", err, "userId", userId)
+		return util.RespondWithError(e, util.ErrInternalServer, err)
 	}
 
-	return e.JSON(http.StatusOK, map[string]interface{}{
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{
 		"message": "Mail authentication successful",
 	})
 }
 
 // MailSyncHandler triggers a non-blocking mail sync
 func MailSyncHandler(ms *mail.MailService, e *core.RequestEvent) error {
-	pbToken := e.Request.Header.Get("Authorization")
-	userId, err := util.GetUserId(pbToken)
-	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Invalid authorization",
-		})
+	userId, ok := e.Get("userId").(string)
+	if !ok || userId == "" {
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
-	// Find active mail sync configuration
+	// Find active mail sync configuration using typed filter
 	// TODO: Assumption that mailsync is possible by only 1 provider
-	mailSync, err := query.FindByFilter[*models.MailSync](map[string]interface{}{
-		"user":      userId,
-		"is_active": true,
-	})
+	isActive := true
+	filter := &query.MailSyncFilter{
+		BaseFilter: query.BaseFilter{
+			User:     userId,
+			IsActive: &isActive,
+		},
+	}
+	mailSync, err := query.FindByFilter[*models.MailSync](filter.ToMap())
 	if err != nil {
-		return e.JSON(http.StatusNotFound, map[string]interface{}{
-			"message": "No active mail sync configuration found",
-		})
+		return util.RespondError(e, util.ErrNotFound)
 	}
 
 	syncStatus := map[string]interface{}{
@@ -166,7 +160,7 @@ func MailSyncHandler(ms *mail.MailService, e *core.RequestEvent) error {
 		}
 	}()
 
-	return e.JSON(http.StatusOK, map[string]interface{}{
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{
 		"message": "Mail sync started in background",
 		"status":  "in_progress",
 	})
@@ -174,34 +168,38 @@ func MailSyncHandler(ms *mail.MailService, e *core.RequestEvent) error {
 
 // MailSyncStatusHandler checks the status of the mail sync
 func MailSyncStatusHandler(ms *mail.MailService, e *core.RequestEvent) error {
-	pbToken := e.Request.Header.Get("Authorization")
-	userId, err := util.GetUserId(pbToken)
-	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Invalid authorization",
-		})
+	userId, ok := e.Get("userId").(string)
+	if !ok || userId == "" {
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
-	mailSync, err := query.FindByFilter[*models.MailSync](map[string]interface{}{
-		"user":      userId,
-		"is_active": true,
-	})
+	// Use typed filter for mail sync query
+	isActive := true
+	filter := &query.MailSyncFilter{
+		BaseFilter: query.BaseFilter{
+			User:     userId,
+			IsActive: &isActive,
+		},
+	}
+	mailSync, err := query.FindByFilter[*models.MailSync](filter.ToMap())
 	if err != nil {
-		return e.JSON(http.StatusNotFound, map[string]interface{}{
-			"message": "No active mail sync configuration found",
-		})
+		return util.RespondError(e, util.ErrNotFound)
 	}
 
-	messageCount, err := query.CountRecords[*models.MailMessage](map[string]interface{}{
-		"user":      userId,
-		"mail_sync": mailSync.Id,
-	})
+	// Use typed filter for message count
+	messageFilter := &query.MailSyncFilter{
+		BaseFilter: query.BaseFilter{
+			User: userId,
+		},
+		MailSyncID: mailSync.Id,
+	}
+	messageCount, err := query.CountRecords[*models.MailMessage](messageFilter.ToMap())
 	if err != nil {
 		logger.LogError("Failed to count messages", err)
 		messageCount = 0
 	}
 
-	return e.JSON(http.StatusOK, map[string]interface{}{
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{
 		"id":            mailSync.Id,
 		"status":        mailSync.SyncStatus,
 		"last_synced":   mailSync.LastSynced,

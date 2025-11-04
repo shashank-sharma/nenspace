@@ -29,7 +29,7 @@ func FindById[T models.Model](id string) (T, error) {
 
 func DeleteById[T models.Model](id string) error {
 	record, err := FindById[T](id)
-	if err == nil {
+	if err != nil {
 		return err
 	}
 
@@ -136,10 +136,10 @@ func FindAllByFilter[T models.Model](filterStruct map[string]interface{}) ([]T, 
 			for op, actualVal := range v {
 				if op == "gte" {
 					paramName := field + "_gte"
-					query = query.AndWhere(dbx.NewExp(field+" >= {:" + paramName + "}", dbx.Params{paramName: actualVal}))
+					query = query.AndWhere(dbx.NewExp(field+" >= {:"+paramName+"}", dbx.Params{paramName: actualVal}))
 				} else if op == "lte" {
 					paramName := field + "_lte"
-					query = query.AndWhere(dbx.NewExp(field+" <= {:" + paramName + "}", dbx.Params{paramName: actualVal}))
+					query = query.AndWhere(dbx.NewExp(field+" <= {:"+paramName+"}", dbx.Params{paramName: actualVal}))
 				}
 			}
 		default:
@@ -167,10 +167,10 @@ func FindAllByFilterWithPagination[T models.Model](filterStruct map[string]inter
 			for op, actualVal := range v {
 				if op == "gte" {
 					paramName := field + "_gte"
-					query = query.AndWhere(dbx.NewExp(field+" >= {:" + paramName + "}", dbx.Params{paramName: actualVal}))
+					query = query.AndWhere(dbx.NewExp(field+" >= {:"+paramName+"}", dbx.Params{paramName: actualVal}))
 				} else if op == "lte" {
 					paramName := field + "_lte"
-					query = query.AndWhere(dbx.NewExp(field+" <= {:" + paramName + "}", dbx.Params{paramName: actualVal}))
+					query = query.AndWhere(dbx.NewExp(field+" <= {:"+paramName+"}", dbx.Params{paramName: actualVal}))
 				}
 			}
 		default:

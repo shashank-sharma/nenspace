@@ -333,7 +333,7 @@ func PullImageHandler(containerService *container.ContainerService) func(e *core
 		var request struct {
 			PullOptions map[string]string `json:"pull_options"`
 		}
-		
+
 		if err := e.BindBody(&request); err != nil {
 			request.PullOptions = map[string]string{}
 		}

@@ -37,7 +37,7 @@ func RegisterContainerRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], 
 	containerRouter.DELETE("/images/{id}", DeleteImageHandler(containerService))
 	containerRouter.POST("/images/{id}/build", BuildImageHandler(containerService))
 	containerRouter.POST("/images/{id}/pull", PullImageHandler(containerService))
-	
+
 	// Volume routes
 	volumeRouter.GET("/", ListVolumesHandler(containerService))
 	volumeRouter.GET("/{id}", GetVolumeHandler(containerService))
@@ -47,7 +47,7 @@ func RegisterContainerRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], 
 	volumeRouter.POST("/unmount", UnmountVolumeHandler(containerService))
 
 	logger.LogInfo("Container routes registered")
-	
+
 }
 
 // ListContainersHandler returns all containers for the current user
@@ -81,62 +81,48 @@ func ListContainersHandler(containerService *container.ContainerService) func(e 
 // GetContainerHandler returns details for a specific container
 func GetContainerHandler(containerService *container.ContainerService) func(e *core.RequestEvent) error {
 	return func(e *core.RequestEvent) error {
-		token := e.Request.Header.Get("Authorization")
-		userId, err := util.GetUserId(token)
-		if err != nil {
-			return e.JSON(http.StatusUnauthorized, map[string]interface{}{
-				"error": "Unauthorized",
-			})
+		userId, ok := e.Get("userId").(string)
+		if !ok || userId == "" {
+			return util.RespondError(e, util.ErrUnauthorized)
 		}
 
 		containerId := e.Request.PathValue("id")
 		if containerId == "" {
-			return e.JSON(http.StatusBadRequest, map[string]interface{}{
-				"error": "Container ID is required",
-			})
+			return util.RespondError(e, util.NewBadRequestError("Container ID is required"))
 		}
 
 		container, err := getContainerDetails(containerService, containerId, userId)
 		if err != nil {
-			logger.LogError("Failed to get container details: %v", err)
-			return e.JSON(http.StatusInternalServerError, map[string]interface{}{
-				"error": "Failed to get container details",
-			})
+			logger.LogError("Failed to get container details", "error", err, "containerId", containerId)
+			return util.RespondWithError(e, util.ErrInternalServer, err)
 		}
 
-		return e.JSON(http.StatusOK, container)
+		return util.RespondSuccess(e, http.StatusOK, container)
 	}
 }
 
 // CreateContainerHandler creates a new container
 func CreateContainerHandler(containerService *container.ContainerService) func(e *core.RequestEvent) error {
-	logger.LogInfo("Creating container");
 	return func(e *core.RequestEvent) error {
-		token := e.Request.Header.Get("Authorization")
-		userId, err := util.GetUserId(token)
-		if err != nil {
-			return e.JSON(http.StatusUnauthorized, map[string]interface{}{
-				"error": "Unauthorized",
-			})
+		userId, ok := e.Get("userId").(string)
+		if !ok || userId == "" {
+			return util.RespondError(e, util.ErrUnauthorized)
 		}
 
 		var request container.ContainerCreateRequest
 		if err := e.BindBody(&request); err != nil {
-			return e.JSON(http.StatusBadRequest, map[string]interface{}{
-				"error": "Invalid request",
-			})
+			logger.LogError("Failed to parse request body", "error", err)
+			return util.RespondError(e, util.NewBadRequestError("Invalid request body"))
 		}
 
-		logger.LogInfo("Creating container: %v", request)
+		logger.LogInfo("Creating container", "userId", userId)
 		newContainer, err := containerService.CreateContainer(userId, request)
 		if err != nil {
-			logger.LogError("Failed to create container: %v", err)
-			return e.JSON(http.StatusInternalServerError, map[string]interface{}{
-				"error": "Failed to create container: " + err.Error(),
-			})
+			logger.LogError("Failed to create container", "error", err, "userId", userId)
+			return util.RespondWithError(e, util.ErrInternalServer, err)
 		}
 
-		return e.JSON(http.StatusCreated, newContainer)
+		return util.RespondSuccess(e, http.StatusCreated, newContainer)
 	}
 }
 

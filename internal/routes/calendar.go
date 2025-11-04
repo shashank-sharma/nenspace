@@ -1,11 +1,8 @@
 package routes
 
 import (
-	"context"
 	"net/http"
 
-	"github.com/labstack/echo/v5"
-	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 	"github.com/pocketbase/pocketbase/tools/types"
@@ -45,33 +42,33 @@ func RegisterCalendarRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], p
 }
 
 func CalendarAuthHandler(cs *calendar.CalendarService, e *core.RequestEvent) error {
-	return e.JSON(http.StatusOK, map[string]interface{}{"url": cs.GetAuthUrl()})
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{"url": cs.GetAuthUrl()})
 }
 
 func CalendarAuthCallback(cs *calendar.CalendarService, e *core.RequestEvent) error {
-	pbToken := e.Request.Header.Get("Authorization")
-	userId, err := util.GetUserId(pbToken)
-	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Invalid authorization",
-		})
+	userId, ok := e.Get("userId").(string)
+	if !ok || userId == "" {
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
 	calTokenData := &CalendarTokenAPI{}
 	if err := e.BindBody(calTokenData); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "Invalid input")
+		logger.LogError("Failed to parse request body", "error", err)
+		return util.RespondError(e, util.NewBadRequestError("Invalid request body"))
 	}
 
 	googleConfig := cs.GetConfig()
-	token, err := googleConfig.Exchange(context.Background(), calTokenData.Code)
+	token, err := googleConfig.Exchange(e.Request.Context(), calTokenData.Code)
 	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{"message": "Invalid token exchange"})
+		logger.LogError("Token exchange failed", "error", err)
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
-	client := googleConfig.Client(context.Background(), token)
+	client := googleConfig.Client(e.Request.Context(), token)
 	userInfo, err := oauth.FetchUserInfo(client)
 	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{"message": "Failed to fetch userinfo"})
+		logger.LogError("Failed to fetch user info", "error", err)
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
 	expiry := types.DateTime{}
@@ -89,65 +86,82 @@ func CalendarAuthCallback(cs *calendar.CalendarService, e *core.RequestEvent) er
 		IsActive:     true,
 	}
 
-	if err := query.UpsertRecord[*models.Token](calToken, map[string]interface{}{
-		"provider": "google_calendar",
-		"account":  userInfo.Email,
-	}); err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Error saving token",
-		})
+	// Use typed filter for token upsert
+	tokenFilter := &query.TokenFilter{
+		BaseFilter: query.BaseFilter{},
+		Provider:   "google_calendar",
+		Account:    userInfo.Email,
 	}
-	return e.JSON(http.StatusOK, map[string]interface{}{"message": "Authenticated successfully", "token": calToken})
+	if err := query.UpsertRecord[*models.Token](calToken, tokenFilter.ToMap()); err != nil {
+		logger.LogError("Failed to save token", "error", err, "userId", userId)
+		return util.RespondWithError(e, util.ErrInternalServer, err)
+	}
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{"message": "Authenticated successfully", "token": calToken})
 }
 
 func CalendarSyncHandler(cs *calendar.CalendarService, e *core.RequestEvent) error {
-	pbToken := e.Request.Header.Get("Authorization")
-	userId, err := util.GetUserId(pbToken)
-	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Invalid authorization",
-		})
+	userId, ok := e.Get("userId").(string)
+	if !ok || userId == "" {
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
-	calendarSync, err := query.FindByFilter[*models.CalendarSync](map[string]interface{}{
-		"user":      userId,
-		"is_active": true,
-	})
+	// Use typed filter for calendar sync query
+	isActive := true
+	filter := &query.CalendarSyncFilter{
+		BaseFilter: query.BaseFilter{
+			User:     userId,
+			IsActive: &isActive,
+		},
+	}
+	calendarSync, err := query.FindByFilter[*models.CalendarSync](filter.ToMap())
 
 	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{"message": "Calendar sync not found"})
+		return util.RespondError(e, util.ErrNotFound)
 	}
+
+	// Send realtime notification that sync started (user-specific) using builder pattern
+	go func() {
+		if err := util.Notify(e.App).ToUser(userId).Info("Calendar sync started").Send(); err != nil {
+			logger.LogError("Failed to send realtime notification", "error", err)
+		}
+	}()
 
 	go cs.SyncEvents(calendarSync)
-	return e.JSON(http.StatusOK, map[string]interface{}{"message": "Sync started"})
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{"message": "Sync started"})
 }
 
 func CalendarCreateSync(cs *calendar.CalendarService, e *core.RequestEvent) error {
-	pbToken := e.Request.Header.Get("Authorization")
-	userId, err := util.GetUserId(pbToken)
-	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{
-			"message": "Invalid authorization",
-		})
+	userId, ok := e.Get("userId").(string)
+	if !ok || userId == "" {
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
 	data := &SyncCalendarAPI{}
 
-	if err := e.BindBody(data); err != nil || data.Name == "" {
-		logger.LogError("Error in parsing =", err)
-		return apis.NewBadRequestError("Failed to read request data", err)
+	if err := e.BindBody(data); err != nil {
+		logger.LogError("Failed to parse request body", "error", err)
+		return util.RespondError(e, util.NewBadRequestError("Invalid request body"))
 	}
 
-	calToken, err := query.FindByFilter[*models.CalendarSync](map[string]interface{}{
-		"user":      userId,
-		"token":     data.TokenId,
-		"is_active": true,
-	})
+	if data.Name == "" {
+		return util.RespondError(e, util.NewValidationError("name", "Name is required"))
+	}
+
+	// Use typed filter for calendar sync query
+	isActive := true
+	filter := &query.CalendarSyncFilter{
+		BaseFilter: query.BaseFilter{
+			User:     userId,
+			IsActive: &isActive,
+		},
+		Token: data.TokenId,
+	}
+	calToken, err := query.FindByFilter[*models.CalendarSync](filter.ToMap())
 
 	logger.LogDebug("Found calToken", calToken, err)
 
 	if calToken != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{"message": "Calendar sync already exists"})
+		return util.RespondError(e, util.NewBadRequestError("Calendar sync already exists"))
 	}
 
 	calendarSync := &models.CalendarSync{
@@ -161,7 +175,8 @@ func CalendarCreateSync(cs *calendar.CalendarService, e *core.RequestEvent) erro
 	}
 
 	if err := query.SaveRecord(calendarSync); err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{"message": "Error creating calendar sync"})
+		logger.LogError("Failed to create calendar sync", "error", err, "userId", userId)
+		return util.RespondWithError(e, util.ErrInternalServer, err)
 	}
 
 	go func() {
@@ -171,13 +186,21 @@ func CalendarCreateSync(cs *calendar.CalendarService, e *core.RequestEvent) erro
 				"in_progress": false,
 				"sync_status": "failed",
 			})
+			// Send error notification (user-specific) using builder pattern
+			if notifyErr := util.Notify(e.App).ToUser(userId).Error("Calendar sync failed").Send(); notifyErr != nil {
+				logger.LogError("Failed to send error notification", "error", notifyErr)
+			}
 		} else {
 			query.UpdateRecord[*models.CalendarSync](calendarSync.Id, map[string]interface{}{
 				"in_progress": false,
 				"sync_status": "success",
 			})
+			// Send success notification (user-specific) using builder pattern
+			if notifyErr := util.Notify(e.App).ToUser(userId).Success("Calendar sync completed successfully").Send(); notifyErr != nil {
+				logger.LogError("Failed to send success notification", "error", notifyErr)
+			}
 		}
 	}()
 
-	return e.JSON(http.StatusOK, map[string]interface{}{"message": "Calendar sync created", "data": calendarSync})
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{"message": "Calendar sync created", "data": calendarSync})
 }

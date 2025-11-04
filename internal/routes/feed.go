@@ -91,40 +91,35 @@ func RegisterFeedRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path 
 
 // CreateFeedSource creates a new feed source
 func CreateFeedSource(e *core.RequestEvent, feedService services.FeedService) error {
-	// Get user ID from token
-	token := e.Request.Header.Get("Authorization")
-	userId, err := util.GetUserId(token)
-	if err != nil {
-		return e.JSON(http.StatusUnauthorized, map[string]interface{}{"error": "Unauthorized"})
+	userId, ok := e.Get("userId").(string)
+	if !ok || userId == "" {
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
 	// Parse request body
 	req := &CreateFeedSourceRequest{}
 	if err := e.BindBody(req); err != nil {
-		return e.JSON(http.StatusBadRequest, map[string]interface{}{"error": "Invalid request body"})
+		logger.LogError("Failed to parse request body", "error", err)
+		return util.RespondError(e, util.NewBadRequestError("Invalid request body"))
 	}
 
 	// Validate source type
 	provider, exists := feedService.GetProvider(req.Type)
 	if !exists {
-		return e.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error": "Unsupported feed source type",
-		})
+		return util.RespondError(e, util.NewBadRequestError("Unsupported feed source type"))
 	}
 
 	// Validate provider-specific configuration
 	if err := provider.Validate(req.Config); err != nil {
-		return e.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error": err.Error(),
-		})
+		logger.LogError("Provider validation failed", "error", err, "type", req.Type)
+		return util.RespondError(e, util.NewValidationError("config", err.Error()))
 	}
 
 	// Convert config to JSON string
 	configJSON, err := json.Marshal(req.Config)
 	if err != nil {
-		return e.JSON(http.StatusBadRequest, map[string]interface{}{
-			"error": "Invalid configuration format",
-		})
+		logger.LogError("Failed to marshal config", "error", err)
+		return util.RespondError(e, util.NewBadRequestError("Invalid configuration format"))
 	}
 
 	// Create feed source
@@ -147,12 +142,11 @@ func CreateFeedSource(e *core.RequestEvent, feedService services.FeedService) er
 	// Save to database
 	source.Id = util.GenerateRandomId()
 	if err := query.SaveRecord(source); err != nil {
-		return e.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"error": "Failed to create feed source",
-		})
+		logger.LogError("Failed to create feed source", "error", err, "userId", userId)
+		return util.RespondWithError(e, util.ErrInternalServer, err)
 	}
 
-	return e.JSON(http.StatusCreated, map[string]interface{}{
+	return util.RespondSuccess(e, http.StatusCreated, map[string]interface{}{
 		"id":      source.Id,
 		"message": "Feed source created successfully",
 	})
@@ -160,51 +154,49 @@ func CreateFeedSource(e *core.RequestEvent, feedService services.FeedService) er
 
 // FetchFromSource manually fetches from a source
 func FetchFromSource(e *core.RequestEvent, feedService services.FeedService) error {
-	// Get user ID from token
-	token := e.Request.Header.Get("Authorization")
-	userId, err := util.GetUserId(token)
-	if err != nil {
-		return e.JSON(http.StatusUnauthorized, map[string]interface{}{"error": "Unauthorized"})
+	userId, ok := e.Get("userId").(string)
+	if !ok || userId == "" {
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
 	// Get source ID from URL
 	sourceId := e.Request.PathValue("id")
 	if sourceId == "" {
-		return e.JSON(http.StatusBadRequest, map[string]interface{}{"error": "Missing source ID"})
+		return util.RespondError(e, util.NewBadRequestError("Missing source ID"))
 	}
 
-	// Get source from database
-	source, err := query.FindByFilter[*models.FeedSource](map[string]interface{}{
-		"id":   sourceId,
-		"user": userId,
-	})
+	// Get source from database using typed filter
+	filter := &query.FeedSourceFilter{
+		BaseFilter: query.BaseFilter{
+			ID:   sourceId,
+			User: userId,
+		},
+	}
+	source, err := query.FindByFilter[*models.FeedSource](filter.ToMap())
 	if err != nil {
-		return e.JSON(http.StatusNotFound, map[string]interface{}{"error": "Feed source not found"})
+		return util.RespondError(e, util.ErrNotFound)
 	}
 
-	// Fetch from source - create a context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	// Fetch from source - use request context with timeout
+	ctx, cancel := context.WithTimeout(e.Request.Context(), 2*time.Minute)
 	defer cancel()
 
 	// Fetch from source
 	if err := feedService.FetchFromSource(ctx, source); err != nil {
-		return e.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"error": "Failed to fetch from source: " + err.Error(),
-		})
+		logger.LogError("Failed to fetch from source", "error", err, "sourceId", sourceId, "userId", userId)
+		return util.RespondWithError(e, util.ErrInternalServer, err)
 	}
 
-	return e.JSON(http.StatusOK, map[string]interface{}{
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{
 		"message": "Successfully fetched from source",
 	})
 }
 
 // GetFeeds returns a list of feed items for the authenticated user
 func GetFeeds(e *core.RequestEvent, feedService services.FeedService) error {
-	// Get authenticated user
-	token := e.Request.Header.Get("Authorization")
-	userId, err := util.GetUserId(token)
-	if err != nil {
-		return e.JSON(http.StatusUnauthorized, map[string]interface{}{"error": "Unauthorized"})
+	userId, ok := e.Get("userId").(string)
+	if !ok || userId == "" {
+		return util.RespondError(e, util.ErrUnauthorized)
 	}
 
 	// Parse query parameters
@@ -226,24 +218,24 @@ func GetFeeds(e *core.RequestEvent, feedService services.FeedService) error {
 		}
 	}
 
-	// Build query filter
-	filter := map[string]interface{}{
-		"user": userId,
+	// Build query filter using typed filter
+	feedFilter := &query.FeedItemFilter{
+		BaseFilter: query.BaseFilter{
+			User: userId,
+		},
 	}
-
 	if source != "" {
-		filter["source_id"] = source
+		feedFilter.SourceID = source
 	}
 	if status != "" {
-		filter["status"] = status
+		feedFilter.Status = status
 	}
 
 	// Fetch items
-	items, err := query.FindAllByFilterWithPagination[*models.FeedItem](filter, limit, offset)
+	items, err := query.FindAllByFilterWithPagination[*models.FeedItem](feedFilter.ToMap(), limit, offset)
 	if err != nil {
-		return e.JSON(http.StatusInternalServerError, map[string]interface{}{
-			"error": "Failed to fetch feed items: " + err.Error(),
-		})
+		logger.LogError("Failed to fetch feed items", "error", err, "userId", userId)
+		return util.RespondWithError(e, util.ErrInternalServer, err)
 	}
 
 	sources, err := query.FindAllByFilter[*models.FeedSource](map[string]interface{}{
@@ -332,5 +324,5 @@ func GetFeeds(e *core.RequestEvent, feedService services.FeedService) error {
 		})
 	}
 
-	return e.JSON(http.StatusOK, response)
+	return util.RespondSuccess(e, http.StatusOK, response)
 }

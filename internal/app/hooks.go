@@ -8,6 +8,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/security"
 	"github.com/shashank-sharma/backend/internal/logger"
+	"github.com/shashank-sharma/backend/internal/middleware"
 )
 
 // SearchHookConfig holds configuration for search-related hooks
@@ -21,7 +22,9 @@ type SearchHookConfig struct {
 func (app *Application) registerHooks() {
 	app.registerTerminationHooks()
 	app.registerTokenEncryptionHooks()
+	app.registerDevTokenEncryptionHooks()
 	app.registerLocationCoordinateHooks()
+	app.registerRealtimeAuthHooks()
 	
 	if app.SearchService != nil {
 		app.registerSearchHooks()
@@ -115,6 +118,53 @@ func (app *Application) decryptTokens(e *core.RecordRequestEvent) error {
 	return e.Next()
 }
 
+// registerDevTokenEncryptionHooks sets up dev token encryption/decryption handlers
+func (app *Application) registerDevTokenEncryptionHooks() {
+	app.Pb.OnRecordCreate("dev_tokens").BindFunc(func(e *core.RecordEvent) error {
+		return app.encryptDevToken(e)
+	})
+
+	app.Pb.OnRecordViewRequest("dev_tokens").BindFunc(func(e *core.RecordRequestEvent) error {
+		return app.decryptDevToken(e)
+	})
+
+	app.Pb.OnRecordUpdate("dev_tokens").BindFunc(func(e *core.RecordEvent) error {
+		return app.encryptDevToken(e)
+	})
+}
+
+// encryptDevToken encrypts the token field in a dev token record
+func (app *Application) encryptDevToken(e *core.RecordEvent) error {
+	encryptionKey := app.Pb.Store().Get("ENCRYPTION_KEY").(string)
+	
+	if tokenValue := e.Record.GetString("token"); tokenValue != "" {
+		encrypted, err := security.Encrypt([]byte(tokenValue), encryptionKey)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt dev token: %w", err)
+		}
+		e.Record.Set("token", encrypted)
+	}
+
+	return e.Next()
+}
+
+// decryptDevToken decrypts the token field in a dev token record
+func (app *Application) decryptDevToken(e *core.RecordRequestEvent) error {
+	encryptionKey := app.Pb.Store().Get("ENCRYPTION_KEY").(string)
+	
+	if encryptedToken := e.Record.GetString("token"); encryptedToken != "" {
+		decrypted, err := security.Decrypt(encryptedToken, encryptionKey)
+		if err != nil {
+			logger.LogError("Failed to decrypt dev token: %v", err)
+			e.Record.Set("token", "[decryption failed]")
+		} else {
+			e.Record.Set("token", decrypted)
+		}
+	}
+
+	return e.Next()
+}
+
 // processCollectionFTSAction handles common FTS actions for a collection
 func (app *Application) processCollectionFTSAction(collectionName string, action string) error {
 	searchService := app.SearchService
@@ -196,6 +246,12 @@ func (app *Application) registerSearchHooks() {
 		_ = app.processCollectionFTSAction(collectionName, "delete")
 		return e.Next()
 	})
+}
+
+// registerRealtimeAuthHooks sets up realtime subscription authorization
+func (app *Application) registerRealtimeAuthHooks() {
+	middleware.RegisterRealtimeAuth(app.Pb)
+	logger.LogInfo("Realtime subscription authorization enabled")
 }
 
 // registerLocationCoordinateHooks sets up hooks to fetch coordinates when a user's city is updated

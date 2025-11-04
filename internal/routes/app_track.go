@@ -107,7 +107,8 @@ func TrackFocus(e *core.RequestEvent) error {
 	if token == "" {
 		return e.JSON(http.StatusForbidden, map[string]interface{}{"message": "Dev Token missing"})
 	}
-	userId, err := query.ValidateDevToken(token)
+
+	userId, err := query.ValidateDevTokenUserID(token)
 	if err != nil {
 		return e.JSON(http.StatusForbidden, map[string]interface{}{"message": "Failed to fetch id, token misconfigured"})
 	}
@@ -151,7 +152,6 @@ func TrackFocus(e *core.RequestEvent) error {
 	}
 	return e.JSON(http.StatusOK, map[string]interface{}{"message": "Created successfully"})
 }
-
 
 func GetCurrentApp(e *core.RequestEvent) error {
 	activeDevices, err := query.FindAllByFilter[*models.TrackDevice](map[string]interface{}{
@@ -253,7 +253,8 @@ func TrackAppSyncItems(e *core.RequestEvent) error {
 	if token == "" {
 		return e.JSON(http.StatusForbidden, map[string]interface{}{"message": "Dev Token missing"})
 	}
-	userId, err := query.ValidateDevToken(token)
+
+	userId, err := query.ValidateDevTokenUserID(token)
 	if err != nil {
 		return e.JSON(http.StatusForbidden, map[string]interface{}{"message": "Failed to fetch id, token misconfigured"})
 	}
@@ -422,7 +423,12 @@ func GetTopAppsBySessions(e *core.RequestEvent) error {
 	})
 	if err != nil {
 		logger.LogError("Failed to fetch devices", "error", err)
-		if isLeader && flight != nil { close(flight.done); topAppsFlightsMu.Lock(); delete(topAppsFlights, cacheKey); topAppsFlightsMu.Unlock() }
+		if isLeader && flight != nil {
+			close(flight.done)
+			topAppsFlightsMu.Lock()
+			delete(topAppsFlights, cacheKey)
+			topAppsFlightsMu.Unlock()
+		}
 		return e.JSON(http.StatusInternalServerError, map[string]any{"message": "failed to fetch devices"})
 	}
 	logger.LogDebug("GetTopAppsBySessions devices fetched", "count", len(devices))
@@ -434,7 +440,9 @@ func GetTopAppsBySessions(e *core.RequestEvent) error {
 			expires := now2.Add(10 * time.Minute)
 			topAppsSessionsCache.Store(cacheKey, topAppsCacheEntry{ExpiresAt: expires, Payload: result})
 			close(flight.done)
-			topAppsFlightsMu.Lock(); delete(topAppsFlights, cacheKey); topAppsFlightsMu.Unlock()
+			topAppsFlightsMu.Lock()
+			delete(topAppsFlights, cacheKey)
+			topAppsFlightsMu.Unlock()
 		}
 		return e.JSON(http.StatusOK, map[string]any{"date": dayStart.Format("2006-01-02"), "gap_minutes": gapMinutes, "limit": topLimit, "sessions": []any{}})
 	}
@@ -448,7 +456,7 @@ func GetTopAppsBySessions(e *core.RequestEvent) error {
 	items := make([]*models.TrackItems, 0, 1024)
 	for _, d := range devices {
 		recs, err := query.FindAllByFilter[*models.TrackItems](map[string]any{
-			"device": d.Id,
+			"device":     d.Id,
 			"begin_date": map[string]any{"gte": startDT, "lte": endDT},
 		})
 		if err != nil {
@@ -498,7 +506,9 @@ func GetTopAppsBySessions(e *core.RequestEvent) error {
 			expires := now2.Add(10 * time.Minute)
 			topAppsSessionsCache.Store(cacheKey, topAppsCacheEntry{ExpiresAt: expires, Payload: result})
 			close(flight.done)
-			topAppsFlightsMu.Lock(); delete(topAppsFlights, cacheKey); topAppsFlightsMu.Unlock()
+			topAppsFlightsMu.Lock()
+			delete(topAppsFlights, cacheKey)
+			topAppsFlightsMu.Unlock()
 		}
 		return e.JSON(http.StatusOK, map[string]any{"date": dayStart.Format("2006-01-02"), "gap_minutes": gapMinutes, "limit": topLimit, "sessions": []any{}})
 	}
@@ -508,9 +518,9 @@ func GetTopAppsBySessions(e *core.RequestEvent) error {
 	gap := time.Duration(gapMinutes) * time.Minute
 
 	type session struct {
-		start   time.Time
-		end     time.Time
-		events  []event
+		start  time.Time
+		end    time.Time
+		events []event
 	}
 
 	sessions := []session{}
@@ -540,12 +550,12 @@ func GetTopAppsBySessions(e *core.RequestEvent) error {
 
 	// Build response
 	type appUsage struct {
-		App              string  `json:"app"`
-		Percentage       float64 `json:"percentage"`
+		App        string  `json:"app"`
+		Percentage float64 `json:"percentage"`
 	}
 	type sessionResp struct {
-		SessionIndex         int            `json:"session_index"`
-		Apps                 []appUsage     `json:"apps"`
+		SessionIndex int        `json:"session_index"`
+		Apps         []appUsage `json:"apps"`
 	}
 
 	respSessions := make([]sessionResp, 0, len(sessions))
@@ -584,8 +594,8 @@ func GetTopAppsBySessions(e *core.RequestEvent) error {
 		}
 
 		respSessions = append(respSessions, sessionResp{
-			SessionIndex:         i + 1,
-			Apps:                 apps,
+			SessionIndex: i + 1,
+			Apps:         apps,
 		})
 	}
 
@@ -601,205 +611,12 @@ func GetTopAppsBySessions(e *core.RequestEvent) error {
 	expires := now2.Add(10 * time.Minute)
 	topAppsSessionsCache.Store(cacheKey, topAppsCacheEntry{ExpiresAt: expires, Payload: result})
 	logger.LogDebug("GetTopAppsBySessions cache stored", "key", cacheKey, "expires_at", expires.Format(time.RFC3339))
-	if isLeader && flight != nil { close(flight.done); topAppsFlightsMu.Lock(); delete(topAppsFlights, cacheKey); topAppsFlightsMu.Unlock() }
+	if isLeader && flight != nil {
+		close(flight.done)
+		topAppsFlightsMu.Lock()
+		delete(topAppsFlights, cacheKey)
+		topAppsFlightsMu.Unlock()
+	}
 
 	return e.JSON(http.StatusOK, result)
 }
-
-/*
-func TrackAppItems(e *core.RequestEvent) error {
-	// TODO: Fix this damn API
-	app := config.GetApp()
-	token := e.Request.Header.Get("Authorization")
-	logger.Debug.Println("token =", token)
-	userId, err := util.GetUserId(token)
-	if err != nil {
-		return e.JSON(http.StatusForbidden, map[string]interface{}{"message": "Failed to fetch id, token misconfigured"})
-	}
-	data := TrackUploadAPI{}
-
-	if err := e.BindBody(data); err != nil || data.Source == "" {
-		logger.Error.Println("Error in parsing =", err)
-		return apis.NewBadRequestError("Failed to read request data", err)
-	}
-
-	collection, err := app.FindCollectionByNameOrId("track_upload")
-	if err != nil {
-		return err
-	}
-
-	record := pocketbaseModel.NewRecord(collection)
-
-	form := forms.NewRecordUpsert(app, record)
-
-	form.LoadData(map[string]any{
-		"id":     util.GenerateRandomId(),
-		"user":   userId,
-		"status": "CREATED",
-	})
-
-	form.LoadRequest(c.Request(), "")
-	logger.Debug.Println("Checking form id =", form.Id, "record=", record.Id)
-	if err := form.Submit(); err != nil {
-		logger.Error.Println("Error saving file", err)
-		return err
-	}
-
-	formData := form.Data()
-	trackUpload := &models.TrackUpload{
-		User:   userId,
-		Source: formData["source"].(string),
-		File:   formData["file"].(string),
-		Synced: formData["synced"].(bool),
-	}
-
-	trackUpload.BaseModel.Id = form.Id
-
-	// load the entire request
-
-	go SyncTrackUpload(trackUpload, data.ForceCheck)
-	return c.JSON(http.StatusOK, map[string]interface{}{"message": "Task scheduled", "track_upload": trackUpload})
-}
-*/
-
-/*
-func SyncTrackUpload(trackUpload *models.TrackUpload, forceCheck bool) {
-	trackUpload.Status = "IN-PROGRESS"
-	trackUpload.MarkAsNotNew()
-	app := config.GetApp()
-	if err := app.Save(trackUpload); err != nil {
-		logger.Error.Println("Failed updating record")
-		return
-	}
-	defer func() {
-		if err := app.Save(trackUpload); err != nil {
-			logger.Error.Println("Failed updating record")
-		}
-	}()
-
-	opCount, err := insertFromFile(trackUpload, forceCheck)
-	if err != nil {
-		logger.Error.Println("Something went wrong while insert err:", err)
-		trackUpload.Status = "FAILED"
-		return
-	}
-	logger.Debug.Println("Operation count:", opCount)
-	trackUpload.DuplicateRecord = opCount.SkipCount
-	if opCount.CreateCount == opCount.SkipCount {
-		trackUpload.Status = "DUPLICATE"
-	} else {
-		trackUpload.Status = "COMPLETED"
-	}
-
-}
-
-func insertFromFile(trackUpload *models.TrackUpload, forceCheck bool) (*OperationCount, error) {
-	operationCount := &OperationCount{CreateCount: 0, SkipCount: 0, ForceCheck: forceCheck}
-	app := config.GetApp()
-
-	collection, _ := app.Dao().FindCollectionByNameOrId("track_upload")
-	db, err := sql.Open("sqlite3", filepath.Join(app.DataDir(), "storage", collection.Id, trackUpload.BaseModel.Id, trackUpload.File))
-
-	if err != nil {
-		logger.Error.Println(err)
-	}
-
-	defer db.Close()
-
-	var taskName string
-	var beginDate, endDate types.DateTime
-
-	err = db.QueryRow("select taskName, beginDate, endDate from TrackItems ORDER BY id ASC LIMIT 1;").Scan(&taskName, &beginDate, &endDate)
-
-	if err != nil {
-		return nil, err
-	}
-
-	err = db.QueryRow("select COUNT(*) FROM TrackItems;").Scan(&trackUpload.TotalRecord)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if err := app.Dao().Save(trackUpload); err != nil {
-		logger.Error.Println("Failed updating record")
-		return nil, err
-	}
-
-	record, err := app.Dao().FindFirstRecordByFilter(
-		"track_items", "user = {:user} && task_name = {:task_name} && source = {:source} && begin_date = {:begin_date} && end_date = {:end_date}",
-		dbx.Params{"user": trackUpload.User,
-			"task_name":  taskName,
-			"source":     trackUpload.Source,
-			"begin_date": beginDate,
-			"end_date":   endDate})
-
-	if err != nil {
-		logger.Error.Println("No record found =", err)
-	}
-	var queryToExecute string
-	queryCheckRequired := false
-	if record == nil || operationCount.ForceCheck {
-		queryToExecute = "select id, app, taskName, title, beginDate, endDate FROM TrackItems ORDER BY id ASC;"
-		logger.Debug.Println("No checks required")
-	} else {
-		queryToExecute = "select id, app, taskName, title, beginDate, endDate FROM TrackItems ORDER BY id DESC;"
-		queryCheckRequired = true
-		logger.Debug.Println("Check required")
-	}
-	err = app.Dao().RunInTransaction(func(txDao *daos.Dao) error {
-
-		rows, err := db.Query(queryToExecute)
-		if err != nil {
-			logger.Error.Println(err)
-		}
-
-		defer rows.Close()
-
-		for rows.Next() {
-			// TODO: Alternative of source solution here
-			trackItems := &models.TrackItems{User: trackUpload.User}
-			err = rows.Scan(&trackItems.TrackId, &trackItems.App, &trackItems.TaskName, &trackItems.Title, &trackItems.BeginDate, &trackItems.EndDate)
-
-			if err != nil {
-				logger.Error.Println(err)
-			}
-
-			if queryCheckRequired {
-				record, err := app.Dao().FindFirstRecordByFilter(
-					"track_items", "user = {:user} && task_name = {:task_name} && source = {:source} && begin_date = {:begin_date} && end_date = {:end_date}",
-					dbx.Params{"user": trackUpload.User,
-						"task_name":  trackItems.TaskName,
-						"begin_date": trackItems.BeginDate,
-						"end_date":   trackItems.EndDate})
-
-				if err != nil {
-					logger.Error.Println(err)
-					return err
-				}
-
-				if record != nil {
-					if operationCount.ForceCheck {
-						operationCount.SkipCount += 1
-						continue
-					} else {
-						break
-					}
-				}
-			}
-
-			if err := txDao.Save(trackItems); err != nil {
-				return err
-			}
-			operationCount.CreateCount += 1
-		}
-
-		return nil
-	})
-	if err != nil {
-		logger.Error.Println(err)
-		return nil, err
-	}
-	return operationCount, nil
-}
-*/

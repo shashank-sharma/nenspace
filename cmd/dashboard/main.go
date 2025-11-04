@@ -37,17 +37,17 @@ func showUsage() {
 
 func parseCommandFlags(args []string) (config.ConfigFlags, error) {
 	cmdFlags := flag.NewFlagSet("command", flag.ContinueOnError)
-	
+
 	metrics := cmdFlags.Bool("metrics", false, "Enable metrics")
 	fileLogging := cmdFlags.Bool("file-logging", false, "Enable file logging")
 	withGui := cmdFlags.Bool("with-gui", false, "Enable GUI")
 	dev := cmdFlags.Bool("dev", false, "Run in development mode")
 	httpAddr := cmdFlags.String("http-addr", "0.0.0.0:8090", "HTTP address to listen on")
-	
+
 	if err := cmdFlags.Parse(args); err != nil {
 		return config.ConfigFlags{}, err
 	}
-	
+
 	return config.ConfigFlags{
 		Metrics:     *metrics,
 		FileLogging: *fileLogging,
@@ -62,9 +62,9 @@ func main() {
 		showUsage()
 		os.Exit(1)
 	}
-	
+
 	command := os.Args[1]
-	
+
 	switch command {
 	case "serve":
 		config, err := parseCommandFlags(os.Args[2:])
@@ -73,9 +73,13 @@ func main() {
 			showUsage()
 			os.Exit(1)
 		}
-		
-		application := app.New(config)
-		
+
+		application, err := app.New(config)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create application: %v\n", err)
+			os.Exit(1)
+		}
+
 		migratecmd.MustRegister(application.Pb, application.Pb.RootCmd, migratecmd.Config{
 			Automigrate: strings.HasPrefix(os.Args[0], os.TempDir()),
 		})
@@ -92,19 +96,23 @@ func main() {
 			showUsage()
 			os.Exit(1)
 		}
-		
-		application := app.New(config)
-		
+
+		application, err := app.New(config)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create application: %v\n", err)
+			os.Exit(1)
+		}
+
 		migratecmd.MustRegister(application.Pb, application.Pb.RootCmd, migratecmd.Config{
 			Automigrate: strings.HasPrefix(os.Args[0], os.TempDir()),
 		})
-		
+
 		fmt.Println("Running migration...")
 		application.Pb.Start()
-		
+
 	case "-h", "--help", "help":
 		showUsage()
-		
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
 		showUsage()

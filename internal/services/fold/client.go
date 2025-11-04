@@ -21,9 +21,12 @@ type FoldService struct {
 	client *APIClient
 }
 
+// DefaultHTTPTimeout is the default timeout for HTTP requests
+const DefaultHTTPTimeout = 60 * time.Second
+
 func NewFoldService(baseUrl string) *FoldService {
 	return &FoldService{
-		client: newAPIClient(baseUrl, 60*time.Second),
+		client: newAPIClient(baseUrl, DefaultHTTPTimeout),
 	}
 }
 
