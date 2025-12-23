@@ -23,15 +23,16 @@ type CalendarToken struct {
 type CalendarSync struct {
 	BaseModel
 
-	User       string         `db:"user" json:"user"`
-	Token      string         `db:"token" json:"token"`
-	Name       string         `db:"name" json:"name"`
-	Type       string         `db:"type" json:"type"`
-	SyncToken  string         `db:"sync_token" json:"sync_token"`
-	SyncStatus string         `db:"sync_status" json:"sync_status"`
-	IsActive   bool           `db:"is_active" json:"is_active"`
-	InProgress bool           `db:"in_progress" json:"in_progress"`
-	LastSynced types.DateTime `db:"last_synced" json:"last_synced"`
+	User                   string         `db:"user" json:"user"`
+	Token                  string         `db:"token" json:"token"`
+	Name                   string         `db:"name" json:"name"`
+	Type                   string         `db:"type" json:"type"`
+	SyncToken              string         `db:"sync_token" json:"sync_token"`
+	SyncStatus             string         `db:"sync_status" json:"sync_status"`
+	IsActive               bool           `db:"is_active" json:"is_active"`
+	InProgress             bool           `db:"in_progress" json:"in_progress"`
+	LastSynced             types.DateTime `db:"last_synced" json:"last_synced"`
+	LastFullSyncCheckpoint types.DateTime `db:"last_full_sync_checkpoint" json:"last_full_sync_checkpoint"` // Oldest event date processed during full sync (for crash recovery)
 }
 
 type CalendarEvent struct {

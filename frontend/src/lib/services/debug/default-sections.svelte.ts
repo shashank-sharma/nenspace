@@ -10,11 +10,12 @@ import { ThemeService } from "$lib/services/theme.service.svelte";
 import { ConfigService } from "$lib/services/config.service.svelte";
 import { NetworkService } from "$lib/services/network.service.svelte";
 import { PwaService } from "$lib/features/pwa/services/pwa.service.svelte";
-import { IslandNotificationService } from "$lib/services/island-notification.service.svelte";
+import { IslandNotificationService } from "$lib/features/status-indicator";
 import { ApiLoadingService } from "$lib/services/api-loading.service.svelte";
 import { FloatingIndicatorService } from "$lib/services/floating-indicator.service.svelte";
 import { isTauri } from "$lib/utils/platform";
 import ColorPaletteControl from "$lib/components/debug/controls/ColorPaletteControl.svelte";
+import MailDebugSettings from "$lib/components/debug/sections/MailDebugSettings.svelte";
 
 // --- Registration Logic ---
 export function registerDefaultDebugSections(debugService: DebugServiceImpl) {
@@ -357,6 +358,19 @@ export function registerDefaultDebugSections(debugService: DebugServiceImpl) {
 						console.log("[Debug] Cleared all API loading states");
 					},
 				},
+			},
+		],
+	});
+
+	// --- Mail Section ---
+	debugService.registerSection({
+		id: "mail",
+		title: "Mail",
+		controls: [
+			{
+				id: "mail_debug",
+				component: MailDebugSettings,
+				props: {},
 			},
 		],
 	});

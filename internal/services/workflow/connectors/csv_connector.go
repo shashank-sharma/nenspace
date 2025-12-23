@@ -140,7 +140,7 @@ func (c *CSVConnector) resolveFilePath(filePath string) string {
 	return filePath
 }
 
-// readCSV reads data from a CSV file
+// readCSV reads data from a CSV file and returns envelope format
 func (c *CSVConnector) readCSV(filePath string, config map[string]interface{}) (map[string]interface{}, error) {
 	resolvedPath := c.resolveFilePath(filePath)
 	
@@ -169,15 +169,38 @@ func (c *CSVConnector) readCSV(filePath string, config map[string]interface{}) (
 	hasHeader, _ := config["has_header"].(bool)
 	
 	var result []map[string]interface{}
+	var schema types.DataSchema
+	schema.Fields = make([]types.FieldDefinition, 0)
+	schema.SourceNodes = make([]string, 0)
 	
 	if len(records) == 0 {
-		return map[string]interface{}{
-			"data": []interface{}{},
-		}, nil
+		envelope := &types.DataEnvelope{
+			Data: make([]map[string]interface{}, 0),
+			Metadata: types.Metadata{
+				NodeType:        c.ConnID,
+				RecordCount:      0,
+				ExecutionTimeMs:  0,
+				Schema:          schema,
+				Sources:         make([]string, 0),
+				Custom: map[string]interface{}{
+					"file_path": resolvedPath,
+				},
+			},
+		}
+		return envelope.ToMap(), nil
 	}
 	
 	if hasHeader && len(records) > 0 {
 		headers := records[0]
+		
+		// Build schema from headers (all fields are strings from CSV)
+		for _, header := range headers {
+			schema.Fields = append(schema.Fields, types.FieldDefinition{
+				Name:     header,
+				Type:     "string",
+				Nullable: true, // CSV values can be empty
+			})
+		}
 		
 		for i := 1; i < len(records); i++ {
 			row := make(map[string]interface{})
@@ -193,6 +216,19 @@ func (c *CSVConnector) readCSV(filePath string, config map[string]interface{}) (
 			result = append(result, row)
 		}
 	} else {
+		// No header: generate column names and schema
+		if len(records) > 0 {
+			columnCount := len(records[0])
+			for j := 0; j < columnCount; j++ {
+				fieldName := fmt.Sprintf("column_%d", j+1)
+				schema.Fields = append(schema.Fields, types.FieldDefinition{
+					Name:     fieldName,
+					Type:     "string",
+					Nullable: true,
+				})
+			}
+		}
+		
 		for _, record := range records {
 			row := make(map[string]interface{})
 			
@@ -204,25 +240,69 @@ func (c *CSVConnector) readCSV(filePath string, config map[string]interface{}) (
 		}
 	}
 	
-	return map[string]interface{}{
-		"data": result,
-		"file_path": resolvedPath,
-		"record_count": len(result),
-	}, nil
+	envelope := &types.DataEnvelope{
+		Data: result,
+		Metadata: types.Metadata{
+			NodeType:        c.ConnID,
+			RecordCount:     len(result),
+			ExecutionTimeMs: 0,
+			Schema:          schema,
+			Sources:         make([]string, 0),
+			Custom: map[string]interface{}{
+				"file_path": resolvedPath,
+			},
+		},
+	}
+	
+	return envelope.ToMap(), nil
 }
 
 // writeCSV writes data to a CSV file
+// Accepts envelope format and uses schema for headers if available
 func (c *CSVConnector) writeCSV(filePath string, config map[string]interface{}, input map[string]interface{}) (map[string]interface{}, error) {
 	resolvedPath := c.resolveFilePath(filePath)
 	
-	inputData, ok := input["data"]
-	if !ok {
+	// Extract envelope format
+	envelope := types.FromMap(input)
+	
+	// Get data from envelope
+	inputData := envelope.Data
+	if len(inputData) == 0 {
+		// Fallback: try legacy format
+		if data, ok := input["data"]; ok {
+			if dataArray, ok := data.([]interface{}); ok {
+				// Convert to map format
+				for _, item := range dataArray {
+					if record, ok := item.(map[string]interface{}); ok {
+						inputData = append(inputData, record)
+					}
+				}
+			}
+		}
+	}
+	
+	if len(inputData) == 0 {
 		return nil, fmt.Errorf("no data provided for CSV output")
 	}
 	
-	rows, headers, err := convertToCSVRecords(inputData)
+	// Use schema for headers if available, otherwise infer from data
+	var headers []string
+	if len(envelope.Metadata.Schema.Fields) > 0 {
+		// Use schema fields as headers
+		headers = make([]string, 0, len(envelope.Metadata.Schema.Fields))
+		for _, field := range envelope.Metadata.Schema.Fields {
+			headers = append(headers, field.Name)
+		}
+	}
+	
+	rows, inferredHeaders, err := convertToCSVRecordsFromMaps(inputData, headers)
 	if err != nil {
 		return nil, err
+	}
+	
+	// Use inferred headers if schema didn't provide them
+	if len(headers) == 0 {
+		headers = inferredHeaders
 	}
 	
 	append, _ := config["append"].(bool)
@@ -271,65 +351,94 @@ func (c *CSVConnector) writeCSV(filePath string, config map[string]interface{}, 
 		}
 	}
 	
-	return map[string]interface{}{
-		"file_path":    resolvedPath,
-		"record_count": len(rows),
-		"success":      true,
-	}, nil
+	// Return envelope format for consistency
+	outputEnvelope := &types.DataEnvelope{
+		Data: make([]map[string]interface{}, 0), // Destination doesn't output data
+		Metadata: types.Metadata{
+			NodeType:        c.ConnID,
+			RecordCount:     len(rows),
+			ExecutionTimeMs: 0,
+			Schema:          types.DataSchema{}, // Destination doesn't output schema
+			Sources:         envelope.Metadata.Sources,
+			Custom: map[string]interface{}{
+				"file_path": resolvedPath,
+				"success":   true,
+			},
+		},
+	}
+	
+	return outputEnvelope.ToMap(), nil
 }
 
-// convertToCSVRecords converts input data to CSV records
-func convertToCSVRecords(input interface{}) ([][]string, []string, error) {
+// GetOutputSchema returns the schema for CSV source connector
+// For CSV source, schema is inferred from headers
+func (c *CSVConnector) GetOutputSchema(inputSchema *types.DataSchema) (*types.DataSchema, error) {
+	if c.Type() == types.SourceConnector {
+		// Source connectors don't accept input schemas
+		if inputSchema != nil {
+			return nil, fmt.Errorf("source connector does not accept input schema")
+		}
+		// Schema will be inferred from CSV file at execution time
+		// Return empty schema - will be populated during Execute()
+		return &types.DataSchema{
+			Fields:      make([]types.FieldDefinition, 0),
+			SourceNodes: make([]string, 0),
+		}, nil
+	} else if c.Type() == types.DestinationConnector {
+		// Destination connectors don't output schemas
+		return nil, fmt.Errorf("destination connector does not output schema")
+	}
+	return nil, fmt.Errorf("unsupported connector type")
+}
+
+// ValidateInputSchema validates input schema for CSV destination
+func (c *CSVConnector) ValidateInputSchema(schema *types.DataSchema) error {
+	if c.Type() == types.SourceConnector {
+		// Source connectors don't accept input
+		if schema != nil {
+			return fmt.Errorf("source connector does not accept input schema")
+		}
+		return nil
+	} else if c.Type() == types.DestinationConnector {
+		// Destination accepts any schema (all fields will be written to CSV)
+		return nil
+	}
+	return fmt.Errorf("unsupported connector type")
+}
+
+// convertToCSVRecordsFromMaps converts map records to CSV format
+// If headers are provided, uses them; otherwise infers from data
+func convertToCSVRecordsFromMaps(records []map[string]interface{}, providedHeaders []string) ([][]string, []string, error) {
 	var rows [][]string
 	var headers []string
 	
-	inputArray, ok := input.([]interface{})
-	if ok {
-		if len(inputArray) == 0 {
-			return [][]string{}, []string{}, nil
-		}
-		
+	if len(records) == 0 {
+		return [][]string{}, providedHeaders, nil
+	}
+	
+	// Use provided headers if available
+	if len(providedHeaders) > 0 {
+		headers = providedHeaders
+	} else {
+		// Infer headers from all records
 		headerMap := make(map[string]bool)
-		
-		for _, item := range inputArray {
-			if objItem, ok := item.(map[string]interface{}); ok {
-				for key := range objItem {
-					headerMap[key] = true
-				}
+		for _, record := range records {
+			for key := range record {
+				headerMap[key] = true
 			}
 		}
 		
 		for header := range headerMap {
 			headers = append(headers, header)
 		}
-		
-		for _, item := range inputArray {
-			if objItem, ok := item.(map[string]interface{}); ok {
-				row := make([]string, len(headers))
-				
-				for i, header := range headers {
-					if val, exists := objItem[header]; exists {
-						row[i] = fmt.Sprintf("%v", val)
-					} else {
-						row[i] = ""
-					}
-				}
-				
-				rows = append(rows, row)
-			}
-		}
-	} else if objInput, ok := input.(map[string]interface{}); ok {
-		if data, ok := objInput["data"].([]interface{}); ok {
-			return convertToCSVRecords(data)
-		}
-		
-		for key := range objInput {
-			headers = append(headers, key)
-		}
-		
+	}
+	
+	// Convert records to rows
+	for _, record := range records {
 		row := make([]string, len(headers))
+		
 		for i, header := range headers {
-			if val, exists := objInput[header]; exists {
+			if val, exists := record[header]; exists {
 				row[i] = fmt.Sprintf("%v", val)
 			} else {
 				row[i] = ""
@@ -337,9 +446,40 @@ func convertToCSVRecords(input interface{}) ([][]string, []string, error) {
 		}
 		
 		rows = append(rows, row)
-	} else {
-		return nil, nil, fmt.Errorf("input data must be an array of objects or a single object")
 	}
 	
 	return rows, headers, nil
+}
+
+// convertToCSVRecords converts input data to CSV records (legacy function for backward compatibility)
+func convertToCSVRecords(input interface{}) ([][]string, []string, error) {
+	inputArray, ok := input.([]interface{})
+	if ok {
+		if len(inputArray) == 0 {
+			return [][]string{}, []string{}, nil
+		}
+		
+		// Convert to map format
+		records := make([]map[string]interface{}, 0, len(inputArray))
+		for _, item := range inputArray {
+			if objItem, ok := item.(map[string]interface{}); ok {
+				records = append(records, objItem)
+			}
+		}
+		
+		return convertToCSVRecordsFromMaps(records, nil)
+	} else if objInput, ok := input.(map[string]interface{}); ok {
+		if data, ok := objInput["data"].([]interface{}); ok {
+			return convertToCSVRecords(data)
+		}
+		
+		// Single object
+		record := make(map[string]interface{})
+		for key, val := range objInput {
+			record[key] = val
+		}
+		return convertToCSVRecordsFromMaps([]map[string]interface{}{record}, nil)
+	} else {
+		return nil, nil, fmt.Errorf("input data must be an array of objects or a single object")
+	}
 } 

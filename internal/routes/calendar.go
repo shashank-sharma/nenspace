@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -96,7 +97,11 @@ func CalendarAuthCallback(cs *calendar.CalendarService, e *core.RequestEvent) er
 		logger.LogError("Failed to save token", "error", err, "userId", userId)
 		return util.RespondWithError(e, util.ErrInternalServer, err)
 	}
-	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{"message": "Authenticated successfully", "token": calToken})
+	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{
+		"message":  "Authenticated successfully",
+		"token":    calToken,
+		"token_id": calToken.Id,
+	})
 }
 
 func CalendarSyncHandler(cs *calendar.CalendarService, e *core.RequestEvent) error {
@@ -203,4 +208,131 @@ func CalendarCreateSync(cs *calendar.CalendarService, e *core.RequestEvent) erro
 	}()
 
 	return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{"message": "Calendar sync created", "data": calendarSync})
+}
+
+// ResetStaleCalendarSyncStatuses detects and resumes calendar syncs that were interrupted
+// (e.g., due to server crash). It resumes the sync using available checkpoints.
+func ResetStaleCalendarSyncStatuses(cs *calendar.CalendarService) error {
+	logger.LogInfo("Checking for stale calendar sync statuses...")
+
+	// Find all calendar syncs with in_progress = true (stale syncs from crash)
+	staleSyncs, err := query.FindAllByFilter[*models.CalendarSync](map[string]interface{}{
+		"in_progress": true,
+	})
+	if err != nil {
+		logger.LogError("Failed to query stale calendar sync statuses", err)
+		return err
+	}
+
+	if len(staleSyncs) == 0 {
+		logger.LogInfo("No stale calendar sync statuses found")
+		return nil
+	}
+
+	logger.LogInfo(fmt.Sprintf("Found %d stale calendar sync(s), resuming sync with checkpoint", len(staleSyncs)))
+
+	// Resume each stale sync using the checkpoint
+	resumedCount := 0
+	for _, calendarSync := range staleSyncs {
+		// Check if calendar sync is active before resuming
+		if !calendarSync.IsActive {
+			logger.LogInfo(fmt.Sprintf("Skipping inactive calendar sync %s (user: %s)", calendarSync.Id, calendarSync.User))
+			// Set status to inactive instead of in_progress
+			updateData := map[string]interface{}{
+				"in_progress": false,
+				"sync_status": "inactive",
+			}
+			if err := query.UpdateRecord[*models.CalendarSync](calendarSync.Id, updateData); err != nil {
+				logger.LogError(fmt.Sprintf("Failed to update inactive sync status for calendar sync %s", calendarSync.Id), err)
+			}
+			continue
+		}
+
+		// Reload the calendar sync to get latest state
+		reloadedSync, err := query.FindById[*models.CalendarSync](calendarSync.Id)
+		if err != nil {
+			logger.LogError(fmt.Sprintf("Failed to reload calendar sync %s", calendarSync.Id), err)
+			continue
+		}
+
+		// Recovery logic for stale syncs:
+		// 1. If full sync checkpoint exists -> resume full sync from checkpoint
+		// 2. If sync_token exists but no checkpoint -> use incremental sync (normal case)
+		// 3. If neither exists -> start fresh full sync
+		hasCheckpoint := !reloadedSync.LastFullSyncCheckpoint.IsZero()
+		hasSyncToken := reloadedSync.SyncToken != ""
+
+		if hasCheckpoint {
+			logger.LogInfo(fmt.Sprintf("Calendar sync %s has full sync checkpoint at %v, will resume full sync",
+				reloadedSync.Id, reloadedSync.LastFullSyncCheckpoint))
+		} else if hasSyncToken {
+			logger.LogInfo(fmt.Sprintf("Calendar sync %s has sync token, will use incremental sync",
+				reloadedSync.Id))
+		} else {
+			// Try to recover checkpoint from database (oldest event's start date)
+			// If events exist, we should resume full sync from that point
+			allEvents, findErr := query.FindAllByFilter[*models.CalendarEvent](map[string]interface{}{
+				"calendar": reloadedSync.Id,
+			})
+			if findErr == nil && len(allEvents) > 0 {
+				// Find the oldest event by start date to use as checkpoint
+				var oldestEvent *models.CalendarEvent
+				for _, event := range allEvents {
+					if oldestEvent == nil ||
+						(!event.Start.IsZero() &&
+							(oldestEvent.Start.IsZero() || event.Start.Time().Before(oldestEvent.Start.Time()))) {
+						oldestEvent = event
+					}
+				}
+				if oldestEvent != nil && !oldestEvent.Start.IsZero() {
+					// Events exist but no checkpoint - recover checkpoint from oldest event
+					// This means full sync was interrupted before checkpoint was saved
+					checkpointUpdate := types.DateTime{}
+					checkpointUpdate.Scan(oldestEvent.Start.Time())
+					updateData := map[string]interface{}{
+						"last_full_sync_checkpoint": checkpointUpdate,
+					}
+					if updateErr := query.UpdateRecord[*models.CalendarSync](reloadedSync.Id, updateData); updateErr == nil {
+						reloadedSync.LastFullSyncCheckpoint = checkpointUpdate
+						logger.LogInfo(fmt.Sprintf("Recovered full sync checkpoint from oldest event for calendar sync %s: %v (will resume full sync)",
+							reloadedSync.Id, checkpointUpdate))
+					} else {
+						logger.LogError(fmt.Sprintf("Failed to save recovered checkpoint for calendar sync %s", reloadedSync.Id), updateErr)
+					}
+				}
+			} else {
+				// No events exist - this is truly a fresh sync
+				logger.LogInfo(fmt.Sprintf("Calendar sync %s has no checkpoint, no page token, and no events - will start fresh full sync",
+					reloadedSync.Id))
+			}
+		}
+
+		// Resume sync in background (it will use checkpoint if available)
+		go func(sync *models.CalendarSync) {
+			logger.LogInfo(fmt.Sprintf("Resuming stale sync for calendar sync %s (user: %s, checkpoint: %v)",
+				sync.Id, sync.User, sync.LastFullSyncCheckpoint))
+
+			err := cs.SyncEvents(sync)
+
+			updateData := map[string]interface{}{}
+			if err != nil {
+				logger.LogError(fmt.Sprintf("Failed to resume stale calendar sync %s", sync.Id), err)
+				updateData["sync_status"] = "failed"
+				updateData["in_progress"] = false
+			} else {
+				logger.LogInfo(fmt.Sprintf("Successfully resumed stale calendar sync %s", sync.Id))
+				updateData["sync_status"] = "success"
+				updateData["in_progress"] = false
+			}
+
+			if updateErr := query.UpdateRecord[*models.CalendarSync](sync.Id, updateData); updateErr != nil {
+				logger.LogError(fmt.Sprintf("Failed to update sync status for calendar sync %s", sync.Id), updateErr)
+			}
+		}(reloadedSync)
+
+		resumedCount++
+	}
+
+	logger.LogInfo(fmt.Sprintf("Initiated recovery for %d stale calendar sync(s)", resumedCount))
+	return nil
 }

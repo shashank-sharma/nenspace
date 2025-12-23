@@ -9,7 +9,6 @@ export { default as ChronicleJournalFlow } from './components/ChronicleJournalFl
 export { default as ChroniclePreview } from './components/ChroniclePreview.svelte';
 export { default as ChronicleEditor } from './components/ChronicleEditor.svelte';
 export { default as ChronicleMetadata } from './components/ChronicleMetadata.svelte';
-export { default as ChronicleBackground } from './components/ChronicleBackground.svelte';
 export { default as ChronicleTimeline } from './components/ChronicleTimeline.svelte';
 export { default as WeatherDisplay } from './components/WeatherDisplay.svelte';
 export { default as WeatherControls } from './components/WeatherControls.svelte';

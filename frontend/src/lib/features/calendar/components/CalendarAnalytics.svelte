@@ -33,21 +33,25 @@
         const monthName = format(currentDate, "MMMM");
 
         monthEvents.forEach((event) => {
+            // Skip events with empty or missing start date
+            if (!event.start || event.start.trim() === "") {
+                return;
+            }
+            
             try {
                 const dateStr = event.start;
                 const date = new Date(dateStr);
                 if (isNaN(date.getTime())) {
-                    console.error("Invalid date:", dateStr);
                     return;
                 }
                 const day = date.getDay();
                 dayCount[day]++;
             } catch (err) {
-                console.error("Error processing date:", event.start, err);
+                // Silently skip invalid dates
+                return;
             }
         });
 
-        console.log(`Days count for ${monthName}:`, dayCount);
         return dayCount;
     }
 
@@ -108,22 +112,18 @@
         const monthEnd = endOfMonth(date);
 
         return events.filter((event) => {
+            // Skip events with empty or missing start date
+            if (!event.start || event.start.trim() === "") {
+                return false;
+            }
+            
             try {
                 const eventDate = new Date(event.start);
                 if (isNaN(eventDate.getTime())) {
-                    console.error(
-                        "Invalid date in getEventsInMonth:",
-                        event.start,
-                    );
                     return false;
                 }
                 return eventDate >= monthStart && eventDate <= monthEnd;
             } catch (err) {
-                console.error(
-                    "Error processing date in getEventsInMonth:",
-                    event.start,
-                    err,
-                );
                 return false;
             }
         });
@@ -157,21 +157,15 @@
     }
 </script>
 
-<Card class="border shadow-sm mt-4">
-    <CardHeader class="pb-2">
+<Card class="border shadow-sm mt-4 calendar-analytics-card h-full flex flex-col">
+    <CardHeader class="pb-2 flex-shrink-0">
         <CardTitle class="flex items-center text-lg">
             <Activity class="mr-2 h-4 w-4" />
             Monthly Calendar Analytics
         </CardTitle>
-        <CardDescription class="text-sm">
-            Insights based on your {eventsThisMonth.length} event{eventsThisMonth.length !==
-            1
-                ? "s"
-                : ""} for {format(selectedDate, "MMMM yyyy")}
-        </CardDescription>
     </CardHeader>
 
-    <CardContent>
+    <CardContent class="flex-1 min-h-0 overflow-auto">
         {#if events.length > 0}
             <div class="space-y-6">
                 <div class="grid grid-cols-2 gap-2">
@@ -314,3 +308,11 @@
         {/if}
     </CardContent>
 </Card>
+
+<style>
+    .calendar-analytics-card {
+        /* Card already has h-full flex flex-col from classes */
+    }
+    
+    /* Custom scrollbar styles are now global in app.css */
+</style>

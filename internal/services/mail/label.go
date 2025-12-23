@@ -1,8 +1,10 @@
 package mail
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/models"
@@ -16,38 +18,68 @@ type LabelInfo struct {
 
 type LabelsMap map[string]LabelInfo
 
-// InitializeLabels fetches and stores all Gmail labels for a user
-func (ms *MailService) InitializeLabels(tokenId string, userId string) (*models.MailSync, error) {
-	client, err := ms.FetchClient(tokenId)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get client: %v", err)
+// FetchLabelsForToken fetches Gmail labels for a given token (without creating/updating mail sync)
+func (ms *MailService) FetchLabelsForToken(tokenId string) (string, error) {
+	if tokenId == "" {
+		return "", fmt.Errorf("token ID cannot be empty")
 	}
 
-	gmailService, err := ms.GetGmailService(client)
+	// Create a context with timeout for label initialization
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := ms.FetchClient(ctx, tokenId)
 	if err != nil {
-		logger.LogError("Unable to create Gmail service")
-		return nil, err
+		return "", fmt.Errorf("failed to get client: %w", err)
+	}
+
+	gmailService, err := ms.GetGmailService(ctx, client)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Gmail service: %w", err)
 	}
 
 	labelsResponse, err := gmailService.Users.Labels.List("me").Do()
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch labels: %v", err)
+		return "", fmt.Errorf("failed to fetch labels: %w", err)
+	}
+
+	if labelsResponse == nil || len(labelsResponse.Labels) == 0 {
+		return "", fmt.Errorf("no labels found")
 	}
 
 	labelsMap := make(LabelsMap)
 	for _, label := range labelsResponse.Labels {
-		labelsMap[label.Id] = LabelInfo{
-			Name: label.Name,
-			Type: label.Type,
+		if label != nil {
+			labelsMap[label.Id] = LabelInfo{
+				Name: label.Name,
+				Type: label.Type,
+			}
 		}
 	}
 
 	labelsJSON, err := json.Marshal(labelsMap)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling labels: %v", err)
+		return "", fmt.Errorf("failed to marshal labels: %w", err)
 	}
 
-	// Need a flow to handle 
+	return string(labelsJSON), nil
+}
+
+// InitializeLabels fetches and stores all Gmail labels for a user
+func (ms *MailService) InitializeLabels(tokenId string, userId string) (*models.MailSync, error) {
+	if tokenId == "" {
+		return nil, fmt.Errorf("token ID cannot be empty")
+	}
+	if userId == "" {
+		return nil, fmt.Errorf("user ID cannot be empty")
+	}
+
+	// Fetch labels using the helper function
+	labelsJSON, err := ms.FetchLabelsForToken(tokenId)
+	if err != nil {
+		return nil, err
+	}
+
 	mailSync := &models.MailSync{
 		User:     userId,
 		Token:    tokenId,
@@ -56,73 +88,106 @@ func (ms *MailService) InitializeLabels(tokenId string, userId string) (*models.
 		IsActive: true,
 	}
 
-	if err := query.UpsertRecord[*models.MailSync](mailSync, map[string]interface{}{
+	upsertFilter := map[string]interface{}{
 		"user":     userId,
 		"provider": "gmail",
-	}); err != nil {
-		return nil, fmt.Errorf("error creating mail sync: %v", err)
 	}
 
+	if err := query.UpsertRecord[*models.MailSync](mailSync, upsertFilter); err != nil {
+		return nil, fmt.Errorf("failed to create mail sync: %w", err)
+	}
+
+	// Parse labels to get count for logging
+	var labelsMap LabelsMap
+	if err := json.Unmarshal([]byte(labelsJSON), &labelsMap); err == nil {
+	logger.LogInfo(fmt.Sprintf("Initialized labels for user %s: %d labels", userId, len(labelsMap)))
+	} else {
+		logger.LogInfo(fmt.Sprintf("Initialized labels for user %s", userId))
+	}
 	return mailSync, nil
 }
 
 // GetLabels parses and returns the labels map from a MailSync record
 func (ms *MailService) GetLabels(mailSync *models.MailSync) (LabelsMap, error) {
+	if mailSync == nil {
+		return nil, fmt.Errorf("mailSync cannot be nil")
+	}
+
+	if mailSync.Labels == "" {
+		return make(LabelsMap), nil
+	}
+
 	var labelsMap LabelsMap
 	err := json.Unmarshal([]byte(mailSync.Labels), &labelsMap)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing labels: %v", err)
+		return nil, fmt.Errorf("failed to parse labels: %w", err)
 	}
+
 	return labelsMap, nil
 }
 
+// ProcessMessageLabelsResult holds the result of processing message labels
+type ProcessMessageLabelsResult struct {
+	CustomLabelsJSON string
+	IsUnread         bool
+	IsImportant      bool
+	IsStarred        bool
+	IsSpam           bool
+	IsInbox          bool
+	IsTrash          bool
+	IsDraft          bool
+	IsSent           bool
+}
+
 // ProcessMessageLabels processes label IDs and returns structured label information
-func (ms *MailService) ProcessMessageLabels(labelIds []string, mailSync *models.MailSync) (string, bool, bool, bool, bool, bool, bool, bool, bool, error) {
+func (ms *MailService) ProcessMessageLabels(labelIds []string, mailSync *models.MailSync) (*ProcessMessageLabelsResult, error) {
+	if mailSync == nil {
+		return nil, fmt.Errorf("mailSync cannot be nil")
+	}
+
 	availableLabels, err := ms.GetLabels(mailSync)
 	if err != nil {
-		logger.LogError("Error parsing labels:", err)
-		return "", false, false, false, false, false, false, false, false, err
+		return nil, fmt.Errorf("failed to get labels: %w", err)
+	}
+
+	result := &ProcessMessageLabelsResult{
+		CustomLabelsJSON: "{}",
 	}
 
 	customLabels := make(LabelsMap)
-	isUnread := false
-	isImportant := false
-	isStarred := false
-	isSpam := false
-	isInbox := false
-	isTrash := false
-	isDraft := false
-	isSent := false
 
 	for _, labelId := range labelIds {
 		if labelInfo, exists := availableLabels[labelId]; exists {
 			switch labelId {
-			case "UNREAD":
-				isUnread = true
-			case "IMPORTANT":
-				isImportant = true
-			case "STARRED":
-				isStarred = true
-			case "SPAM":
-				isSpam = true
-			case "INBOX":
-				isInbox = true
-			case "TRASH":
-				isTrash = true
-			case "DRAFT":
-				isDraft = true
-			case "SENT":
-				isSent = true
+			case labelUNREAD:
+				result.IsUnread = true
+			case labelIMPORTANT:
+				result.IsImportant = true
+			case labelSTARRED:
+				result.IsStarred = true
+			case labelSPAM:
+				result.IsSpam = true
+			case labelINBOX:
+				result.IsInbox = true
+			case labelTRASH:
+				result.IsTrash = true
+			case labelDRAFT:
+				result.IsDraft = true
+			case labelSENT:
+				result.IsSent = true
 			default:
 				customLabels[labelId] = labelInfo
 			}
 		}
 	}
 
-	customLabelsJSON, err := json.Marshal(customLabels)
-	if err != nil {
-		return "", false, false, false, false, false, false, false, false, fmt.Errorf("error marshaling custom labels: %v", err)
+	if len(customLabels) > 0 {
+		customLabelsJSON, err := json.Marshal(customLabels)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal custom labels: %w", err)
+		}
+		result.CustomLabelsJSON = string(customLabelsJSON)
 	}
 
-	return string(customLabelsJSON), isUnread, isImportant, isStarred, isSpam, isInbox, isTrash, isDraft, isSent, nil
+	return result, nil
 }

@@ -4,12 +4,14 @@
     import { Button } from "$lib/components/ui/button";
     import { cn } from "$lib/utils";
     import { authService } from "$lib/services/authService.svelte";
+    import { SettingsModalService } from "$lib/services/settings-modal.service.svelte";
     import type { DashboardSection } from "../types";
     import {
         ChevronLeft,
         ChevronRight,
         ChevronDown,
         ChevronUp,
+        Settings,
     } from "lucide-svelte";
     import { slide } from "svelte/transition";
     import { tweened } from "svelte/motion";
@@ -154,7 +156,7 @@
                             ? "secondary"
                             : "ghost"}
                         class={"flex flex-col items-center justify-center h-16 w-16 p-1 rounded-lg relative"}
-                        onclick={() => navigateToSection(section)}
+                        on:click={() => navigateToSection(section)}
                     >
                         {#if section.icon}
                             <section.icon
@@ -200,7 +202,7 @@
                                     variant="ghost"
                                     size="sm"
                                     class="h-6 w-6 p-0"
-                                    onclick={() =>
+                                    on:click={() =>
                                         (mobileExpandedSection = null)}
                                 >
                                     Bad
@@ -216,7 +218,7 @@
                                             ? "secondary"
                                             : "ghost"}
                                         class={"flex-shrink-0 flex items-center justify-center h-10 rounded-lg"}
-                                        onclick={() =>
+                                        on:click={() =>
                                             navigateToChildSection(child)}
                                     >
                                         {#if child.icon}
@@ -263,7 +265,7 @@
             {#if !isCollapsed}
                 <h1 class="text-xl font-bold">Nen Space</h1>
             {/if}
-            <Button variant="ghost" size="icon" onclick={toggleSidebar}>
+            <Button variant="ghost" size="icon" on:click={toggleSidebar}>
                 {#if isCollapsed}
                     <ChevronRight class="h-4 w-4" />
                 {:else}
@@ -272,7 +274,7 @@
             </Button>
         </div>
 
-        <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-scroll">
+        <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-scroll themed-scrollbar">
             {#each sections as section}
                 <div>
                     <Button
@@ -284,7 +286,7 @@
                             isCollapsed && "justify-center px-2",
                             isCollapsed && section.collapsible && "relative",
                         )}
-                        onclick={() => navigateToSection(section)}
+                        on:click={() => navigateToSection(section)}
                     >
                         {#if section.icon}
                             <section.icon class="h-4 w-4 mr-2" />
@@ -322,7 +324,7 @@
                                         ? "secondary"
                                         : "ghost"}
                                     class="w-full justify-start"
-                                    onclick={() => {
+                                    on:click={() => {
                                         // dashboardStore.setActiveSection( // Removed as per new architecture
                                         //     child.id,
                                         // );
@@ -344,7 +346,7 @@
 
         <div class="p-4 border-t">
             {#if !isCollapsed}
-                <div class="flex items-center space-x-3">
+                <div class="flex items-center justify-between">
                     <div class="flex-1 min-w-0">
                         <p class="text-sm font-medium truncate">
                             {authService.user?.username || "Guest"}
@@ -353,8 +355,49 @@
                             {authService.user?.email || ""}
                         </p>
                     </div>
+                    <Button 
+                        variant="ghost" 
+                        size="icon"
+                        class="h-8 w-8 flex-shrink-0"
+                        on:click={SettingsModalService.open}
+                    >
+                        <Settings class="h-4 w-4" />
+                        <span class="sr-only">Open settings</span>
+                    </Button>
                 </div>
             {/if}
         </div>
     </aside>
 {/if}
+
+<style>
+    /* Theme-aware custom scrollbar for sidebar */
+    .themed-scrollbar {
+        scrollbar-width: thin; /* Firefox */
+        scrollbar-color: hsl(var(--muted-foreground) / 0.5)
+            hsl(var(--muted) / 0.2); /* thumb track */
+    }
+
+    .themed-scrollbar::-webkit-scrollbar {
+        width: 10px;
+    }
+
+    .themed-scrollbar::-webkit-scrollbar-track {
+        background: hsl(var(--muted) / 0.12);
+        border-radius: 8px;
+    }
+
+    .themed-scrollbar::-webkit-scrollbar-thumb {
+        background-color: hsl(var(--muted-foreground) / 0.45);
+        border-radius: 8px;
+        border: 2px solid hsl(var(--background));
+    }
+
+    .themed-scrollbar::-webkit-scrollbar-thumb:hover {
+        background-color: hsl(var(--muted-foreground) / 0.6);
+    }
+
+    .themed-scrollbar::-webkit-scrollbar-thumb:active {
+        background-color: hsl(var(--foreground) / 0.6);
+    }
+</style>

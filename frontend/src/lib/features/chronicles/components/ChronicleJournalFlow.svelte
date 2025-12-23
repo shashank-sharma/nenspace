@@ -22,7 +22,7 @@
         Meh,
         Frown,
     } from "lucide-svelte";
-    import { chroniclesStore, weatherStore } from "../stores";
+    import { chroniclesStore } from "../stores";
     import { ChroniclesService } from "../services";
     import { onMount } from "svelte";
     import { browser } from "$app/environment";
@@ -34,9 +34,7 @@
         getEventTimeColor,
         getEventTextColor,
     } from "$lib/features/calendar/utils/color";
-    import { ensureWeatherData } from "../utils/weather.utils";
     import { withErrorHandling } from "$lib/utils/error-handler.util";
-    import { getWeatherType } from "../utils/weather-mapping.util";
     import {
         CHRONICLE_STEPS,
         MOOD_OPTIONS,
@@ -44,15 +42,9 @@
         CUSTOM_EVENTS,
     } from "../constants";
 
-    let { weather = $bindable("sunny") } = $props<{ weather?: string }>();
-
     let showJsonData = false;
     let enableAnimations = true;
     let reduceMotion = false;
-
-    function updateWeather(newWeather: string) {
-        weather = newWeather;
-    }
 
     // Use Lucide icons for moods (no emojis)
     const MOOD_ICONS: Record<string, any> = {
@@ -113,9 +105,6 @@
     onMount(() => {
         const handleDebugSettingsChange = (event: CustomEvent) => {
             const settings = event.detail;
-            if (settings.weatherType) {
-                updateWeather(settings.weatherType);
-            }
             if (settings.enableAnimations !== undefined) {
                 enableAnimations = settings.enableAnimations;
             }
@@ -134,9 +123,6 @@
                 );
                 if (storedSettings) {
                     const settings = JSON.parse(storedSettings);
-                    if (settings.weatherType) {
-                        updateWeather(settings.weatherType);
-                    }
                     if (settings.enableAnimations !== undefined) {
                         enableAnimations = settings.enableAnimations;
                     }
@@ -156,20 +142,6 @@
                 handleDebugSettingsChange as EventListener,
             );
         }
-
-        ensureWeatherData();
-
-        // Update weather from store
-        $effect(() => {
-            if (weatherStore.currentWeather) {
-                const weatherType = getWeatherType(
-                    weatherStore.currentWeather.weather.condition,
-                    weatherStore.currentWeather.details.clouds,
-                    new Date(weatherStore.currentWeather.date).getHours(),
-                );
-                updateWeather(weatherType);
-            }
-        });
 
         return () => {
             if (browser) {
@@ -331,9 +303,7 @@
 </script>
 
 <div class="chronicles-container w-full relative">
-    <div class="chronicles-background absolute inset-0 z-0"></div>
-
-    <div class="w-full relative z-10 pt-4">
+    <div class="w-full relative pt-4">
         <div class="flex justify-between items-center mb-6">
             <div class="steps-navigation flex items-center space-x-2">
                 {#each CHRONICLE_STEPS as step, i}
@@ -938,15 +908,6 @@
         border-radius: 0.5rem;
     }
 
-    .chronicles-background {
-        position: absolute;
-        inset: 0;
-        z-index: 0;
-        opacity: 0.7;
-        border-radius: 0.5rem;
-        pointer-events: none;
-        transition: background 1s ease;
-    }
 
     button:focus-visible {
         outline: 2px solid var(--primary);

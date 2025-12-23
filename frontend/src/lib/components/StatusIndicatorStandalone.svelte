@@ -13,7 +13,7 @@
         getStatusIndicatorState,
         shouldIconAnimate,
         type SystemStatus,
-    } from "$lib/utils/status-indicator.util";
+    } from "$lib/features/status-indicator";
 
     // State from Tauri events
     let systemStatus = $state<SystemStatus>({

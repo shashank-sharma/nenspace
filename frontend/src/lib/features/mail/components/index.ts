@@ -1,7 +1,10 @@
 export { default as MailAuth } from './MailAuth.svelte';
 export { default as MailDetail } from './MailDetail.svelte';
 export { default as MailTable } from './MailTable.svelte';
-export { default as Mail } from './Mail.svelte';
+export { default as MailFeature } from './MailFeature.svelte';
 export { default as MailLayout } from './MailLayout.svelte';
-export { default as MailDisplay } from './MailDisplay.svelte';
 export { default as Nav } from './Nav.svelte';
+export { default as MailSearchBar } from './MailSearchBar.svelte';
+export { default as MailStatusBar } from './MailStatusBar.svelte';
+export { default as MailList } from './MailList.svelte';
+export { default as MailView } from './MailView.svelte';

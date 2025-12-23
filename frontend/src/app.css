@@ -171,4 +171,35 @@
 	.rich-text h1 { @apply text-lg; }
 	.rich-text h2 { @apply text-base; }
 	.rich-text h3 { @apply text-sm; }
+
+	/* Custom scrollbar for all cards and scrollable elements */
+	.bg-card::-webkit-scrollbar,
+	[class*="overflow-auto"]::-webkit-scrollbar,
+	[class*="overflow-y-auto"]::-webkit-scrollbar,
+	[class*="overflow-x-auto"]::-webkit-scrollbar {
+		width: 6px;
+		height: 6px;
+	}
+
+	.bg-card::-webkit-scrollbar-track,
+	[class*="overflow-auto"]::-webkit-scrollbar-track,
+	[class*="overflow-y-auto"]::-webkit-scrollbar-track,
+	[class*="overflow-x-auto"]::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.bg-card::-webkit-scrollbar-thumb,
+	[class*="overflow-auto"]::-webkit-scrollbar-thumb,
+	[class*="overflow-y-auto"]::-webkit-scrollbar-thumb,
+	[class*="overflow-x-auto"]::-webkit-scrollbar-thumb {
+		background: hsl(var(--muted-foreground) / 0.3);
+		border-radius: 3px;
+	}
+
+	.bg-card::-webkit-scrollbar-thumb:hover,
+	[class*="overflow-auto"]::-webkit-scrollbar-thumb:hover,
+	[class*="overflow-y-auto"]::-webkit-scrollbar-thumb:hover,
+	[class*="overflow-x-auto"]::-webkit-scrollbar-thumb:hover {
+		background: hsl(var(--muted-foreground) / 0.5);
+	}
 }

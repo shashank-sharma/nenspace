@@ -1,7 +1,6 @@
 <!-- src/routes/settings/notifications/+page.svelte -->
 <script lang="ts">
-    import { onMount } from "svelte";
-    import { pb } from "$lib/config/pocketbase";
+    import { SettingsService } from "$lib/services/settings.service.svelte";
     import { Button } from "$lib/components/ui/button";
     import { Label } from "$lib/components/ui/label";
     import { Switch } from "$lib/components/ui/switch";
@@ -10,21 +9,21 @@
     import { Separator } from "$lib/components/ui/separator";
     import { Card } from "$lib/components/ui/card";
     import { toast } from "svelte-sonner";
-    import { Bell, Volume2, Mail, Clock, LayoutDashboard } from "lucide-svelte";
+    import { Bell, Volume2, Mail, Clock, LayoutDashboard, RotateCcw } from "lucide-svelte";
 
-    let loading = true;
-    let saving = false;
-
-    let settings = {
-        emailEnabled: false,
-        typesEnabled: [],
-        quietHoursStart: "",
-        quietHoursEnd: "",
-        soundEnabled: true,
-        desktopNotifications: true,
-        emailDigestFrequency: "daily",
-        priorityLevel: "all",
-    };
+    // Use settings service for reactive state
+    let settings = $derived(SettingsService.notifications);
+    let loadingState = $derived(SettingsService.loadingStates.notifications);
+    let isLoading = $derived(loadingState.loading);
+    let hasError = $derived(loadingState.error !== null);
+    
+    // Update settings with auto-sync
+    async function updateSetting<K extends keyof typeof settings>(
+        key: K, 
+        value: typeof settings[K]
+    ) {
+        await SettingsService.updateSettings('notifications', { [key]: value });
+    }
 
     const notificationTypes = [
         {
@@ -72,90 +71,21 @@
         { value: "custom", label: "Custom" },
     ];
 
-    onMount(async () => {
-        try {
-            const record = await pb
-                .collection("notification_settings")
-                .getFirstListItem(`user = "${pb.authStore.model.id}"`);
-
-            if (record) {
-                settings = {
-                    emailEnabled: record.email_enabled,
-                    typesEnabled: record.types_enabled,
-                    quietHoursStart: record.quiet_hours_start || "",
-                    quietHoursEnd: record.quiet_hours_end || "",
-                    soundEnabled: record.sound_enabled ?? true,
-                    desktopNotifications: record.desktop_notifications ?? true,
-                    emailDigestFrequency:
-                        record.email_digest_frequency || "daily",
-                    priorityLevel: record.priority_level || "all",
-                };
-            }
-        } catch (error) {
-            console.error("Error loading notification settings:", error);
-            toast.error("Failed to load notification settings");
-        } finally {
-            loading = false;
-        }
-    });
-
-    async function saveSettings() {
-        saving = true;
-        try {
-            // Find existing record
-            let record;
-            try {
-                record = await pb
-                    .collection("notification_settings")
-                    .getFirstListItem(`user = "${pb.authStore.model.id}"`);
-            } catch (e) {
-                // Record doesn't exist
-            }
-
-            const data = {
-                user: pb.authStore.model.id,
-                email_enabled: settings.emailEnabled,
-                types_enabled: settings.typesEnabled,
-                quiet_hours_start: settings.quietHoursStart,
-                quiet_hours_end: settings.quietHoursEnd,
-                sound_enabled: settings.soundEnabled,
-                desktop_notifications: settings.desktopNotifications,
-                email_digest_frequency: settings.emailDigestFrequency,
-                priority_level: settings.priorityLevel,
-            };
-
-            if (record) {
-                await pb
-                    .collection("notification_settings")
-                    .update(record.id, data);
-            } else {
-                await pb.collection("notification_settings").create(data);
-            }
-
-            toast.success("Notification settings updated successfully");
-        } catch (error) {
-            console.error("Error saving notification settings:", error);
-            toast.error("Failed to save notification settings");
-        } finally {
-            saving = false;
-        }
+    // Reset settings to defaults
+    async function resetSettings() {
+        await SettingsService.resetCategory('notifications');
     }
-
+    
     function toggleNotificationType(type: string) {
-        if (settings.typesEnabled.includes(type)) {
-            settings.typesEnabled = settings.typesEnabled.filter(
-                (t) => t !== type,
-            );
-        } else {
-            settings.typesEnabled = [...settings.typesEnabled, type];
-        }
+        const currentTypes = settings.typesEnabled;
+        const newTypes = currentTypes.includes(type)
+            ? currentTypes.filter(t => t !== type)
+            : [...currentTypes, type];
+        updateSetting('typesEnabled', newTypes);
     }
 </script>
 
 <div class="space-y-8">
-    {#if loading}
-        <div class="text-center text-muted-foreground">Loading settings...</div>
-    {:else}
         <!-- General Notifications -->
         <div class="space-y-4">
             <div class="flex items-center gap-2">
@@ -173,9 +103,8 @@
                     </div>
                     <Switch
                         checked={settings.desktopNotifications}
-                        on:change={() =>
-                            (settings.desktopNotifications =
-                                !settings.desktopNotifications)}
+                        onCheckedChange={(checked) => updateSetting('desktopNotifications', checked)}
+                        disabled={isLoading}
                     />
                 </div>
 
@@ -188,15 +117,18 @@
                     </div>
                     <Switch
                         checked={settings.soundEnabled}
-                        on:change={() =>
-                            (settings.soundEnabled = !settings.soundEnabled)}
+                        onCheckedChange={(checked) => updateSetting('soundEnabled', checked)}
+                        disabled={isLoading}
                     />
                 </div>
 
                 <div class="space-y-2">
                     <Label>Priority Level</Label>
-                    <Select.Root bind:value={settings.priorityLevel}>
-                        <Select.Trigger class="w-full">
+                    <Select.Root 
+                        value={settings.priorityLevel}
+                        onValueChange={(value) => value && updateSetting('priorityLevel', value as any)}
+                    >
+                        <Select.Trigger class="w-full" disabled={isLoading}>
                             <Select.Value placeholder="Select priority level" />
                         </Select.Trigger>
                         <Select.Content>
@@ -230,16 +162,19 @@
                     </div>
                     <Switch
                         checked={settings.emailEnabled}
-                        on:change={() =>
-                            (settings.emailEnabled = !settings.emailEnabled)}
+                        onCheckedChange={(checked) => updateSetting('emailEnabled', checked)}
+                        disabled={isLoading}
                     />
                 </div>
 
                 {#if settings.emailEnabled}
                     <div class="space-y-2">
                         <Label>Email Digest Frequency</Label>
-                        <Select.Root bind:value={settings.emailDigestFrequency}>
-                            <Select.Trigger class="w-full">
+                        <Select.Root 
+                            value={settings.emailDigestFrequency}
+                            onValueChange={(value) => value && updateSetting('emailDigestFrequency', value as any)}
+                        >
+                            <Select.Trigger class="w-full" disabled={isLoading}>
                                 <Select.Value
                                     placeholder="Select digest frequency"
                                 />
@@ -280,8 +215,9 @@
                                 checked={settings.typesEnabled.includes(
                                     type.value,
                                 )}
-                                on:change={() =>
+                                onCheckedChange={() =>
                                     toggleNotificationType(type.value)}
+                                disabled={isLoading}
                             />
                         </div>
                     </Card>
@@ -310,7 +246,9 @@
                         <Input
                             id="quiet-hours-start"
                             type="time"
-                            bind:value={settings.quietHoursStart}
+                            value={settings.quietHoursStart}
+                            on:input={(e) => updateSetting('quietHoursStart', e.currentTarget.value)}
+                            disabled={isLoading}
                         />
                     </div>
 
@@ -319,18 +257,43 @@
                         <Input
                             id="quiet-hours-end"
                             type="time"
-                            bind:value={settings.quietHoursEnd}
+                            value={settings.quietHoursEnd}
+                            on:input={(e) => updateSetting('quietHoursEnd', e.currentTarget.value)}
+                            disabled={isLoading}
                         />
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Save Button -->
-        <div class="flex justify-end">
-            <Button on:click={saveSettings} disabled={saving}>
-                {saving ? "Saving..." : "Save Changes"}
+        <!-- Actions & Status -->
+        <div class="flex justify-between items-center">
+            <Button 
+                variant="outline" 
+                on:click={resetSettings}
+                disabled={isLoading}
+            >
+                <RotateCcw class="h-4 w-4 mr-2" />
+                Reset to Defaults
             </Button>
+            
+            <div class="flex items-center gap-2">
+                {#if hasError}
+                    <p class="text-sm text-destructive">
+                        {loadingState.error}
+                    </p>
+                {:else if loadingState.lastSynced}
+                    <p class="text-sm text-muted-foreground">
+                        Auto-saved {new Date(loadingState.lastSynced).toLocaleTimeString()}
+                    </p>
+                {/if}
+                
+                {#if isLoading}
+                    <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                        <div class="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>
+                        Saving...
+                    </div>
+                {/if}
+            </div>
         </div>
-    {/if}
 </div>

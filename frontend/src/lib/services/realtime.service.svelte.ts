@@ -28,7 +28,7 @@
  */
 
 import { pb } from '$lib/config/pocketbase';
-import { IslandNotificationService } from './island-notification.service.svelte';
+import { NotificationBroadcaster } from '$lib/features/status-indicator';
 import { authService } from './authService.svelte';
 import { NetworkService } from './network.service.svelte';
 import { browser } from '$app/environment';
@@ -162,9 +162,9 @@ class RealtimeServiceImpl {
                 // Parse the message from backend
                 const notification = data as RealtimeMessage;
 
-                // Display using IslandNotificationService
+                // Display using NotificationBroadcaster (broadcasts to ALL components)
                 if (notification.message) {
-                    IslandNotificationService.show(
+                    NotificationBroadcaster.show(
                         notification.message,
                         notification.variant || 'info',
                         { duration: notification.duration || 3000 }
@@ -244,8 +244,8 @@ class RealtimeServiceImpl {
             // Store topics to subscribe later
             const userId = authService.user?.id;
             this.#pendingTopics = userId 
-                ? [`notifications:${userId}`, `system:${userId}`]
-                : ['notifications', 'system'];
+                ? [`notifications:${userId}`]
+                : ['notifications'];
             
             // Schedule retry with exponential backoff
             this.#reconnectionScheduler.schedule(() => this.reconnect());
@@ -258,8 +258,8 @@ class RealtimeServiceImpl {
             // Get current user ID for user-specific subscriptions
             const userId = authService.user?.id;
             const topics = userId 
-                ? [`notifications:${userId}`, `system:${userId}`]
-                : ['notifications', 'system'];
+                ? [`notifications:${userId}`]
+                : ['notifications'];
 
             // Try to subscribe to all topics
             let successCount = 0;

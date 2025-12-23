@@ -43,47 +43,12 @@
     });
 
     function handleEventClick(event: CustomEvent<{ event: CalendarEvent }>) {
+        selectedEvent = event.detail.event;
         dispatch("eventClick", event.detail);
     }
 
     function closeEventDialog() {
-        setTimeout(() => {
-            selectedEvent = null;
-        }, 300);
-    }
-
-    function goToToday() {
-        selectedDate = new Date();
-    }
-
-    function navigatePrevious() {
-        if (view === "month") {
-            selectedDate = subMonths(selectedDate, 1);
-        } else if (view === "week") {
-            selectedDate = subWeeks(selectedDate, 1);
-        } else {
-            selectedDate = addDays(selectedDate, -1);
-        }
-    }
-
-    function navigateNext() {
-        if (view === "month") {
-            selectedDate = addMonths(selectedDate, 1);
-        } else if (view === "week") {
-            selectedDate = addWeeks(selectedDate, 1);
-        } else {
-            selectedDate = addDays(selectedDate, 1);
-        }
-    }
-
-    function formatNavDate(date: Date, view: "month" | "week" | "day"): string {
-        if (view === "month") {
-            return format(date, "MMMM yyyy");
-        } else if (view === "week") {
-            return `Week of ${format(date, "MMM d, yyyy")}`;
-        } else {
-            return format(date, "EEEE, MMMM d, yyyy");
-        }
+        selectedEvent = null;
     }
 </script>
 
@@ -93,66 +58,10 @@
     }}
 />
 
-<div class="space-y-4">
+<div class="calendar-root h-full flex flex-col">
     {#if events.length > 0}
-        <Card class="border shadow-sm rounded-lg calendar-container">
-            <div class="p-4">
-                <div
-                    class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4"
-                >
-                    <div class="flex flex-col">
-                        <div class="text-xl font-semibold">
-                            {formatNavDate(selectedDate, view)}
-                        </div>
-                    </div>
-                    <div class="flex gap-2 flex-wrap">
-                        <div class="flex gap-1">
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                on:click={goToToday}
-                            >
-                                Today
-                            </Button>
-                            <div class="flex">
-                                <Button
-                                    size="icon"
-                                    class="h-9 w-9 rounded-r-none border-r"
-                                    on:click={navigatePrevious}
-                                >
-                                    <ChevronLeft class="h-4 w-4" />
-                                </Button>
-                                <Button
-                                    size="icon"
-                                    class="h-9 w-9 rounded-l-none"
-                                    on:click={navigateNext}
-                                >
-                                    <ChevronRight class="h-4 w-4" />
-                                </Button>
-                            </div>
-                        </div>
-                        <Tabs {view} class="w-[250px]">
-                            <TabsList class="grid w-full grid-cols-3">
-                                <TabsTrigger
-                                    value="month"
-                                    on:click={() => (view = "month")}
-                                    >Month</TabsTrigger
-                                >
-                                <TabsTrigger
-                                    value="week"
-                                    on:click={() => (view = "week")}
-                                    >Week</TabsTrigger
-                                >
-                                <TabsTrigger
-                                    value="day"
-                                    on:click={() => (view = "day")}
-                                    >Day</TabsTrigger
-                                >
-                            </TabsList>
-                        </Tabs>
-                    </div>
-                </div>
-
+        <Card class="border shadow-sm rounded-lg calendar-container h-full flex flex-col">
+            <div class="flex-1 min-h-0 overflow-auto calendar-scroll-area p-4">
                 {#if view === "month"}
                     <MonthView
                         {events}
@@ -188,6 +97,5 @@
 />
 
 <style>
-    /* These styles were probably intended for a theme switcher that is not implemented here. */
-    /* Removing them as they are marked as unused by the linter. */
+    /* Custom scrollbar styles are now global in app.css */
 </style>

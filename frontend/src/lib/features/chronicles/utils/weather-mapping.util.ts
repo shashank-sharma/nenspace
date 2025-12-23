@@ -5,10 +5,10 @@ import type { WeatherType } from '../constants';
  * Maps weather API data to background weather type
  */
 export function mapWeatherToBackground(weather: CurrentWeather | null): WeatherType {
-    if (!weather) return 'partly-cloudy';
+    if (!weather || !weather.weather || !weather.details) return 'partly-cloudy';
 
-    const condition = weather.weather.condition.toLowerCase();
-    const cloudiness = weather.details.clouds;
+    const condition = weather.weather.condition?.toLowerCase() || '';
+    const cloudiness = weather.details.clouds ?? 0;
     const hour = new Date(weather.date).getHours();
     const isNight = hour < 6 || hour > 18;
 

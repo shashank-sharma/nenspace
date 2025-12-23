@@ -70,4 +70,18 @@ func (b *BaseConnector) Configure(config map[string]interface{}) error {
 // GetConfigSchema returns the configuration schema
 func (b *BaseConnector) GetConfigSchema() map[string]interface{} {
 	return b.ConfigSchema
+}
+
+// SchemaAwareConnector extends the Connector interface with schema awareness
+// Connectors that implement this interface can declare their output schema
+// and validate input schema compatibility
+type SchemaAwareConnector interface {
+	Connector
+	// GetOutputSchema returns the schema this connector produces given an input schema
+	// For source connectors, inputSchema will be nil
+	// For processor/destination connectors, inputSchema contains the upstream schema
+	GetOutputSchema(inputSchema *DataSchema) (*DataSchema, error)
+	// ValidateInputSchema validates if the provided input schema is compatible
+	// Returns nil if compatible, error if incompatible
+	ValidateInputSchema(schema *DataSchema) error
 } 

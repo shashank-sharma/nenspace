@@ -88,47 +88,6 @@ func NewLogDestinationConnector() types.Connector {
 	return connector
 }
 
-// TransformProcessor transforms input data
-type TransformProcessor struct {
-	types.BaseConnector
-}
-
-// Execute transforms input data according to configuration
-func (c *TransformProcessor) Execute(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
-	// Simple implementation - in real code this would apply transformations
-	return map[string]interface{}{
-		"transformed": true,
-		"original":    input,
-	}, nil
-}
-
-// NewTransformProcessor creates a new transform processor connector
-func NewTransformProcessor() types.Connector {
-	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"transformations": map[string]interface{}{
-				"type": "array",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"field":  map[string]interface{}{"type": "string"},
-						"action": map[string]interface{}{"type": "string", "enum": []string{"rename", "delete", "modify"}},
-						"value":  map[string]interface{}{"type": "string"},
-					},
-				},
-			},
-		},
-	}
-
-	connector := &TransformProcessor{
-		BaseConnector: types.BaseConnector{
-			ConnID:       "transform_processor",
-			ConnName:     "Transform Processor",
-			ConnType:     types.ProcessorConnector,
-			ConfigSchema: schema,
-			Config:       make(map[string]interface{}),
-		},
-	}
-	return connector
-}
+// TransformProcessor is now implemented in connectors/transform_connector.go
+// This placeholder is kept for backward compatibility but should not be used
+// The new implementation is registered in connectors/factory.go

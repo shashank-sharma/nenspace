@@ -6,9 +6,8 @@
     import { authService } from "$lib/services/authService.svelte";
     import { HealthService } from "$lib/services/health.service.svelte"; // Import for automatic initialization
     import { RealtimeService } from "$lib/services/realtime.service.svelte"; // Dashboard-only: real-time notifications
+    import { SettingsService } from "$lib/services/settings.service.svelte"; // Preload settings for dashboard
     import StatusIndicator from "$lib/components/StatusIndicator.svelte";
-    import BottomRightControls from "$lib/components/BottomRightControls.svelte";
-    import DebugLauncher from "$lib/components/debug/DebugLauncher.svelte";
     import ShortcutsHelpPanel from "$lib/components/ShortcutsHelpPanel.svelte";
     import { Toaster } from "$lib/components/ui/sonner";
     import type { Snippet } from "svelte";
@@ -17,10 +16,18 @@
     import "$lib/features/food-log/services/food-log-sync-adapter";
     import "$lib/features/tasks/services/task-sync-adapter";
     import "$lib/features/credentials/services/credentials-sync-adapter";
+    import "$lib/features/inventory/services/inventory-sync-adapter";
+    import "$lib/features/journal/services/journal-sync-adapter";
 
     let { children } = $props<{ children: Snippet }>();
     const sections = DASHBOARD_SECTIONS;
     let showShortcuts = $state(false);
+    
+    // Reactive settings access
+    let debugSettings = $derived(SettingsService.debug);
+    let appearanceSettings = $derived(SettingsService.appearance);
+    let shouldShowDebugButton = $derived(debugSettings.showDebugButton);
+    let shouldShowStatusIndicator = $derived(appearanceSettings.showStatusIndicator);
 
     $effect(() => {
         if (!authService.isAuthenticated) {
@@ -30,7 +37,14 @@
 
     // Initialize dashboard-only services
     onMount(() => {
+        // Preload user settings first (critical for UI state)
+        // This will also trigger font application via applyGlobalSettings()
+        SettingsService.ensureLoaded().catch((err) => {
+            console.error("[Dashboard] Failed to preload settings:", err);
+        });
+        
         // Initialize realtime notifications (only in dashboard)
+        // Note: NotificationSyncService is initialized at root layout level
         RealtimeService.initialize().catch((err) => {
             console.error(
                 "[Dashboard] Failed to initialize realtime service:",
@@ -63,19 +77,16 @@
     <Toaster />
 
     <!-- Island notification (top-center) - handles both notifications and network status -->
-    <StatusIndicator />
-
-    <!-- Bottom right controls -->
-    <BottomRightControls on:show-shortcuts={handleShowShortcuts} />
-    <div class="fixed bottom-4 right-4 z-50">
-        <DebugLauncher />
-    </div>
+    {#if shouldShowStatusIndicator}
+        <StatusIndicator />
+    {/if}
+    
     <ShortcutsHelpPanel
         visible={showShortcuts}
         on:close={handleCloseShortcuts}
     />
 
-    <DashboardLayout {sections}>
+    <DashboardLayout {sections} onShowShortcuts={handleShowShortcuts}>
         {@render children()}
     </DashboardLayout>
 {:else}

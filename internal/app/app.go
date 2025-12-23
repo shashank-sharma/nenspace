@@ -23,6 +23,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/services/container"
 	"github.com/shashank-sharma/backend/internal/services/feed"
 	"github.com/shashank-sharma/backend/internal/services/fold"
+	"github.com/shashank-sharma/backend/internal/services/journal"
 	"github.com/shashank-sharma/backend/internal/services/mail"
 	"github.com/shashank-sharma/backend/internal/services/memorysystem"
 	"github.com/shashank-sharma/backend/internal/services/providers"
@@ -44,6 +45,7 @@ type Application struct {
 	ContainerService *container.ContainerService
 	SearchService    *search.FullTextSearchService
 	WeatherService   *weather.WeatherService
+	JournalService   *journal.JournalService
 	postInitHooks    []func()
 }
 
@@ -67,6 +69,7 @@ func New(configFlags config.ConfigFlags) (*Application, error) {
 
 	app.AddPostInitHook(func() {
 		logger.LogInfo("Application is fully initialized")
+		app.runStartupChecks()
 	})
 
 	pb.OnServe().BindFunc(func(e *core.ServeEvent) error {
@@ -156,6 +159,9 @@ func (app *Application) initializeAIServices() {
 	feedService.RegisterProvider(providers.NewHackerNewsProvider())
 
 	app.FeedService = &feedService
+
+	// Initialize journal service with AI client
+	app.JournalService = journal.NewJournalService(aiClient)
 }
 
 // initializeContainerService initializes the container service
@@ -217,6 +223,10 @@ func (app *Application) configureRoutes(e *core.ServeEvent) {
 	weatherRouter.BindFunc(middleware.AuthMiddleware())
 	routes.RegisterWeatherRoutes(weatherRouter, "", app.WeatherService)
 
+	journalRouter := apiRouter.Group("/journal")
+	journalRouter.BindFunc(middleware.AuthMiddleware())
+	routes.RegisterJournalRoutes(journalRouter, "", app.JournalService)
+
 	routes.RegisterTestRoutes(apiRouter, "/test")
 
 	// Register optional service routes
@@ -224,6 +234,10 @@ func (app *Application) configureRoutes(e *core.ServeEvent) {
 		containerRouter := apiRouter.Group("/containers")
 		containerRouter.BindFunc(middleware.AuthMiddleware())
 		routes.RegisterContainerRoutes(containerRouter, "", app.ContainerService)
+
+		volumeRouter := apiRouter.Group("/volumes")
+		volumeRouter.BindFunc(middleware.AuthMiddleware())
+		routes.RegisterVolumeRoutes(volumeRouter, app.ContainerService)
 	}
 
 	if app.SearchService != nil {
@@ -397,6 +411,44 @@ func (app *Application) RunPostInitHooks() {
 	for _, hook := range app.postInitHooks {
 		hook()
 	}
+}
+
+// runStartupChecks performs various startup checks and cleanup tasks
+// This is called after the application is fully initialized to handle
+// any stale state that may have occurred from server crashes or restarts
+func (app *Application) runStartupChecks() {
+	logger.LogInfo("Running startup checks...")
+
+	checks := []struct {
+		name string
+		fn   func() error
+	}{
+		{
+			name: "Resume stale mail sync statuses",
+			fn: func() error {
+				return routes.ResetStaleSyncStatuses(app.MailService)
+			},
+		},
+		{
+			name: "Resume stale calendar sync statuses",
+			fn: func() error {
+				return routes.ResetStaleCalendarSyncStatuses(app.CalendarService)
+			},
+		},
+	}
+
+	successCount := 0
+	for _, check := range checks {
+		logger.LogInfo(fmt.Sprintf("Running startup check: %s", check.name))
+		if err := check.fn(); err != nil {
+			logger.LogError(fmt.Sprintf("Startup check failed: %s", check.name), err)
+		} else {
+			successCount++
+			logger.LogInfo(fmt.Sprintf("Startup check completed: %s", check.name))
+		}
+	}
+
+	logger.LogInfo(fmt.Sprintf("Startup checks completed: %d/%d successful", successCount, len(checks)))
 }
 
 // InitMemorySystem initializes the memory system

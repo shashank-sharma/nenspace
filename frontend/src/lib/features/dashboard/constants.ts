@@ -20,7 +20,10 @@ import {
     ChevronRight,
     Utensils,
     KeyRound,
-    Calendar
+    Calendar,
+    PenTool,
+    Waves,
+    GitBranch
 } from "lucide-svelte";
 
 export const DASHBOARD_SECTIONS: DashboardSection[] = [
@@ -38,6 +41,9 @@ export const DASHBOARD_SECTIONS: DashboardSection[] = [
     { id: "tasks", label: "Tasks", icon: CheckSquare, path: "/dashboard/tasks" },
     { id: "calendar", label: "Calendar", icon: Calendar, path: "/dashboard/calendar" },
     { id: "food-log", label: "Food Log", icon: Utensils, path: "/dashboard/food-log" },
+    { id: "whiteboard", label: "Whiteboard", icon: PenTool, path: "/dashboard/whiteboard" },
+    { id: "journal", label: "Stream", icon: Waves, path: "/dashboard/journal" },
+    { id: "workflows", label: "Workflows", icon: GitBranch, path: "/dashboard/workflows" },
     { 
         id: "credentials", 
         label: "Credentials", 

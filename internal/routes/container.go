@@ -18,7 +18,6 @@ var ErrorAccessDenied = fmt.Errorf("access denied")
 func RegisterContainerRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path string, containerService *container.ContainerService) {
 
 	containerRouter := apiRouter.Group(path)
-	volumeRouter := apiRouter.Group("/volumes")
 	// Container routes
 	containerRouter.GET("", ListContainersHandler(containerService))
 	containerRouter.GET("/{id}", GetContainerHandler(containerService))
@@ -37,14 +36,6 @@ func RegisterContainerRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], 
 	containerRouter.DELETE("/images/{id}", DeleteImageHandler(containerService))
 	containerRouter.POST("/images/{id}/build", BuildImageHandler(containerService))
 	containerRouter.POST("/images/{id}/pull", PullImageHandler(containerService))
-
-	// Volume routes
-	volumeRouter.GET("/", ListVolumesHandler(containerService))
-	volumeRouter.GET("/{id}", GetVolumeHandler(containerService))
-	volumeRouter.POST("/", CreateVolumeHandler(containerService))
-	volumeRouter.DELETE("/{id}", DeleteVolumeHandler(containerService))
-	volumeRouter.POST("/mount", MountVolumeHandler(containerService))
-	volumeRouter.POST("/unmount", UnmountVolumeHandler(containerService))
 
 	logger.LogInfo("Container routes registered")
 

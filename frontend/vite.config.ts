@@ -99,7 +99,21 @@ export default defineConfig({
 		...(pwaPlugin ? [pwaPlugin] : [])
 	].filter(Boolean),
 	optimizeDeps: {
-		exclude: ['fsevents']
+		exclude: ['fsevents'],
+		include: ['react', 'react-dom', '@excalidraw/excalidraw'],
+		esbuildOptions: {
+			mainFields: ['module', 'main']
+		}
+	},
+	resolve: {
+		dedupe: ['react', 'react-dom'],
+		alias: {
+			'react': 'react',
+			'react-dom': 'react-dom'
+		}
+	},
+	ssr: {
+		noExternal: ['@excalidraw/excalidraw']
 	},
 	server: {
         host: host || false,

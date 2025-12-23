@@ -21,11 +21,14 @@
         Share2,
         Clock,
         Zap,
+        Bug,
     } from "lucide-svelte";
 
     import NotificationsPage from "./notifications/+page.svelte";
     import PrivacyPage from "./privacy/+page.svelte";
     import AppearancePage from "./appearance/+page.svelte";
+    import AccountPage from "./account/+page.svelte";
+    import DebugPage from "./debug/+page.svelte";
 
     const sections = [
         {
@@ -54,6 +57,7 @@
             title: "Account",
             description: "Manage your account settings and preferences",
             icon: User,
+            component: AccountPage,
         },
         {
             id: "integrations",
@@ -91,6 +95,13 @@
             description: "Configure automated tasks and schedules",
             icon: Clock,
         },
+        {
+            id: "debug",
+            title: "Debug & Development",
+            description: "Developer tools and debugging options",
+            icon: Bug,
+            component: DebugPage,
+        },
     ];
 
     let selectedSection = sections[0].id;
@@ -121,39 +132,41 @@
 
         <!-- Main Content -->
         <div class="flex-1">
-            <Card class="w-full">
-                <CardHeader>
-                    <div class="flex items-center gap-2">
-                        <svelte:component
-                            this={currentSection.icon}
-                            class="h-5 w-5"
-                        />
-                        <CardTitle>{currentSection.title}</CardTitle>
-                    </div>
-                    <CardDescription
-                        >{currentSection.description}</CardDescription
-                    >
-                </CardHeader>
-
-                <Separator />
-
-                <CardContent class="pt-6">
-                    {#if currentSection.component}
-                        <svelte:component this={currentSection.component} />
-                    {:else}
-                        <div class="space-y-6">
-                            <div>
-                                <h3 class="text-lg font-medium">
-                                    {currentSection.title} Settings
-                                </h3>
-                                <p class="text-sm text-muted-foreground">
-                                    Coming soon...
-                                </p>
-                            </div>
+            {#if currentSection}
+                <Card class="w-full">
+                    <CardHeader>
+                        <div class="flex items-center gap-2">
+                            <svelte:component
+                                this={currentSection.icon}
+                                class="h-5 w-5"
+                            />
+                            <CardTitle>{currentSection.title}</CardTitle>
                         </div>
-                    {/if}
-                </CardContent>
-            </Card>
+                        <CardDescription
+                            >{currentSection.description}</CardDescription
+                        >
+                    </CardHeader>
+
+                    <Separator />
+
+                    <CardContent class="pt-6">
+                        {#if currentSection.component}
+                            <svelte:component this={currentSection.component} />
+                        {:else}
+                            <div class="space-y-6">
+                                <div>
+                                    <h3 class="text-lg font-medium">
+                                        {currentSection.title} Settings
+                                    </h3>
+                                    <p class="text-sm text-muted-foreground">
+                                        Coming soon...
+                                    </p>
+                                </div>
+                            </div>
+                        {/if}
+                    </CardContent>
+                </Card>
+            {/if}
         </div>
     </div>
 </div>

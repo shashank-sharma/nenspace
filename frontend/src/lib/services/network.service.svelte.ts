@@ -14,7 +14,7 @@
  */
 
 import { browser } from '$app/environment';
-import { IslandNotificationService } from './island-notification.service.svelte';
+import { IslandNotificationService } from '$lib/features/status-indicator';
 import { emit } from '@tauri-apps/api/event';
 
 class NetworkServiceImpl {

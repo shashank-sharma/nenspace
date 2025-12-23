@@ -5,6 +5,9 @@
     import { fade } from "svelte/transition";
     import Loading from "$lib/components/Loading.svelte";
     import { ThemeService } from "$lib/services/theme.service.svelte";
+    import { FontService } from "$lib/services/font.service.svelte";
+    import { SettingsService } from "$lib/services/settings.service.svelte";
+    import { NotificationSyncService } from "$lib/features/status-indicator";
     import "../app.css";
     import { browser } from "$app/environment";
     import { usePlatform } from "$lib/hooks/usePlatform.svelte";
@@ -35,7 +38,14 @@
 
     // One-time initialization on mount
     onMount(() => {
+        // Initialize notification sync for Tauri (works across all routes)
+        NotificationSyncService.initialize().catch((err) => {
+            console.error('[RootLayout] Failed to initialize notification sync:', err);
+        });
         if (browser) {
+            // Initialize font service with default font
+            // Font will be updated when settings load
+            FontService.initialize();
             // Log platform info for debugging
             console.log(`[App] Platform: ${platform.summary}`);
             console.log(
@@ -147,16 +157,14 @@
 </main>
 
 <style>
-    @font-face {
-        font-family: "Gilroy";
-        src: url("/fonts/Gilroy.woff2");
-    }
+    /* Font loading is handled by FontService */
+    /* @font-face declarations are added dynamically */
 
     :global(html) {
         height: 100%;
         margin: 0;
         padding: 0;
-        font-family: Gilroy, serif;
+        /* Font is applied via FontService, not hardcoded */
     }
 
     :global(body) {

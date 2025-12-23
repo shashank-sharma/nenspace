@@ -8,6 +8,8 @@
 
 import ChroniclesDebugSettings from '../sections/ChroniclesDebugSettings.svelte';
 import TasksDebugSettings from '../sections/TasksDebugSettings.svelte';
+import NotificationDebugSettings from '../sections/NotificationDebugSettings.svelte';
+import ServerDebugSettings from '../sections/ServerDebugSettings.svelte';
 
 /**
  * Interface for page debug settings configuration
@@ -66,6 +68,16 @@ export interface PageDebugSection {
  *    - Priority (optional, lower number = higher priority)
  */
 export const pageDebugRegistry: PageDebugSection[] = [
+    // Notification System (available everywhere)
+    {
+        id: "notification-debug",
+        title: "Notification System",
+        component: NotificationDebugSettings,
+        urlPattern: /./i, // Available everywhere
+        expanded: false,
+        priority: 20,
+    },
+    
     // Chronicles page
     {
         id: "chronicles-debug",
@@ -82,6 +94,16 @@ export const pageDebugRegistry: PageDebugSection[] = [
         title: "Task View Options",
         component: TasksDebugSettings,
         urlPattern: /\/tasks/i,
+        expanded: true,
+        priority: 10,
+    },
+    
+    // Servers page
+    {
+        id: "servers-debug",
+        title: "Server Debug Settings",
+        component: ServerDebugSettings,
+        urlPattern: /\/servers/i,
         expanded: true,
         priority: 10,
     },

@@ -23,7 +23,12 @@
             console.log("scope", scope);
             if (scope.includes("gmail.readonly")) {
                 console.log("email");
-                const success = await mailStore.completeAuth(code);
+                // Get mail_sync_id from sessionStorage if present
+                const mailSyncId = sessionStorage.getItem('mail_sync_id') || undefined;
+                if (mailSyncId) {
+                    sessionStorage.removeItem('mail_sync_id');
+                }
+                const success = await mailStore.completeAuth(code, mailSyncId);
                 if (success) {
                     // Wait for status check to complete before closing
                     await mailStore.checkStatus(true);
@@ -33,19 +38,20 @@
                 }
             } else if (scope.includes("calendar.readonly")) {
                 console.log("calendar");
-                await CalendarService.completeAuth(code);
-                console.log("Calendar auth completed");
+                const { tokenId } = await CalendarService.completeAuth(code);
+                console.log("Calendar auth completed, tokenId:", tokenId);
                 // Wait for status check to complete before closing
                 await CalendarService.checkStatus(true);
+                
+                // Notify the opener window with token ID
+                if (window.opener) {
+                    window.opener.postMessage({ type: "AUTH_COMPLETE", tokenId }, "*");
+                }
             } else {
                 throw new Error("Unknown authentication scope");
             }
 
             window.close();
-            // Optionally notify the opener window
-            if (window.opener) {
-                window.opener.postMessage("AUTH_COMPLETE", "*");
-            }
         } catch (e) {
             console.error("Auth callback error:", e);
             error =

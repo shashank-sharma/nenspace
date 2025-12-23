@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { IslandNotificationService } from "$lib/services/island-notification.service.svelte";
+    import { IslandNotificationService } from "$lib/features/status-indicator";
     import { Button } from "$lib/components/ui/button";
     import { Badge } from "$lib/components/ui/badge";
     import { Card } from "$lib/components/ui/card";
@@ -116,7 +116,7 @@
                     <h3 class="font-semibold">Import the service</h3>
                     <pre
                         class="bg-muted p-4 rounded-lg text-sm overflow-x-auto"><code
-                            >{`import { IslandNotificationService } from '$lib/services/island-notification.service.svelte';`}</code
+                            >{`import { IslandNotificationService } from '$lib/features/status-indicator';`}</code
                         ></pre>
                 </div>
 

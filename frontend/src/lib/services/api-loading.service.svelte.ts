@@ -24,7 +24,8 @@ import { browser } from '$app/environment';
 import { emit } from '@tauri-apps/api/event';
 
 class ApiLoadingServiceImpl {
-    readonly #activeRequests = $state<Set<string>>(new Set());
+    #activeRequests = $state<Set<string>>(new Set());
+    #requestLabels = new Map<string, string>();
     #requestCounter = 0;
 
     /**
@@ -40,6 +41,27 @@ class ApiLoadingServiceImpl {
     get activeCount(): number {
         return this.#activeRequests.size;
     }
+    
+    /**
+     * Get current request IDs for debugging
+     */
+    get activeRequestIds(): string[] {
+        return Array.from(this.#activeRequests);
+    }
+
+    /**
+     * Get detailed active requests with labels
+     */
+    get activeRequestsDetailed(): Array<{ id: string; label: string | undefined }> {
+        return Array.from(this.#activeRequests).map((id) => ({ id, label: this.#requestLabels.get(id) }));
+    }
+
+    /**
+     * Get label for a specific request id (for external debuggers)
+     */
+    getLabelForRequest(requestId: string): string | undefined {
+        return this.#requestLabels.get(requestId);
+    }
 
     /**
      * Start tracking an API request
@@ -50,6 +72,10 @@ class ApiLoadingServiceImpl {
         this.#requestCounter++;
         const requestId = `req_${this.#requestCounter}_${Date.now()}`;
         this.#activeRequests.add(requestId);
+        if (label) this.#requestLabels.set(requestId, label);
+        
+        // Reassign to trigger reactivity on $state(Set)
+        this.#activeRequests = new Set(this.#activeRequests);
         
         console.log(`[API] ▶ Started (${this.#activeRequests.size} active)${label ? ': ' + label : ''}`);
         
@@ -63,12 +89,25 @@ class ApiLoadingServiceImpl {
      */
     endRequest(requestId: string): void {
         const wasTracking = this.#activeRequests.has(requestId);
+        const endedLabel = this.#requestLabels.get(requestId);
         this.#activeRequests.delete(requestId);
+        this.#requestLabels.delete(requestId);
+        
+        // Reassign to trigger reactivity on $state(Set)
+        this.#activeRequests = new Set(this.#activeRequests);
         
         if (wasTracking) {
-            console.log(`[API] ✓ Ended (${this.#activeRequests.size} active)`);
+            const remaining = this.activeRequestsDetailed;
+            console.log(
+                `[API] ✓ Ended (${this.#activeRequests.size} active)${endedLabel ? ': ' + endedLabel : ''}`,
+                remaining.length > 0 ? '\n[API] ▶ Still active:' : '' ,
+                remaining.length > 0 ? remaining : ''
+            );
+        } else {
+            console.warn(`[API] ⚠️ Tried to end non-tracked request: ${requestId}`);
         }
 
+        // Force reactivity update and emit
         this.#emitStatusUpdate();
     }
 
@@ -78,6 +117,11 @@ class ApiLoadingServiceImpl {
     clearAll(): void {
         const count = this.#activeRequests.size;
         this.#activeRequests.clear();
+        this.#requestLabels.clear();
+        
+        // Reassign to trigger reactivity on $state(Set)
+        this.#activeRequests = new Set();
+        
         if (count > 0) {
             console.log(`[API] 🧹 Cleared ${count} stuck requests`);
         }
@@ -86,10 +130,21 @@ class ApiLoadingServiceImpl {
     }
 
     /**
+     * Debug method to log current state
+     */
+    debugState(): void {
+        console.log(`[API] Debug State:`, {
+            isLoading: this.isLoading,
+            activeCount: this.activeCount,
+            activeRequests: this.activeRequestsDetailed,
+        });
+    }
+
+    /**
      * Emit status update to floating window via Tauri
      */
     async #emitStatusUpdate(): Promise<void> {
-        if (browser && window.__TAURI__) {
+        if (browser) {
             try {
                 await emit('api-loading-update', {
                     isLoading: this.isLoading,
@@ -103,3 +158,8 @@ class ApiLoadingServiceImpl {
 }
 
 export const ApiLoadingService = new ApiLoadingServiceImpl();
+
+// Expose debug method globally for troubleshooting
+if (browser && typeof window !== 'undefined') {
+    (window as any).debugApiLoading = () => ApiLoadingService.debugState();
+}

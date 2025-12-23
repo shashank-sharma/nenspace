@@ -7,8 +7,12 @@
     import { slide, fade } from "svelte/transition";
     import { quintOut } from "svelte/easing";
 
-    let searchQuery = "";
-    let selectedCategory = "inbox";
+    let searchQuery = $state("");
+    let selectedCategory = $state("inbox");
+
+    // Use $derived for reactive access to rune-based store properties
+    const unreadCount = $derived(mailMessagesStore.messages.filter((m) => m.is_unread).length);
+    const syncStatus = $derived(mailStore.syncStatus);
 
     function selectCategory(category: string) {
         selectedCategory = category;
@@ -84,14 +88,12 @@
                         />
                     </svg>
                     <span>Inbox</span>
-                    {#if $mailMessagesStore.messages.filter((m) => m.is_unread).length > 0}
+                    {#if unreadCount > 0}
                         <span
                             in:fade={{ duration: 200 }}
                             class="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 ml-auto text-xs font-medium text-white bg-blue-600 rounded-full dark:bg-blue-500"
                         >
-                            {$mailMessagesStore.messages.filter(
-                                (m) => m.is_unread,
-                            ).length}
+                            {unreadCount}
                         </span>
                     {/if}
                 </button>
@@ -233,7 +235,7 @@
     </div>
 
     <!-- Sync Status -->
-    {#if $mailStore.syncStatus}
+    {#if syncStatus}
         <div
             in:slide={{ duration: 300, easing: quintOut }}
             class="mt-auto p-4 text-xs text-slate-500 border-t border-slate-200 dark:border-slate-700"
@@ -244,10 +246,10 @@
             </div>
             <p class="mb-1">
                 Last synced: {new Date(
-                    $mailStore.syncStatus.last_synced,
+                    syncStatus.last_synced,
                 ).toLocaleString()}
             </p>
-            <p>Messages: {$mailStore.syncStatus.message_count}</p>
+            <p>Messages: {syncStatus.message_count}</p>
         </div>
     {/if}
 </nav>

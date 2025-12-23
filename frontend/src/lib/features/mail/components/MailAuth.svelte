@@ -55,11 +55,11 @@
     </CardHeader>
 
     <CardContent>
-        {#if $mailStore.isLoading}
+        {#if mailStore.isLoading}
             <div class="flex justify-center items-center py-8">
                 <Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-        {:else if $mailStore.isAuthenticated}
+        {:else if mailStore.isAuthenticated}
             <div
                 class="flex items-center gap-4 text-green-600 dark:text-green-500"
             >
@@ -75,9 +75,9 @@
                 <Button
                     class="w-full"
                     on:click={handleAuthClick}
-                    disabled={$mailStore.isAuthenticating}
+                    disabled={mailStore.isAuthenticating}
                 >
-                    {#if $mailStore.isAuthenticating}
+                    {#if mailStore.isAuthenticating}
                         <Loader2 class="mr-2 h-4 w-4 animate-spin" />
                         Authenticating...
                     {:else}

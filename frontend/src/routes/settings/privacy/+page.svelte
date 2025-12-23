@@ -1,24 +1,27 @@
 <!-- src/routes/settings/privacy/+page.svelte -->
 <script lang="ts">
-    import { pb } from "$lib/config/pocketbase";
+    import { SettingsService } from "$lib/services/settings.service.svelte";
     import { Switch } from "$lib/components/ui/switch";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Label } from "$lib/components/ui/label";
     import { toast } from "svelte-sonner";
     import * as Select from "$lib/components/ui/select";
-    import { Shield, Lock, Eye, Key } from "lucide-svelte";
+    import { Shield, Lock, Eye, Key, RotateCcw } from "lucide-svelte";
 
-    // Example privacy settings
-    let settings = {
-        twoFactorEnabled: false,
-        activityLogging: true,
-        dataSharing: "minimal",
-        loginNotifications: true,
-        publicProfile: false,
-        passwordLastChanged: new Date("2024-01-01"),
-        securityLevel: "high",
-    };
+    // Use settings service for reactive state
+    let settings = $derived(SettingsService.privacy);
+    let loadingState = $derived(SettingsService.loadingStates.privacy);
+    let isLoading = $derived(loadingState.loading);
+    let hasError = $derived(loadingState.error !== null);
+    
+    // Update settings with auto-sync
+    async function updateSetting<K extends keyof typeof settings>(
+        key: K, 
+        value: typeof settings[K]
+    ) {
+        await SettingsService.updateSettings('privacy', { [key]: value });
+    }
 
     const securityLevels = [
         { value: "low", label: "Basic" },
@@ -27,19 +30,9 @@
         { value: "custom", label: "Custom" },
     ];
 
-    async function saveSettings() {
-        try {
-            // Example of saving to PocketBase
-            // await pb.collection('user_privacy_settings').update(id, settings);
-            toast.success("Privacy settings updated successfully");
-        } catch (error) {
-            toast.error("Failed to update privacy settings");
-        }
-    }
-
-    function resetSecuritySettings() {
-        // Implementation for resetting security settings
-        toast.success("Security settings have been reset");
+    // Reset settings to defaults
+    async function resetSettings() {
+        await SettingsService.resetCategory('privacy');
     }
 </script>
 
@@ -61,9 +54,8 @@
                 </div>
                 <Switch
                     checked={settings.twoFactorEnabled}
-                    on:change={() =>
-                        (settings.twoFactorEnabled =
-                            !settings.twoFactorEnabled)}
+                    onCheckedChange={(checked) => updateSetting('twoFactorEnabled', checked)}
+                    disabled={isLoading}
                 />
             </div>
 
@@ -76,16 +68,18 @@
                 </div>
                 <Switch
                     checked={settings.loginNotifications}
-                    on:change={() =>
-                        (settings.loginNotifications =
-                            !settings.loginNotifications)}
+                    onCheckedChange={(checked) => updateSetting('loginNotifications', checked)}
+                    disabled={isLoading}
                 />
             </div>
 
             <div class="space-y-2">
                 <Label>Security Level</Label>
-                <Select.Root value={settings.securityLevel}>
-                    <Select.Trigger class="w-full">
+                <Select.Root 
+                    value={settings.securityLevel}
+                    onValueChange={(value) => value && updateSetting('securityLevel', value as any)}
+                >
+                    <Select.Trigger class="w-full" disabled={isLoading}>
                         <Select.Value placeholder="Select security level" />
                     </Select.Trigger>
                     <Select.Content>
@@ -117,8 +111,8 @@
                 </div>
                 <Switch
                     checked={settings.activityLogging}
-                    on:change={() =>
-                        (settings.activityLogging = !settings.activityLogging)}
+                    onCheckedChange={(checked) => updateSetting('activityLogging', checked)}
+                    disabled={isLoading}
                 />
             </div>
 
@@ -131,15 +125,18 @@
                 </div>
                 <Switch
                     checked={settings.publicProfile}
-                    on:change={() =>
-                        (settings.publicProfile = !settings.publicProfile)}
+                    onCheckedChange={(checked) => updateSetting('publicProfile', checked)}
+                    disabled={isLoading}
                 />
             </div>
 
             <div class="space-y-2">
                 <Label>Data Sharing</Label>
-                <Select.Root value={settings.dataSharing}>
-                    <Select.Trigger class="w-full">
+                <Select.Root 
+                    value={settings.dataSharing}
+                    onValueChange={(value) => value && updateSetting('dataSharing', value as any)}
+                >
+                    <Select.Trigger class="w-full" disabled={isLoading}>
                         <Select.Value placeholder="Select data sharing level" />
                     </Select.Trigger>
                     <Select.Content>
@@ -164,15 +161,39 @@
             <div class="space-y-2">
                 <Label>Last Password Change</Label>
                 <p class="text-sm text-muted-foreground">
-                    {settings.passwordLastChanged.toLocaleDateString()}
+                    January 1, 2024
                 </p>
             </div>
 
-            <div class="flex gap-4">
-                <Button variant="outline" on:click={resetSecuritySettings}>
-                    Reset Security Settings
+            <!-- Actions & Status -->
+            <div class="flex justify-between items-center">
+                <Button 
+                    variant="outline" 
+                    on:click={resetSettings}
+                    disabled={isLoading}
+                >
+                    <RotateCcw class="h-4 w-4 mr-2" />
+                    Reset to Defaults
                 </Button>
-                <Button on:click={saveSettings}>Save Changes</Button>
+                
+                <div class="flex items-center gap-2">
+                    {#if hasError}
+                        <p class="text-sm text-destructive">
+                            {loadingState.error}
+                        </p>
+                    {:else if loadingState.lastSynced}
+                        <p class="text-sm text-muted-foreground">
+                            Auto-saved {new Date(loadingState.lastSynced).toLocaleTimeString()}
+                        </p>
+                    {/if}
+                    
+                    {#if isLoading}
+                        <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                            <div class="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>
+                            Saving...
+                        </div>
+                    {/if}
+                </div>
             </div>
         </div>
     </div>

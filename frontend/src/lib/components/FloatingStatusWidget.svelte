@@ -25,8 +25,10 @@
         STATUS_INDICATOR_CONFIG,
         getStatusIndicatorState,
         type SystemStatus,
-    } from "$lib/utils/status-indicator.util";
-    import type { IslandNotification } from "$lib/services/island-notification.service.svelte";
+        type IslandNotification,
+        getNotificationBgRgb,
+        getNotificationTextRgb,
+    } from "$lib/features/status-indicator";
     import { isTauriEnvironment } from "$lib/utils/tauri.util";
 
     // ============================================================================
@@ -45,33 +47,6 @@
     const EXPANSION_MODE_KEY = "floating-widget-expansion-mode" as const;
 
     type ExpansionMode = "edge" | "center";
-
-    const NOTIFICATION_COLORS = {
-        SUCCESS: {
-            bg: "rgb(34 197 94)",
-            text: "rgb(220 252 231)",
-        },
-        ERROR: {
-            bg: "rgb(239 68 68)",
-            text: "rgb(254 202 202)",
-        },
-        WARNING: {
-            bg: "rgb(234 179 8)",
-            text: "rgb(254 249 195)",
-        },
-        INFO: {
-            bg: "rgb(59 130 246)",
-            text: "rgb(191 219 254)",
-        },
-        LOADING: {
-            bg: "rgb(107 114 128)",
-            text: "rgb(229 231 235)",
-        },
-        DEFAULT: {
-            bg: "rgb(31 41 55)",
-            text: "rgb(255 255 255)",
-        },
-    } as const;
 
     // ============================================================================
     // TYPES
@@ -235,37 +210,11 @@
     }
 
     function getVariantBg(variant: string): string {
-        switch (variant) {
-            case "success":
-                return NOTIFICATION_COLORS.SUCCESS.bg;
-            case "error":
-                return NOTIFICATION_COLORS.ERROR.bg;
-            case "warning":
-                return NOTIFICATION_COLORS.WARNING.bg;
-            case "info":
-                return NOTIFICATION_COLORS.INFO.bg;
-            case "loading":
-                return NOTIFICATION_COLORS.LOADING.bg;
-            default:
-                return NOTIFICATION_COLORS.DEFAULT.bg;
-        }
+        return getNotificationBgRgb(variant);
     }
 
     function getVariantText(variant: string): string {
-        switch (variant) {
-            case "success":
-                return NOTIFICATION_COLORS.SUCCESS.text;
-            case "error":
-                return NOTIFICATION_COLORS.ERROR.text;
-            case "warning":
-                return NOTIFICATION_COLORS.WARNING.text;
-            case "info":
-                return NOTIFICATION_COLORS.INFO.text;
-            case "loading":
-                return NOTIFICATION_COLORS.LOADING.text;
-            default:
-                return NOTIFICATION_COLORS.DEFAULT.text;
-        }
+        return getNotificationTextRgb(variant);
     }
 
     function getStatusIcon() {
@@ -326,20 +275,39 @@
      * Toggle between edge and center expansion modes
      * Shows a notification to inform the user of the current mode
      */
-    function toggleExpansionMode() {
+    async function toggleExpansionMode() {
         expansionMode = expansionMode === "edge" ? "center" : "edge";
         saveExpansionMode(expansionMode);
 
-        // Show notification to user
+        // 1. Show notification locally
         currentNotification = {
             id: "expansion-mode-toggle",
             message: `Expansion mode: ${expansionMode.toUpperCase()}`,
             variant: "info",
             duration: 2000,
-            backgroundColor: NOTIFICATION_COLORS.INFO.bg,
-            textColor: NOTIFICATION_COLORS.INFO.text,
+            backgroundColor: getNotificationBgRgb("info"),
+            textColor: getNotificationTextRgb("info"),
         };
 
+        // 2. Broadcast to main window
+        if (eventApi) {
+            try {
+                await eventApi.emit("broadcast-notification", {
+                    message: `Expansion mode: ${expansionMode.toUpperCase()}`,
+                    variant: "info",
+                    duration: 2000,
+                });
+            } catch (err) {
+                if (import.meta.env.DEV) {
+                    console.error(
+                        "[FloatingWidget] Failed to broadcast expansion mode notification:",
+                        err,
+                    );
+                }
+            }
+        }
+
+        // 3. Auto-dismiss
         setTimeout(() => {
             if (currentNotification?.id === "expansion-mode-toggle") {
                 currentNotification = null;
@@ -777,15 +745,39 @@
             if (positionUnlisten) cleanupFuncs.push(positionUnlisten);
 
             // Show initialization notification after position is restored
+            // 1. Show locally in FloatingWidget
             currentNotification = {
                 id: "init",
                 message: "Initialized successfully",
                 variant: "success",
                 duration: 3000,
-                backgroundColor: NOTIFICATION_COLORS.SUCCESS.bg,
-                textColor: NOTIFICATION_COLORS.SUCCESS.text,
+                backgroundColor: getNotificationBgRgb("success"),
+                textColor: getNotificationTextRgb("success"),
             };
 
+            // 2. Broadcast to main window (for StatusIndicator)
+            if (eventApi) {
+                try {
+                    await eventApi.emit("broadcast-notification", {
+                        message: "Initialized successfully",
+                        variant: "success",
+                        duration: 3000,
+                    });
+                    
+                    if (import.meta.env.DEV) {
+                        console.log("[FloatingWidget] Broadcast notification emitted");
+                    }
+                } catch (err) {
+                    if (import.meta.env.DEV) {
+                        console.error(
+                            "[FloatingWidget] Failed to broadcast init notification:",
+                            err,
+                        );
+                    }
+                }
+            }
+
+            // 3. Auto-dismiss after duration
             setTimeout(() => {
                 if (currentNotification?.id === "init") {
                     currentNotification = null;
@@ -855,6 +847,13 @@
             <div class="time-display">Loading...</div>
         {/if}
     </div>
+
+    <!-- Loading shimmer effect when API is loading and no notification -->
+    {#if systemStatus.isApiLoading && !currentNotification}
+        <div
+            class="shimmer"
+        ></div>
+    {/if}
 </div>
 
 <style>
@@ -937,5 +936,30 @@
         overflow: hidden;
         text-overflow: ellipsis;
         pointer-events: none;
+    }
+
+    /* Loading shimmer animation */
+    .shimmer {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.1) 50%,
+            transparent 100%
+        );
+        background-size: 200% 100%;
+        animation: shimmer 2s infinite linear;
+        border-radius: inherit;
+        pointer-events: none;
+    }
+
+    @keyframes shimmer {
+        0% {
+            background-position: -200% 0;
+        }
+        100% {
+            background-position: 200% 0;
+        }
     }
 </style>

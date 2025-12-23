@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/services/workflow/types"
 	"github.com/shashank-sharma/backend/internal/store"
+	"github.com/shashank-sharma/backend/internal/util"
 )
 
 // PocketBaseConnector is a PocketBase source connector
@@ -74,10 +76,12 @@ func NewPocketBaseSourceConnector() types.Connector {
 
 // getUserIDFromContext extracts the user ID from the context
 func (c *PocketBaseConnector) getUserIDFromContext(ctx context.Context) string {
-	if userID, ok := ctx.Value("user").(string); ok {
-		return userID
+	// Use the standard util function to get user ID from context
+	userID, ok := util.GetUserIDFromContext(ctx)
+	if !ok {
+		return ""
 	}
-	return ""
+	return userID
 }
 
 // Execute fetches data from PocketBase with batching and pagination
@@ -115,7 +119,7 @@ func (c *PocketBaseConnector) Execute(ctx context.Context, input map[string]inte
 
 	// Build the user filter condition
 	userFilter := fmt.Sprintf("user = '%s'", userID)
-	
+
 	// Get and process the user-provided filter
 	filter := ""
 	if val, ok := c.Config["filter"].(string); ok {
@@ -137,13 +141,13 @@ func (c *PocketBaseConnector) Execute(ctx context.Context, input map[string]inte
 		// Convert PocketBase sort format to SQL format
 		fields := strings.Split(val, ",")
 		sortParts := make([]string, 0, len(fields))
-		
+
 		for _, field := range fields {
 			field = strings.TrimSpace(field)
 			if field == "" {
 				continue
 			}
-			
+
 			if strings.HasPrefix(field, "-") {
 				// Remove the "-" prefix and add "DESC"
 				sortParts = append(sortParts, fmt.Sprintf("%s DESC", strings.TrimPrefix(field, "-")))
@@ -152,7 +156,7 @@ func (c *PocketBaseConnector) Execute(ctx context.Context, input map[string]inte
 				sortParts = append(sortParts, fmt.Sprintf("%s ASC", field))
 			}
 		}
-		
+
 		if len(sortParts) > 0 {
 			sort = strings.Join(sortParts, ", ")
 		}
@@ -211,7 +215,7 @@ func (c *PocketBaseConnector) Execute(ctx context.Context, input map[string]inte
 		// Process records
 		for _, dbxRecord := range dbxRecords {
 			record := make(map[string]interface{})
-			
+
 			// Convert NullStringMap to regular map
 			for key, value := range dbxRecord {
 				if value.Valid {
@@ -243,17 +247,127 @@ func (c *PocketBaseConnector) Execute(ctx context.Context, input map[string]inte
 		}
 	}
 
-	// Return the results
-	return map[string]interface{}{
-		"records": allRecords,
-		"total":   totalRecords,
-		"collection": collectionName,
-		"metadata": map[string]interface{}{
-			"filter":     filter,
-			"sort":       sort,
-			"batch_size": batchSize,
-			"max_records": maxRecords,
-			"user":    userID,
+	// Get collection schema for metadata
+	schema := c.getCollectionSchema(collectionName)
+
+	// Build envelope with schema metadata
+	envelope := &types.DataEnvelope{
+		Data: allRecords,
+		Metadata: types.Metadata{
+			NodeType:        c.ConnID,
+			RecordCount:      totalRecords,
+			ExecutionTimeMs: 0, // Will be set by engine
+			Schema:          schema,
+			Sources:         []string{}, // Source nodes don't have sources
+			Custom: map[string]interface{}{
+				"collection":  collectionName,
+				"filter":      filter,
+				"sort":        sort,
+				"batch_size":  batchSize,
+				"max_records": maxRecords,
+				"user":        userID,
+			},
 		},
-	}, nil
-} 
+	}
+
+	return envelope.ToMap(), nil
+}
+
+// GetOutputSchema returns the schema for the PocketBase collection
+// Implements SchemaAwareConnector interface
+func (c *PocketBaseConnector) GetOutputSchema(inputSchema *types.DataSchema) (*types.DataSchema, error) {
+	// Source connectors don't have input schemas
+	if inputSchema != nil {
+		return nil, fmt.Errorf("source connector does not accept input schema")
+	}
+
+	collectionName, ok := c.Config["collection"].(string)
+	if !ok || collectionName == "" {
+		return nil, fmt.Errorf("collection name is required")
+	}
+
+	schema := c.getCollectionSchema(collectionName)
+	return &schema, nil
+}
+
+// ValidateInputSchema validates input schema (source connectors don't accept input)
+func (c *PocketBaseConnector) ValidateInputSchema(schema *types.DataSchema) error {
+	// Source connectors don't accept input
+	if schema != nil {
+		return fmt.Errorf("source connector does not accept input schema")
+	}
+	return nil
+}
+
+// getCollectionSchema introspects the PocketBase collection to get its schema
+func (c *PocketBaseConnector) getCollectionSchema(collectionName string) types.DataSchema {
+	schema := types.DataSchema{
+		Fields:      make([]types.FieldDefinition, 0),
+		SourceNodes: make([]string, 0),
+	}
+
+	// Get PocketBase DAO
+	dao := store.GetDao()
+	if dao == nil {
+		// Fallback: infer schema from data if we can't get collection
+		return schema
+	}
+
+	// Get collection from PocketBase
+	collection, err := dao.FindCollectionByNameOrId(collectionName)
+	if err != nil {
+		logger.Info.Printf("Could not find collection %s for schema introspection: %v", collectionName, err)
+		// Return empty schema - will be inferred from data
+		return schema
+	}
+
+	// Extract field definitions from collection
+	for _, field := range collection.Fields {
+		fieldJSON, _ := json.Marshal(field)
+		var fieldMap map[string]interface{}
+		if err := json.Unmarshal(fieldJSON, &fieldMap); err == nil {
+			fieldName, _ := fieldMap["name"].(string)
+			fieldType, _ := fieldMap["type"].(string)
+			required, _ := fieldMap["required"].(bool)
+
+			// Map PocketBase field types to our types
+			normalizedType := normalizePocketBaseFieldType(fieldType)
+
+			fieldDef := types.FieldDefinition{
+				Name:     fieldName,
+				Type:     normalizedType,
+				Nullable: !required,
+			}
+
+			// Add description if available
+			if options, ok := fieldMap["options"].(map[string]interface{}); ok {
+				if desc, ok := options["description"].(string); ok {
+					fieldDef.Description = desc
+				}
+			}
+
+			schema.Fields = append(schema.Fields, fieldDef)
+		}
+	}
+
+	return schema
+}
+
+// normalizePocketBaseFieldType converts PocketBase field types to our standard types
+func normalizePocketBaseFieldType(pbType string) string {
+	switch pbType {
+	case "text", "email", "url", "editor":
+		return "string"
+	case "number":
+		return "number"
+	case "bool":
+		return "boolean"
+	case "date", "select":
+		return "string" // Dates are stored as strings in JSON
+	case "json", "relation", "file":
+		return "json"
+	default:
+		return "string" // Default fallback
+	}
+}
+

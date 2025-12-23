@@ -58,3 +58,29 @@ export {
 
 // PocketBase filter builder
 export { FilterBuilder } from './pocketbase-filter.util';
+
+// PocketBase utilities
+export {
+    fetchAllPages,
+    fetchPage,
+    collectionExists,
+    PAGINATION_PER_PAGE,
+    PAGINATION_MAX_PER_PAGE,
+    DEFAULT_SORT,
+    type PaginationOptions,
+    type FetchAllPagesOptions,
+} from './pocketbase.util';
+
+// Hash utilities
+export {
+    sha256,
+    sha256Sync,
+    hashObject,
+    hashMultiple,
+} from './hash.util';
+
+// Email utilities
+export {
+    formatEmailString,
+    formatEmailDate,
+} from './email.util';

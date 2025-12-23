@@ -76,6 +76,14 @@ export const featureMatrix: Record<string, Feature> = {
         pwa: 'view-only',   // Can view drawings only
         web: 'view-only',   // Can view drawings only
     },
+    whiteboard: {
+        id: 'whiteboard',
+        name: 'Whiteboard',
+        description: 'Create and manage drawings with Excalidraw',
+        tauri: 'full',      // Full editor with Excalidraw
+        pwa: 'full',        // Full editor with Excalidraw
+        web: 'full',        // Full editor with Excalidraw
+    },
     
     // === TAURI-ONLY FEATURES ===
     fileSync: {

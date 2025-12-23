@@ -9,7 +9,7 @@ import (
 func RegisterLocalConnectors(registry types.ConnectorRegistry) {
 	// Register local connectors
 	registry.Register("file_source", NewFileSourceConnector)
-	registry.Register("transform_processor", NewTransformProcessor)
+	// transform_processor is now registered in connectors package
 	registry.Register("log_destination", NewLogDestinationConnector)
 	
 	logger.LogInfo("Registered local workflow connectors")

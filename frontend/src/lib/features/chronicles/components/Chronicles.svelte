@@ -9,15 +9,12 @@
     import LoadingSpinner from "$lib/components/LoadingSpinner.svelte";
     import EmptyState from "$lib/components/EmptyState.svelte";
     import { CUSTOM_EVENTS } from "../constants";
-    import type { Weather } from "../types";
-    import ChronicleBackground from "./ChronicleBackground.svelte";
     import ChronicleJournalFlow from "./ChronicleJournalFlow.svelte";
     import ChroniclePreview from "./ChroniclePreview.svelte";
     import WeatherDisplay from "./WeatherDisplay.svelte";
     import { ensureWeatherData } from "../utils/weather.utils";
 
     let date = new Date();
-    let currentWeather: Weather = "partly-cloudy";
 
     let formattedDate = $derived(
         date.toISOString().split("T")[0].replace(/-/g, ""),
@@ -30,17 +27,6 @@
             day: "numeric",
         }).format(date),
     );
-
-    // Map current month to season
-    function getCurrentSeason(): "Winter" | "Spring" | "Summer" | "Autumn" {
-        const month = new Date().getMonth();
-        if (month >= 2 && month <= 4) return "Spring";
-        if (month >= 5 && month <= 7) return "Summer";
-        if (month >= 8 && month <= 10) return "Autumn";
-        return "Winter";
-    }
-
-    let currentSeason = getCurrentSeason();
 
     // Load journal entry for selected date
     async function loadJournalEntry(selectedDate: Date) {
@@ -77,24 +63,12 @@
         );
     }
 
-    // Update weather background based on API data
-    function updateWeatherFromStore() {
-        currentWeather = weatherStore.weatherBackground;
-    }
-
     // Handler for view mode change
     function handleViewModeChange(val: string | undefined) {
         if (val === "edit" || val === "preview" || val === "markdown") {
             chroniclesStore.setViewMode(val);
         }
     }
-
-    // Update weather background when weather changes
-    $effect(() => {
-        if (weatherStore.currentWeather) {
-            updateWeatherFromStore();
-        }
-    });
 
     onMount(async () => {
         // Initialize weather data
@@ -109,40 +83,10 @@
             chroniclesStore.setCurrentEntry(emptyEntry);
         }
 
-        // Listen for debug settings changes
-        const handleDebugSettingsChange = (event: CustomEvent) => {
-            const settings = event.detail;
-            if (settings.currentWeather) {
-                currentWeather = settings.currentWeather as Weather;
-            }
-        };
-
-        document.addEventListener(
-            CUSTOM_EVENTS.DEBUG_SETTINGS_CHANGED,
-            handleDebugSettingsChange as EventListener,
-        );
-
-        return () => {
-            document.removeEventListener(
-                CUSTOM_EVENTS.DEBUG_SETTINGS_CHANGED,
-                handleDebugSettingsChange as EventListener,
-            );
-        };
     });
 </script>
 
 <div class="mx-auto p-2 sm:p-4 chronicles-page-container">
-    <!-- Background -->
-    <div class="chronicles-background-container">
-        <ChronicleBackground
-            startingSeason={currentSeason}
-            enableControls={false}
-            height="100vh"
-            width="100%"
-            weather={currentWeather}
-        />
-    </div>
-
     <!-- Weather component at top right -->
     <div class="weather-top-right">
         <WeatherDisplay showForecast={false} compact={true} />
@@ -150,7 +94,7 @@
 
     <!-- Page Header with Date -->
     <div
-        class="mb-4 sm:mb-6 justify-center text-center chronicles-title-area relative z-10"
+        class="mb-4 sm:mb-6 justify-center text-center chronicles-title-area"
     >
         <div class="mb-2 date-title mx-8">
             <h2
@@ -237,30 +181,11 @@
 <style>
     .chronicles-page-container {
         position: relative;
-        overflow: hidden;
         min-height: 100vh;
-    }
-
-    .chronicles-background-container {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 0;
-        pointer-events: none;
     }
 
     .chronicles-title-area {
         position: relative;
-        z-index: 10;
-    }
-
-    .chronicles-title-area h2,
-    .chronicles-title-area p {
-        position: relative;
-        z-index: 10;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
     }
 
     .tab-container {

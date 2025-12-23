@@ -1,7 +1,6 @@
 <!-- src/lib/components/mail/MailDetail.svelte -->
 <script lang="ts">
-    import { mailMessagesStore } from "../stores/mail-messages.store";
-    import { pb } from "$lib/config/pocketbase";
+    import { mailMessagesStore } from "../stores";
     import { Button } from "$lib/components/ui/button";
     import { Star, Trash2, Archive } from "lucide-svelte";
     import {
@@ -9,74 +8,46 @@
         SheetContent,
         SheetHeader,
         SheetTitle,
-        SheetDescription,
     } from "$lib/components/ui/sheet";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
-    import { toast } from "svelte-sonner";
-    import { format } from "date-fns";
+    import { DateUtil, formatEmailString } from "$lib/utils";
+    import { cn } from "$lib/utils";
+
+    const selectedMail = $derived(mailMessagesStore.selectedMail);
+    let open = $state(!!selectedMail);
+
+    $effect(() => {
+        open = !!selectedMail;
+    });
+
+    $effect(() => {
+        if (!open && selectedMail) {
+            mailMessagesStore.selectMail(null);
+        }
+    });
 
     async function toggleStar() {
-        if ($mailMessagesStore.selectedMail) {
-            try {
-                await pb
-                    .collection("mail_messages")
-                    .update($mailMessagesStore.selectedMail.id, {
-                        is_starred: !$mailMessagesStore.selectedMail.is_starred,
-                    });
-            } catch (error) {
-                toast.error("Failed to update star status");
-            }
+        if (selectedMail) {
+            await mailMessagesStore.toggleStar(selectedMail.id);
         }
     }
 
     async function moveToTrash() {
-        if ($mailMessagesStore.selectedMail) {
-            try {
-                await pb
-                    .collection("mail_messages")
-                    .update($mailMessagesStore.selectedMail.id, {
-                        is_trash: true,
-                        is_inbox: false,
-                    });
-                mailMessagesStore.selectMail(null);
-                toast.success("Message moved to trash");
-            } catch (error) {
-                toast.error("Failed to move message to trash");
-            }
+        if (selectedMail) {
+            await mailMessagesStore.moveToTrash(selectedMail.id);
         }
     }
 
     async function archiveEmail() {
-        if ($mailMessagesStore.selectedMail) {
-            try {
-                await pb
-                    .collection("mail_messages")
-                    .update($mailMessagesStore.selectedMail.id, {
-                        is_inbox: false,
-                    });
-                mailMessagesStore.selectMail(null);
-                toast.success("Message archived");
-            } catch (error) {
-                toast.error("Failed to archive message");
-            }
+        if (selectedMail) {
+            await mailMessagesStore.moveToArchive(selectedMail.id);
         }
     }
-
-    function formatDateTime(dateStr: string) {
-        return format(new Date(dateStr), "PPpp");
-    }
-
-    $: open = !!$mailMessagesStore.selectedMail;
-    $: onOpenChange = (value: boolean) => {
-        if (!value) {
-            mailMessagesStore.selectMail(null);
-        }
-    };
 </script>
 
-<Sheet {open} {onOpenChange}>
+<Sheet bind:open>
     <SheetContent class="w-[90%] sm:w-[600px] sm:max-w-none">
-        {#if $mailMessagesStore.selectedMail}
+        {#if selectedMail}
             <SheetHeader
                 class="flex-row items-center justify-between space-y-0 pb-2 border-b"
             >
@@ -85,13 +56,15 @@
                         variant="ghost"
                         size="icon"
                         on:click={toggleStar}
-                        class={$mailMessagesStore.selectedMail.is_starred
-                            ? "text-yellow-400"
-                            : ""}
+                        class={cn(
+                            selectedMail.is_starred
+                                ? "text-primary"
+                                : "text-muted-foreground"
+                        )}
                     >
                         <Star
                             size={20}
-                            fill={$mailMessagesStore.selectedMail.is_starred
+                            fill={selectedMail.is_starred
                                 ? "currentColor"
                                 : "none"}
                         />
@@ -109,28 +82,32 @@
                 <div class="space-y-6">
                     <div>
                         <h2 class="text-2xl font-bold">
-                            {$mailMessagesStore.selectedMail.subject}
+                            {selectedMail.subject}
                         </h2>
                         <div class="mt-4 space-y-1">
                             <div class="flex items-center justify-between">
                                 <div>
                                     <span class="font-medium">From: </span>
                                     <span class="text-muted-foreground"
-                                        >{$mailMessagesStore.selectedMail
-                                            .from}</span
+                                        >{formatEmailString(
+                                            selectedMail.from
+                                        )}</span
                                     >
                                 </div>
                                 <span class="text-sm text-muted-foreground">
-                                    {formatDateTime(
-                                        $mailMessagesStore.selectedMail
-                                            .received_date,
+                                    {DateUtil.formatDateTime(
+                                        selectedMail.received_date,
+                                        {
+                                            dateStyle: 'long',
+                                            use24Hour: false
+                                        }
                                     )}
                                 </span>
                             </div>
                             <div>
                                 <span class="font-medium">To: </span>
                                 <span class="text-muted-foreground"
-                                    >{$mailMessagesStore.selectedMail.to}</span
+                                    >{selectedMail.to}</span
                                 >
                             </div>
                         </div>
@@ -140,7 +117,7 @@
                         <div
                             class="prose prose-sm dark:prose-invert max-w-none"
                         >
-                            {@html $mailMessagesStore.selectedMail.body}
+                            {@html selectedMail.body}
                         </div>
                     </div>
                 </div>

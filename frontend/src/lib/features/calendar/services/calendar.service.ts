@@ -24,26 +24,41 @@ export class CalendarService {
     }
 
     static async startAuth(): Promise<string> {
-        const response = await pb.send<{ url: string }>('/api/calendar/auth/redirect', {
+        const response = await pb.send<any>('/api/calendar/auth/redirect', {
             method: 'GET'
         });
         
-        if (!response?.url) {
+        // Handle PocketBase response structure: { data: { url: string }, success: true }
+        // pb.send may unwrap it, so check both structures
+        const url = response?.data?.url || response?.url;
+        
+        if (!url || typeof url !== 'string') {
+            console.error('Invalid response structure:', response);
             throw new Error('No auth URL received from server');
         }
         
-        return response.url;
+        return url;
     }
 
-    static async completeAuth(code: string): Promise<void> {
+    static async completeAuth(code: string): Promise<{ tokenId: string }> {
         if (!code) {
             throw new Error('Authorization code is required');
         }
 
-        await pb.send('/api/calendar/auth/callback', {
+        const response = await pb.send<any>('/api/calendar/auth/callback', {
             method: 'POST',
             body: { code, provider: 'google' }
         });
+
+        // Backend returns { success: true, data: { token_id: "...", token: {...} } }
+        const data = response?.data || response;
+        const tokenId = data?.token_id || data?.token?.id;
+
+        if (!tokenId) {
+            throw new Error('Token ID not received from server');
+        }
+
+        return { tokenId };
     }
 
     static async createCalendarToken(name: string, type: string, tokenId: string): Promise<boolean> {
@@ -100,6 +115,25 @@ export class CalendarService {
 
         const filter = FilterBuilder.create()
             .equals('user', userId)
+            .build();
+
+        const resultList = await pb.collection('calendar_sync').getList(1, 20, {
+            filter,
+            sort: '-last_synced'
+        });
+        
+        return resultList.items as unknown as CalendarSync[];
+    }
+
+    static async getInactiveSyncs(): Promise<CalendarSync[]> {
+        const userId = pb.authStore.model?.id;
+        if (!userId) {
+            return [];
+        }
+
+        const filter = FilterBuilder.create()
+            .equals('user', userId)
+            .equals('is_active', false)
             .build();
 
         const resultList = await pb.collection('calendar_sync').getList(1, 20, {

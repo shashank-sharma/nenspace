@@ -6,7 +6,7 @@
 
 <div class="flex h-full">
     <aside
-        class="w-64 h-full bg-white border-r border-gray-200 dark:bg-gray-800 dark:border-gray-700"
+        class="w-64 h-full bg-background border-r border-border"
     >
         <div class="h-full flex flex-col">
             <div class="p-4">
@@ -20,7 +20,7 @@
             </div>
         </div>
     </aside>
-    <main class="flex-1 h-full">
+    <main class="flex-1 h-full overflow-hidden">
         <slot />
     </main>
 </div>

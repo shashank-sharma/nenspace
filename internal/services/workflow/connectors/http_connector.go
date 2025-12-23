@@ -6,15 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
-	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/services/workflow/types"
 )
 
 // HTTPConnector is a connector for making HTTP requests
+// This serves as a reference implementation for SchemaAwareConnector
 type HTTPConnector struct {
 	types.BaseConnector
 	client *http.Client
@@ -26,190 +25,254 @@ func NewHTTPSourceConnector() types.Connector {
 		"url": map[string]interface{}{
 			"type":        "string",
 			"title":       "URL",
-			"description": "URL to make the request to",
+			"description": "HTTP endpoint URL to fetch data from",
 			"required":    true,
 		},
 		"method": map[string]interface{}{
 			"type":        "string",
-			"title":       "Method",
-			"description": "HTTP method (GET, POST, PUT, DELETE)",
-			"enum":        []string{"GET", "POST", "PUT", "DELETE"},
+			"title":       "HTTP Method",
+			"description": "HTTP method (GET, POST, etc.)",
 			"default":     "GET",
-			"required":    true,
+			"enum":        []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
 		},
 		"headers": map[string]interface{}{
 			"type":        "object",
 			"title":       "Headers",
-			"description": "HTTP headers to include in the request",
+			"description": "HTTP headers as key-value pairs",
 			"required":    false,
 		},
 		"body": map[string]interface{}{
 			"type":        "string",
-			"title":       "Body",
+			"title":       "Request Body",
 			"description": "Request body (for POST/PUT requests)",
 			"required":    false,
 		},
-		"params": map[string]interface{}{
-			"type":        "object",
-			"title":       "Query Parameters",
-			"description": "URL query parameters",
-			"required":    false,
-		},
 		"timeout": map[string]interface{}{
-			"type":        "integer",
-			"title":       "Timeout",
+			"type":        "number",
+			"title":       "Timeout (seconds)",
 			"description": "Request timeout in seconds",
 			"default":     30,
-			"required":    false,
-		},
-		"parse_json": map[string]interface{}{
-			"type":        "boolean",
-			"title":       "Parse JSON",
-			"description": "Parse the response as JSON",
-			"default":     true,
-			"required":    false,
+			"minimum":     1,
+			"maximum":     300,
 		},
 	}
 
 	connector := &HTTPConnector{
 		BaseConnector: types.BaseConnector{
-			ConnID:       "http",
-			ConnName:     "HTTP Request",
+			ConnID:       "http_source",
+			ConnName:     "HTTP Source",
 			ConnType:     types.SourceConnector,
 			ConfigSchema: configSchema,
 			Config:       make(map[string]interface{}),
 		},
-		client: &http.Client{},
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
-
 	return connector
 }
 
-// NewHTTPDestinationConnector creates a new HTTP destination connector
-func NewHTTPDestinationConnector() types.Connector {
-	// Reuse the source connector's config schema
-	connector := NewHTTPSourceConnector().(*HTTPConnector)
-	
-	connector.ConnID = "http_destination"
-	connector.ConnName = "HTTP Destination"
-	connector.ConnType = types.DestinationConnector
-	
-	return connector
-}
-
-// Configure sets up the connector with the provided configuration
+// Configure sets up the HTTP connector configuration
 func (c *HTTPConnector) Configure(config map[string]interface{}) error {
-	if err := c.BaseConnector.Configure(config); err != nil {
-		return err
-	}
+	c.BaseConnector.Configure(config)
 
-	// Set up HTTP client with timeout
-	timeout := 30 * time.Second
-	if timeoutVal, ok := config["timeout"]; ok {
-		if t, ok := timeoutVal.(float64); ok {
-			timeout = time.Duration(t) * time.Second
-		}
+	// Set HTTP client timeout if specified
+	if timeout, ok := config["timeout"].(float64); ok {
+		c.client.Timeout = time.Duration(timeout) * time.Second
 	}
-	c.client.Timeout = timeout
 
 	return nil
 }
 
-// Execute runs the HTTP connector
+// Execute makes an HTTP request and returns the response data
 func (c *HTTPConnector) Execute(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
-	// Get configuration
-	config := c.Config
-	
-	// Get the request URL
-	requestURL, ok := config["url"].(string)
-	if !ok || requestURL == "" {
+	url, ok := c.Config["url"].(string)
+	if !ok || url == "" {
 		return nil, fmt.Errorf("URL is required")
 	}
-	
-	// Get the request method
-	method, _ := config["method"].(string)
-	if method == "" {
-		method = "GET"
+
+	method := "GET"
+	if m, ok := c.Config["method"].(string); ok && m != "" {
+		method = m
 	}
-	
-	// Add query parameters if any
-	if params, ok := config["params"].(map[string]interface{}); ok && len(params) > 0 {
-		parsedURL, err := url.Parse(requestURL)
-		if err != nil {
-			return nil, fmt.Errorf("invalid URL: %w", err)
-		}
-		
-		query := parsedURL.Query()
-		for key, value := range params {
-			query.Add(key, fmt.Sprintf("%v", value))
-		}
-		
-		parsedURL.RawQuery = query.Encode()
-		requestURL = parsedURL.String()
-	}
-	
-	// Prepare request body if needed
-	var bodyReader io.Reader
-	if body, ok := config["body"].(string); ok && body != "" {
-		bodyReader = strings.NewReader(body)
-	}
-	
-	// Create the request
-	req, err := http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
+
+	// Create request
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
-	// Add headers
-	if headers, ok := config["headers"].(map[string]interface{}); ok {
+
+	// Set headers
+	if headers, ok := c.Config["headers"].(map[string]interface{}); ok {
 		for key, value := range headers {
-			req.Header.Add(key, fmt.Sprintf("%v", value))
+			if strValue, ok := value.(string); ok {
+				req.Header.Set(key, strValue)
+			}
 		}
 	}
-	
-	// Set timeout if specified
-	timeout := 30
-	if timeoutVal, ok := config["timeout"].(float64); ok {
-		timeout = int(timeoutVal)
+
+	// Set body for POST/PUT requests
+	if body, ok := c.Config["body"].(string); ok && body != "" {
+		req.Body = io.NopCloser(strings.NewReader(body))
+		req.ContentLength = int64(len(body))
 	}
-	c.client.Timeout = time.Duration(timeout) * time.Second
-	
-	// Execute the request
+
+	// Make request
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
-	// Read the response body
-	responseBody, err := io.ReadAll(resp.Body)
+
+	// Read response body
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-	
-	// Parse response as JSON if requested
-	parseJSON := true
-	if parseJSONVal, ok := config["parse_json"].(bool); ok {
-		parseJSON = parseJSONVal
+
+	// Parse JSON response
+	var responseData interface{}
+	if err := json.Unmarshal(bodyBytes, &responseData); err != nil {
+		// Not JSON, return as string
+		responseData = string(bodyBytes)
 	}
-	
-	var responseData interface{} = string(responseBody)
-	if parseJSON && len(responseBody) > 0 {
-		var jsonData interface{}
-		if err := json.Unmarshal(responseBody, &jsonData); err == nil {
-			responseData = jsonData
+
+	// Convert response to records format
+	records := make([]map[string]interface{}, 0)
+	if dataArray, ok := responseData.([]interface{}); ok {
+		// Array response
+		for _, item := range dataArray {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				records = append(records, itemMap)
+			}
+		}
+	} else if dataMap, ok := responseData.(map[string]interface{}); ok {
+		// Object response - check for common data fields
+		if items, ok := dataMap["data"].([]interface{}); ok {
+			for _, item := range items {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					records = append(records, itemMap)
+				}
+			}
+		} else if items, ok := dataMap["items"].([]interface{}); ok {
+			for _, item := range items {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					records = append(records, itemMap)
+				}
+			}
 		} else {
-			logger.Info.Printf("Failed to parse response as JSON: %v", err)
+			// Single object - wrap in array
+			records = append(records, dataMap)
 		}
 	}
-	
-	// Prepare the result
-	result := map[string]interface{}{
-		"status_code": resp.StatusCode,
-		"status_text": resp.Status,
-		"headers":     resp.Header,
-		"body":        responseData,
+
+	// Infer schema from response data
+	schema := inferSchemaFromHTTPResponse(records)
+
+	// Build envelope
+	envelope := &types.DataEnvelope{
+		Data: records,
+		Metadata: types.Metadata{
+			NodeType:        c.ConnID,
+			RecordCount:     len(records),
+			ExecutionTimeMs: 0, // Will be set by engine
+			Schema:          schema,
+			Sources:         make([]string, 0),
+			Custom: map[string]interface{}{
+				"url":        url,
+				"method":     method,
+				"status_code": resp.StatusCode,
+			},
+		},
 	}
-	
-	return result, nil
-} 
+
+	return envelope.ToMap(), nil
+}
+
+// GetOutputSchema returns the schema this HTTP connector produces
+// For HTTP connectors, schema is inferred from the response structure
+func (c *HTTPConnector) GetOutputSchema(inputSchema *types.DataSchema) (*types.DataSchema, error) {
+	// Source connectors don't accept input schemas
+	if inputSchema != nil {
+		return nil, fmt.Errorf("source connector does not accept input schema")
+	}
+
+	// For HTTP connectors, we can't know the schema until we make the request
+	// Return empty schema - will be inferred during Execute()
+	return &types.DataSchema{
+		Fields:      make([]types.FieldDefinition, 0),
+		SourceNodes: make([]string, 0),
+	}, nil
+}
+
+// ValidateInputSchema validates input schema (source connectors don't accept input)
+func (c *HTTPConnector) ValidateInputSchema(schema *types.DataSchema) error {
+	// Source connectors don't accept input
+	if schema != nil {
+		return fmt.Errorf("source connector does not accept input schema")
+	}
+	return nil
+}
+
+// inferSchemaFromHTTPResponse infers schema from HTTP response data
+func inferSchemaFromHTTPResponse(records []map[string]interface{}) types.DataSchema {
+	schema := types.DataSchema{
+		Fields:      make([]types.FieldDefinition, 0),
+		SourceNodes: make([]string, 0),
+	}
+
+	if len(records) == 0 {
+		return schema
+	}
+
+	// Collect all field names and infer types from first record
+	fieldMap := make(map[string]types.FieldDefinition)
+	for _, record := range records {
+		for fieldName, value := range record {
+			if _, exists := fieldMap[fieldName]; !exists {
+				fieldType := inferFieldTypeFromValue(value)
+				fieldMap[fieldName] = types.FieldDefinition{
+					Name:     fieldName,
+					Type:     fieldType,
+					Nullable: value == nil,
+				}
+			} else {
+				// Update nullable if we find a nil value
+				if value == nil {
+					field := fieldMap[fieldName]
+					field.Nullable = true
+					fieldMap[fieldName] = field
+				}
+			}
+		}
+	}
+
+	// Convert map to slice
+	for _, field := range fieldMap {
+		schema.Fields = append(schema.Fields, field)
+	}
+
+	return schema
+}
+
+// inferFieldTypeFromValue attempts to infer the type of a value
+func inferFieldTypeFromValue(value interface{}) string {
+	if value == nil {
+		return "string" // Default to string for null values
+	}
+
+	switch value.(type) {
+	case bool:
+		return "boolean"
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return "number"
+	case float32, float64:
+		return "number"
+	case string:
+		return "string"
+	case []interface{}, map[string]interface{}:
+		return "json"
+	default:
+		return "string" // Default fallback
+	}
+}

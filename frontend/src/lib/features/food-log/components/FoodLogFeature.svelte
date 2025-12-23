@@ -344,122 +344,131 @@
 	);
 </script>
 
-<div
-	class="food-log-page container mx-auto py-4 sm:py-6 px-3 sm:px-4 max-w-7xl"
->
-	<div class="page-header mb-8">
-		<h1 class="text-3xl font-bold">Food Log</h1>
-		<p class="text-muted-foreground mt-2">Track your daily meals</p>
+<div class="food-log-floating-layout">
+	<!-- Top: Search and Filters -->
+	<div class="food-log-top-card">
+		<Card.Root class="food-log-search-card">
+			<Card.Content class="p-4">
+				<div class="page-header mb-4">
+					<h1 class="text-3xl font-bold">Food Log</h1>
+					<p class="text-muted-foreground mt-2">Track your daily meals</p>
+				</div>
+				<SearchInput
+					bind:value={filter.searchTerm}
+					placeholder="Search food items..."
+				/>
+			</Card.Content>
+		</Card.Root>
 	</div>
 
 	<!-- Today's Meals Section -->
-	<!-- ✅ FIXED: Now visible on mobile -->
-	<div class="meal-sections mb-10">
-		<h2 class="text-xl font-medium mb-4">Today's Meals</h2>
-		<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-			{#each MEAL_SECTIONS as meal}
-				<Card.Root>
-					<Card.Header
-						class={todaysMeals[meal.id]
-							? "bg-green-50 dark:bg-green-900/20"
-							: "bg-orange-50 dark:bg-orange-900/20"}
-					>
-						<div class="flex justify-between items-center">
-							<Card.Title>{meal.label}</Card.Title>
-							<Badge
-								variant={todaysMeals[meal.id]
-									? "default"
-									: "outline"}
+	<div class="food-log-meals-card-wrapper">
+		<Card.Root class="food-log-meals-card">
+			<Card.Header>
+				<Card.Title>Today's Meals</Card.Title>
+			</Card.Header>
+			<Card.Content class="p-4">
+				<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+					{#each MEAL_SECTIONS as meal}
+						<Card.Root>
+							<Card.Header
+								class={todaysMeals[meal.id]
+									? "bg-primary/20 text-primary border-primary/30"
+									: "bg-muted text-muted-foreground border-border"}
 							>
-								{todaysMeals[meal.id] ? "Logged" : "Not Logged"}
-							</Badge>
-						</div>
-					</Card.Header>
-					<Card.Content class="p-4">
-						{#if todaysMeals[meal.id]}
-							<div>
-								{#if todaysMeals[meal.id]?.image && mealImages[todaysMeals[meal.id]!.id]}
-									<img
-										src={mealImages[
-											todaysMeals[meal.id]!.id
-										]}
-										alt={todaysMeals[meal.id]!.name}
-										class="w-full h-32 object-cover rounded-md mb-2"
-									/>
+								<div class="flex justify-between items-center">
+									<Card.Title class="text-base">{meal.label}</Card.Title>
+									<Badge
+										variant={todaysMeals[meal.id]
+											? "default"
+											: "outline"}
+									>
+										{todaysMeals[meal.id] ? "Logged" : "Not Logged"}
+									</Badge>
+								</div>
+							</Card.Header>
+							<Card.Content class="p-4">
+								{#if todaysMeals[meal.id]}
+									<div>
+										{#if todaysMeals[meal.id]?.image && mealImages[todaysMeals[meal.id]!.id]}
+											<img
+												src={mealImages[
+													todaysMeals[meal.id]!.id
+												]}
+												alt={todaysMeals[meal.id]!.name}
+												class="w-full h-32 object-cover rounded-md mb-2"
+											/>
+										{/if}
+										<h4 class="font-medium">
+											{todaysMeals[meal.id]?.name}
+										</h4>
+										<Button
+											variant="ghost"
+											size="sm"
+											class="w-full mt-2"
+											on:click={() => openUploadModal(meal.id)}
+										>
+											<Plus class="h-4 w-4 mr-2" /> Add Another
+										</Button>
+									</div>
+								{:else}
+									<button
+										class="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer w-full text-left hover:bg-accent/50 transition-colors"
+										onclick={() => openUploadModal(meal.id)}
+									>
+										<Upload
+											class="h-10 w-10 text-muted-foreground mb-2"
+										/>
+										<p class="text-sm text-muted-foreground">
+											Upload your {meal.label}
+										</p>
+									</button>
 								{/if}
-								<h4 class="font-medium">
-									{todaysMeals[meal.id]?.name}
-								</h4>
-								<Button
-									variant="ghost"
-									size="sm"
-									class="w-full mt-2"
-									on:click={() => openUploadModal(meal.id)}
-								>
-									<Plus class="h-4 w-4 mr-2" /> Add Another
-								</Button>
-							</div>
-						{:else}
-							<button
-								class="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer w-full text-left hover:bg-accent/50 transition-colors"
-								onclick={() => openUploadModal(meal.id)}
-							>
-								<Upload
-									class="h-10 w-10 text-muted-foreground mb-2"
-								/>
-								<p class="text-sm text-muted-foreground">
-									Upload your {meal.label}
-								</p>
-							</button>
-						{/if}
-					</Card.Content>
-				</Card.Root>
-			{/each}
-		</div>
-	</div>
-
-	<!-- Search Filter -->
-	<!-- ✅ OPTIMIZED: Using reusable SearchInput component -->
-	<div class="filters-section mb-8">
-		<SearchInput
-			bind:value={filter.searchTerm}
-			placeholder="Search food items..."
-		/>
+							</Card.Content>
+						</Card.Root>
+					{/each}
+				</div>
+			</Card.Content>
+		</Card.Root>
 	</div>
 
 	<!-- Entries List -->
-	<div class="mt-12">
-		<FoodLogEntries
-			{entries}
-			{mealImages}
-			{showImages}
-			{showMetadata}
-			on:delete={handleDelete}
-			on:edit={handleEdit}
-			on:refreshImage={(e) => refreshSingleImage(e.detail)}
-		/>
+	<div class="food-log-entries-card-wrapper">
+		<Card.Root class="food-log-entries-card">
+			<Card.Content class="p-4">
+				<FoodLogEntries
+					{entries}
+					{mealImages}
+					{showImages}
+					{showMetadata}
+					on:delete={handleDelete}
+					on:edit={handleEdit}
+					on:refreshImage={(e) => refreshSingleImage(e.detail)}
+				/>
 
-		{#if hasMore && !isLoading}
-			<div class="flex justify-center mt-8">
-				<Button on:click={() => loadEntries()} variant="outline">
-					Load More
-				</Button>
-			</div>
-		{/if}
+				{#if hasMore && !isLoading}
+					<div class="flex justify-center mt-8">
+						<Button on:click={() => loadEntries()} variant="outline">
+							Load More
+						</Button>
+					</div>
+				{/if}
 
-		{#if isLoading}
-			<LoadingSpinner centered size="lg" class="mt-8" />
-		{/if}
+				{#if isLoading}
+					<LoadingSpinner centered size="lg" class="mt-8" />
+				{/if}
 
-		{#if !isLoading && entries.length === 0}
-			<EmptyState
-				icon={Upload}
-				title="No food entries yet"
-				description="Start logging your meals to track your nutrition"
-				actionLabel="Add First Entry"
-				onaction={() => modals.openCreate()}
-			/>
-		{/if}
+				{#if !isLoading && entries.length === 0}
+					<EmptyState
+						icon={Upload}
+						title="No food entries yet"
+						description="Start logging your meals to track your nutrition"
+						actionLabel="Add First Entry"
+						onaction={() => modals.openCreate()}
+					/>
+				{/if}
+			</Card.Content>
+		</Card.Root>
 	</div>
 </div>
 
@@ -491,3 +500,46 @@
 		/>
 	</Dialog.Content>
 </Dialog.Root>
+
+<style>
+	.food-log-floating-layout {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1rem;
+		max-width: 80rem; /* 7xl */
+		margin: 0 auto;
+		width: 100%;
+	}
+
+	.food-log-top-card {
+		flex-shrink: 0;
+		z-index: 10;
+	}
+
+	.food-log-meals-card-wrapper {
+		flex-shrink: 0;
+	}
+
+	.food-log-entries-card-wrapper {
+		flex-shrink: 0;
+	}
+
+	.food-log-search-card {
+		box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+	}
+
+	.food-log-meals-card {
+		box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+	}
+
+	.food-log-entries-card {
+		box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+	}
+</style>

@@ -11,31 +11,32 @@
         Trash2,
     } from "lucide-svelte";
     import { Button } from "$lib/components/ui/button";
-    import {
-        Card,
-        CardContent,
-        CardDescription,
-        CardFooter,
-        CardHeader,
-        CardTitle,
-    } from "$lib/components/ui/card";
+    import * as Card from "$lib/components/ui/card";
     import { Badge } from "$lib/components/ui/badge";
     import LoadingSpinner from "$lib/components/LoadingSpinner.svelte";
     import EmptyState from "$lib/components/EmptyState.svelte";
     import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+    import SearchInput from "$lib/components/SearchInput.svelte";
     import SecurityKeyDialog from "./SecurityKeyDialog.svelte";
     import type { SecurityKey } from "$lib/features/credentials/types";
     import { CredentialsService, SecurityKeysSyncService } from "../services";
     import { withErrorHandling, DateUtil } from "$lib/utils";
-    import { useModalState, useAutoRefresh, useSyncListener } from "$lib/hooks";
+    import {
+        useModalState,
+        useDebouncedFilter,
+        useAutoRefresh,
+        useSyncListener,
+    } from "$lib/hooks";
     import { createPageDebug, DebugSettings } from "$lib/utils/debug-helper";
     import ButtonControl from "$lib/components/debug/controls/ButtonControl.svelte";
     import SwitchControl from "$lib/components/debug/controls/SwitchControl.svelte";
+    import { SEARCH_DEBOUNCE_MS } from "../constants";
     import { toast } from "svelte-sonner";
 
     // State
     let securityKeys = $state<SecurityKey[]>([]);
     let isLoading = $state(true);
+    let searchQuery = $state("");
     let showingPrivateKey = $state<Record<string, boolean>>({});
 
     // Modal management using hook
@@ -59,11 +60,29 @@
         initialEnabled: debugSettings.get("autoRefresh"),
     });
 
-    // Filtered security keys based on debug settings
-    let filteredKeys = $derived(
-        showInactive
+    // Filtered security keys based on search and debug settings
+    let filteredKeys = $derived.by(() => {
+        let filtered = showInactive
             ? securityKeys
-            : securityKeys.filter((key) => key.is_active),
+            : securityKeys.filter((key) => key.is_active);
+
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
+            filtered = filtered.filter(
+                (key) =>
+                    key.name.toLowerCase().includes(query) ||
+                    key.description?.toLowerCase().includes(query),
+            );
+        }
+
+        return filtered;
+    });
+
+    // Debounced filter for search
+    useDebouncedFilter(
+        () => searchQuery,
+        () => {}, // No need to reload, filtering is client-side
+        SEARCH_DEBOUNCE_MS,
     );
 
     // Data loading
@@ -150,8 +169,12 @@
     }
 
     function handleEdit(key: SecurityKey) {
-        const is_active = key.is_active === undefined ? true : !!key.is_active;
-        modals.openEdit({ ...key, is_active });
+        modals.openEdit(key);
+        showDialog = true;
+    }
+
+    function handleCreate() {
+        modals.closeAll();
         showDialog = true;
     }
 
@@ -249,16 +272,13 @@
     });
 </script>
 
-<div class="container mx-auto px-2 sm:px-4">
-    <div
-        class="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center"
-    >
-        <h2 class="text-2xl font-bold sm:text-3xl">Security Keys</h2>
-        <div class="flex w-full gap-2 sm:w-auto">
+<div class="p-6">
+    <div class="mb-6 flex items-center justify-between">
+        <h2 class="text-3xl font-bold">Security Keys</h2>
+        <div class="flex space-x-2">
             <Button
                 variant="outline"
-                class="flex-1 sm:flex-initial"
-                onclick={() => loadSecurityKeys(true)}
+                on:click={() => loadSecurityKeys(true)}
                 disabled={isLoading}
             >
                 <RefreshCcw
@@ -266,17 +286,18 @@
                 />
                 Refresh
             </Button>
-            <Button
-                class="flex-1 sm:flex-initial"
-                onclick={() => {
-                    modals.closeAll();
-                    showDialog = true;
-                }}
-            >
+            <Button on:click={handleCreate}>
                 <Plus class="mr-2 h-4 w-4" />
                 New Key
             </Button>
         </div>
+    </div>
+
+    <div class="mb-6">
+        <SearchInput
+            bind:value={searchQuery}
+            placeholder="Search security keys by name or description..."
+        />
     </div>
 
     {#if isLoading}
@@ -289,165 +310,109 @@
                 ? "No security keys available"
                 : "No active security keys found. Create your first key to get started."}
             actionLabel="Add Your First Key"
-            onaction={() => {
-                modals.closeAll();
-                showDialog = true;
-            }}
+            onaction={handleCreate}
         />
     {:else}
-        <div
-            class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-        >
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {#each filteredKeys as key (key.id)}
-                <Card
-                    class="h-full overflow-hidden border-opacity-50 transition-all hover:border-opacity-100"
-                >
-                    <CardHeader class="px-3 py-2">
-                        <div class="flex flex-col gap-1">
-                            <div class="flex items-center justify-between">
-                                <div class="overflow-hidden">
-                                    <CardTitle
-                                        class="flex items-center gap-1 truncate text-sm"
-                                    >
-                                        <KeyRound
-                                            class="h-3.5 w-3.5 flex-shrink-0"
-                                        />
-                                        <span class="truncate">{key.name}</span>
-                                    </CardTitle>
-                                </div>
-                                {#if key.is_active}
-                                    <Badge
-                                        variant="outline"
-                                        class="flex shrink-0 items-center gap-1 border-green-200 bg-green-50 px-1.5 py-0 text-[10px] font-normal text-green-700"
-                                    >
-                                        <div
-                                            class="h-1.5 w-1.5 rounded-full bg-green-500"
-                                        ></div>
-                                        Active
-                                    </Badge>
-                                {:else}
-                                    <Badge
-                                        variant="outline"
-                                        class="flex shrink-0 items-center gap-1 border-gray-200 bg-gray-50 px-1.5 py-0 text-[10px] font-normal text-gray-500"
-                                    >
-                                        <div
-                                            class="h-1.5 w-1.5 rounded-full bg-gray-400"
-                                        ></div>
-                                        Inactive
-                                    </Badge>
-                                {/if}
-                            </div>
-                            <CardDescription class="line-clamp-1 text-xs">
-                                {key.description || "No description"}
-                            </CardDescription>
+                <Card.Root class="h-full">
+                    <Card.Header>
+                        <div class="flex items-center justify-between">
+                            <Card.Title>{key.name}</Card.Title>
+                            <Badge
+                                variant={key.is_active ? "default" : "destructive"}
+                                class="ml-2"
+                            >
+                                {key.is_active ? "Active" : "Inactive"}
+                            </Badge>
                         </div>
-                    </CardHeader>
-                    <CardContent class="px-3 py-1">
-                        <div class="space-y-1">
+                        <Card.Description>
+                            {key.description || "No description"}
+                        </Card.Description>
+                    </Card.Header>
+                    <Card.Content>
+                        <div class="space-y-2">
                             <div>
-                                <h4
-                                    class="mb-1 flex items-center gap-1 text-xs font-medium"
-                                >
-                                    <span>Public Key</span>
-                                </h4>
-                                <div class="relative">
-                                    <pre
-                                        class="max-h-[40px] overflow-x-auto rounded-md bg-muted p-1.5 text-[10px]">{key.public_key}</pre>
+                                <p class="text-sm font-medium">Public Key</p>
+                                <div class="flex items-center mt-1">
+                                    <p class="text-sm font-mono truncate flex-1">
+                                        {key.public_key.substring(0, 40)}...
+                                    </p>
                                     <Button
-                                        size="icon"
                                         variant="ghost"
-                                        class="action-button absolute right-0.5 top-0.5 h-5 w-5"
-                                        title="Copy public key"
-                                        onclick={() =>
+                                        size="sm"
+                                        on:click={() =>
                                             copyToClipboard(
                                                 key.public_key,
                                                 "Public key",
                                             )}
                                     >
-                                        <Copy class="h-2.5 w-2.5" />
+                                        <Copy class="h-4 w-4" />
                                     </Button>
                                 </div>
                             </div>
                             <div>
-                                <div
-                                    class="mb-1 flex items-center justify-between"
-                                >
-                                    <h4
-                                        class="flex items-center gap-1 text-xs font-medium"
-                                    >
-                                        <span>Private Key</span>
-                                    </h4>
+                                <p class="text-sm font-medium">Private Key</p>
+                                <div class="flex items-center mt-1">
+                                    <p class="text-sm font-mono truncate flex-1">
+                                        {showingPrivateKey[key.id]
+                                            ? key.private_key.substring(0, 40) + "..."
+                                            : "••••••••••••••••"}
+                                    </p>
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        class="action-button h-5 px-1"
-                                        onclick={() =>
+                                        on:click={() =>
                                             togglePrivateKeyVisibility(key.id)}
                                     >
                                         {#if showingPrivateKey[key.id]}
-                                            <EyeOff class="h-2.5 w-2.5" />
+                                            <EyeOff class="h-4 w-4" />
                                         {:else}
-                                            <Eye class="h-2.5 w-2.5" />
+                                            <Eye class="h-4 w-4" />
                                         {/if}
                                     </Button>
-                                </div>
-                                {#if showingPrivateKey[key.id]}
-                                    <div class="relative">
-                                        <pre
-                                            class="max-h-[70px] overflow-x-auto rounded-md bg-muted p-1.5 text-[10px]">{key.private_key}</pre>
+                                    {#if showingPrivateKey[key.id]}
                                         <Button
-                                            size="icon"
                                             variant="ghost"
-                                            class="action-button absolute right-0.5 top-0.5 h-5 w-5"
-                                            title="Copy private key"
-                                            onclick={() =>
+                                            size="sm"
+                                            on:click={() =>
                                                 copyToClipboard(
                                                     key.private_key,
                                                     "Private key",
                                                 )}
                                         >
-                                            <Copy class="h-2.5 w-2.5" />
+                                            <Copy class="h-4 w-4" />
                                         </Button>
-                                    </div>
-                                {:else}
-                                    <div
-                                        class="flex h-6 items-center justify-center rounded-md bg-muted p-1.5 text-[10px]"
-                                    >
-                                        <span
-                                            class="text-[10px] text-muted-foreground"
-                                            >Hidden for security</span
-                                        >
-                                    </div>
-                                {/if}
+                                    {/if}
+                                </div>
                             </div>
-                            <div class="mt-2 text-[10px] text-muted-foreground">
-                                Created: {DateUtil.formatRelative(key.created)}
+                            <div>
+                                <p class="text-sm font-medium">Created</p>
+                                <p class="text-sm text-muted-foreground">
+                                    {DateUtil.formatRelative(key.created)}
+                                </p>
                             </div>
                         </div>
-                    </CardContent>
-                    <CardFooter
-                        class="flex justify-end gap-1 border-t border-border/50 p-2"
-                    >
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            class="action-button h-7 w-7"
-                            title="Edit"
-                            onclick={() => handleEdit(key)}
-                        >
-                            <Pencil class="h-3 w-3" />
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            class="action-button h-7 w-7 text-destructive hover:text-destructive"
-                            title="Delete"
-                            onclick={() => modals.openDelete(key)}
-                        >
-                            <Trash2 class="h-3 w-3" />
-                        </Button>
-                    </CardFooter>
-                </Card>
+                    </Card.Content>
+                    <Card.Footer class="flex justify-between">
+                        <div class="space-x-2">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                on:click={() => handleEdit(key)}
+                            >
+                                <Pencil class="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                on:click={() => modals.openDelete(key)}
+                            >
+                                <Trash2 class="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </Card.Footer>
+                </Card.Root>
             {/each}
         </div>
     {/if}
@@ -473,15 +438,3 @@
     />
 </div>
 
-<style>
-    /* Enhanced mobile styles */
-    @media (max-width: 640px) {
-        :global(.action-button) {
-            transform: scale(1.1);
-        }
-
-        :global(pre) {
-            font-size: 9px;
-        }
-    }
-</style>

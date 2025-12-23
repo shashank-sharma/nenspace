@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, onDestroy } from "svelte";
+    import { onMount } from "svelte";
     import { mailMessagesStore, mailStore } from "../stores";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
@@ -14,68 +14,56 @@
     import {
         RefreshCw,
         Star,
-        Mail,
-        MailOpen,
         Inbox,
         Loader2,
     } from "lucide-svelte";
-    import { format, formatDistanceToNow } from "date-fns";
-    import { page } from "$app/stores";
-    import { Checkbox } from "$lib/components/ui/checkbox";
-    import { cn } from "$lib/utils";
-    import { fade, slide } from "svelte/transition";
+    import { cn, formatEmailString, formatEmailDate } from "$lib/utils";
+    import { fade } from "svelte/transition";
     import type { MailMessage } from "../types";
+    import { debounce } from "$lib/utils/debounce.util";
 
-    let searchQuery = "";
-
-    function formatEmailString(str: string) {
-        const [email] = str.split("<");
-        return email?.trim() || str;
-    }
-
-    function formatEmailDate(date: string) {
-        const messageDate = new Date(date);
-        const now = new Date();
-
-        // If it's today, show the time
-        if (messageDate.toDateString() === now.toDateString()) {
-            return format(messageDate, "h:mm a");
-        }
-
-        // If it's this year but not today, show the month and day
-        if (messageDate.getFullYear() === now.getFullYear()) {
-            return format(messageDate, "MMM d");
-        }
-
-        // If it's a different year, include the year
-        return format(messageDate, "MMM d, yyyy");
-    }
+    let searchQuery = $state("");
 
     function handleMailSelect(mail: MailMessage) {
-        if (mail.is_unread) {
-            mailMessagesStore.markAsRead(mail.id);
+        mailMessagesStore.selectMail(mail).catch(console.error);
+    }
+
+    async function handleRefresh() {
+        await mailMessagesStore.refreshMails();
+    }
+
+    // Debounced search using effect
+    $effect(() => {
+        const query = searchQuery;
+        if (query === undefined || query === null || query === "") {
+            return;
         }
-        mailMessagesStore.selectMail(mail);
-    }
+        
+        const timeoutId = setTimeout(() => {
+            mailMessagesStore.searchMails(query);
+        }, 300);
 
-    function handleRefresh() {
-        mailMessagesStore.refreshMails();
-    }
+        return () => {
+            clearTimeout(timeoutId);
+        };
+    });
 
-    // Check if sync is in progress
-    $: isSyncing = $mailStore.syncStatus?.status === "in-progress";
-    $: isLoading = $mailMessagesStore.isLoading;
-    $: hasEmails =
-        $mailMessagesStore.messages && $mailMessagesStore.messages.length > 0;
+    // Derived state - access properties directly (not as stores)
+    const isSyncing = $derived(mailStore.isSyncing);
+    const isLoading = $derived(mailMessagesStore.isLoading);
+    const hasEmails = $derived(mailMessagesStore.hasMessages);
+    const filteredMessages = $derived(mailMessagesStore.filteredMessages);
 
     onMount(() => {
-        mailMessagesStore.fetchMails();
+        if (mailStore.isAuthenticated && !mailMessagesStore.hasAttemptedFetch && !mailMessagesStore.isLoading) {
+            mailMessagesStore.fetchMails(true);
+        }
     });
 </script>
 
 <div class="flex h-full flex-col">
     <div
-        class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700"
+        class="flex items-center justify-between px-4 py-3 border-b border-border"
     >
         <div class="flex items-center space-x-2">
             <Button
@@ -98,8 +86,8 @@
             class="flex flex-col items-center justify-center flex-1 p-8"
             in:fade={{ duration: 150 }}
         >
-            <Loader2 class="h-8 w-8 animate-spin text-slate-400 mb-4" />
-            <p class="text-sm text-slate-500 dark:text-slate-400">
+                <Loader2 class="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+            <p class="text-sm text-muted-foreground">
                 Loading emails...
             </p>
         </div>
@@ -109,15 +97,15 @@
             in:fade={{ duration: 150 }}
         >
             <div
-                class="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4"
+                class="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4"
             >
-                <Inbox class="h-8 w-8 text-slate-400" />
+                <Inbox class="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 class="text-lg font-medium text-slate-900 dark:text-white mb-2">
+            <h3 class="text-lg font-medium mb-2">
                 No emails found
             </h3>
             <p
-                class="text-sm text-slate-500 dark:text-slate-400 text-center max-w-xs mb-4"
+                class="text-sm text-muted-foreground text-center max-w-xs mb-4"
             >
                 Your inbox is empty or emails are still loading. Try refreshing
                 or checking back later.
@@ -137,9 +125,7 @@
     {:else}
         <div class="overflow-auto flex-1">
             <Table>
-                <TableHeader
-                    class="bg-slate-50 dark:bg-slate-800/50 sticky top-0"
-                >
+                <TableHeader class="bg-muted/50 sticky top-0 z-10">
                     <TableRow>
                         <TableHead class="w-10 px-4"></TableHead>
                         <TableHead>From</TableHead>
@@ -148,14 +134,13 @@
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {#each $mailMessagesStore.messages as mail (mail.id)}
+                    {#each filteredMessages as mail (mail.id)}
                         <TableRow
                             class={cn(
-                                "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors",
-                                $mailMessagesStore.selectedMail?.id ===
-                                    mail.id &&
-                                    "bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-50 dark:hover:bg-blue-900/20",
-                                mail.is_unread && "font-medium",
+                                "cursor-pointer hover:bg-muted/50 transition-colors",
+                                mailMessagesStore.selectedMail?.id === mail.id &&
+                                    "bg-primary/10 hover:bg-primary/10",
+                                mail.is_unread && "font-semibold"
                             )}
                             on:click={() => handleMailSelect(mail)}
                         >
@@ -163,21 +148,26 @@
                                 <div in:fade={{ duration: 200 }}>
                                     {#if mail.is_unread}
                                         <div
-                                            class="w-2 h-2 rounded-full bg-blue-500"
+                                            class="w-2 h-2 rounded-full bg-primary"
                                         ></div>
                                     {/if}
                                 </div>
                             </TableCell>
-                            <TableCell class="font-medium">
-                                <div class="flex items-center">
-                                    <span>{formatEmailString(mail.from)}</span>
+                            <TableCell>
+                                <div class="flex items-center gap-2">
+                                    {#if mail.is_starred}
+                                        <Star class="h-3 w-3 fill-primary text-primary" />
+                                    {/if}
+                                    <span class="truncate max-w-[200px]">
+                                        {formatEmailString(mail.from)}
+                                    </span>
                                 </div>
                             </TableCell>
                             <TableCell>
-                                <div class="line-clamp-1">{mail.subject}</div>
+                                <div class="line-clamp-1">{mail.subject || "(No subject)"}</div>
                             </TableCell>
                             <TableCell
-                                class="text-right text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap"
+                                class="text-right text-xs text-muted-foreground whitespace-nowrap"
                             >
                                 {formatEmailDate(mail.received_date)}
                             </TableCell>
@@ -188,3 +178,4 @@
         </div>
     {/if}
 </div>
+

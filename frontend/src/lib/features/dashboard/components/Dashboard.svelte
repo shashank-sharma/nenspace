@@ -1,6 +1,6 @@
 <script lang="ts">
     import { DashboardService } from "../services/dashboard.service";
-    import { IslandNotificationService } from "$lib/services/island-notification.service.svelte";
+    import { IslandNotificationService } from "$lib/features/status-indicator";
     import { toast } from "svelte-sonner";
     import StatsGrid from "./StatsGrid.svelte";
     import RecentActivity from "./RecentActivity.svelte";

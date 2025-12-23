@@ -19,8 +19,11 @@ type Workflow struct {
 	Name        string        `db:"name" json:"name"`
 	Description string        `db:"description" json:"description"`
 	Active      bool          `db:"active" json:"active"`
-	User        string        `db:"user" json:"user"` // user ID
+	User        string        `db:"user" json:"user"`
 	Config      types.JSONRaw `db:"config" json:"config"`
+	Timeout     int           `db:"timeout" json:"timeout"`
+	MaxRetries  int           `db:"max_retries" json:"max_retries"`
+	RetryDelay  int           `db:"retry_delay" json:"retry_delay"`
 }
 
 // WorkflowNode represents a single node in a workflow
@@ -28,8 +31,8 @@ type WorkflowNode struct {
 	BaseModel
 
 	WorkflowID string `db:"workflow_id" json:"workflow_id"`
-	Type       string `db:"type" json:"type"`             // source, processor, destination
-	NodeType   string `db:"node_type" json:"node_type"`   // gmail, csv, http, etc.
+	Type       string `db:"type" json:"type"`           // source, processor, destination
+	NodeType   string `db:"node_type" json:"node_type"` // gmail, csv, http, etc.
 	Label      string `db:"label" json:"label"`
 	Config     string `db:"config" json:"config"`         // JSON string
 	PositionX  int    `db:"position_x" json:"position_x"` // X coordinate in the editor
@@ -49,12 +52,12 @@ type WorkflowExecution struct {
 	BaseModel
 
 	WorkflowID    string         `db:"workflow_id" json:"workflow_id"`
-	Status        string         `db:"status" json:"status"`           // running, completed, failed
+	Status        string         `db:"status" json:"status"` // running, completed, failed
 	StartTime     types.DateTime `db:"start_time" json:"start_time"`
 	EndTime       types.DateTime `db:"end_time" json:"end_time"`
-	Duration      int            `db:"duration" json:"duration"`       // in milliseconds
-	Logs          string         `db:"logs" json:"logs"`               // JSON string of log entries
-	Results       string         `db:"results" json:"results"`         // JSON string of results summary
+	Duration      int            `db:"duration" json:"duration"` // in milliseconds
+	Logs          string         `db:"logs" json:"logs"`         // JSON string of log entries
+	Results       string         `db:"results" json:"results"`   // JSON string of results summary
 	ErrorMessage  string         `db:"error_message" json:"error_message,omitempty"`
 	ResultFileIDs string         `db:"result_file_ids" json:"result_file_ids,omitempty"` // Comma-separated IDs
 }
@@ -73,8 +76,8 @@ type Connector struct {
 	BaseModel
 
 	Name         string `db:"name" json:"name"`
-	Type         string `db:"type" json:"type"`               // source or destination
-	Category     string `db:"category" json:"category"`       // email, file, api, etc.
+	Type         string `db:"type" json:"type"`         // source or destination
+	Category     string `db:"category" json:"category"` // email, file, api, etc.
 	Description  string `db:"description" json:"description"`
 	ConfigSchema string `db:"config_schema" json:"config_schema"` // JSON schema string
 	Icon         string `db:"icon" json:"icon,omitempty"`
@@ -102,4 +105,4 @@ func (m *WorkflowResult) TableName() string {
 
 func (m *Connector) TableName() string {
 	return "connectors"
-} 
+}

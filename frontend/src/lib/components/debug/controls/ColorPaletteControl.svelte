@@ -1,7 +1,7 @@
 <script lang="ts">
     import { browser } from "$app/environment";
     import { ThemeService } from "$lib/services/theme.service.svelte";
-    import { IslandNotificationService } from "$lib/services/island-notification.service.svelte";
+    import { IslandNotificationService } from "$lib/features/status-indicator";
     import { hexToHslValues, hslToHex, parseHsl } from "$lib/utils/color.utils";
 
     type ColorInfo = {

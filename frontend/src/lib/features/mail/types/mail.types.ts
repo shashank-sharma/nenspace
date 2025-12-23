@@ -3,6 +3,9 @@ export interface SyncStatus {
     message_count: number;
     status: string;
     id?: string;
+    error_message?: string;
+    is_active?: boolean;
+    needs_reauth?: boolean;
 }
 
 export interface MailMessage {

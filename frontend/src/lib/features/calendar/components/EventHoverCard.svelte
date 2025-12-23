@@ -40,7 +40,7 @@
     let windowHeight = $state(0);
 
     $effect(() => {
-        if (event) {
+        if (event && isOpen) {
             checkMobile();
             setHoverCardPosition();
         }

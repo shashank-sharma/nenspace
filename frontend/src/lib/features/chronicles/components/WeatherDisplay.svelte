@@ -101,7 +101,7 @@
                 <p class="text-sm">Weather unavailable</p>
             </div>
         </Card>
-    {:else if weatherStore.currentWeather}
+    {:else if weatherStore.currentWeather && weatherStore.currentWeather.weather}
         <Card
             class="relative overflow-hidden {compact ? 'compact-card' : ''} p-4"
         >
@@ -110,16 +110,16 @@
                 <div class="flex items-center">
                     <svelte:component
                         this={getWeatherIcon(
-                            weatherStore.currentWeather.weather.condition,
+                            weatherStore.currentWeather.weather?.condition,
                         )}
                         class="h-8 w-8 mr-2 text-primary"
                     />
                     <div>
                         <div class="font-medium">
-                            {weatherStore.currentWeather.location.city}
+                            {weatherStore.currentWeather.location?.city || 'Unknown'}
                         </div>
                         <div class="text-xs text-muted-foreground">
-                            {weatherStore.currentWeather.weather.description}
+                            {weatherStore.currentWeather.weather?.description || 'No description'}
                         </div>
                     </div>
                 </div>
@@ -128,12 +128,12 @@
                 <div class="text-right">
                     <div class="text-xl font-bold">
                         {formatTemp(
-                            weatherStore.currentWeather.temperature.current,
+                            weatherStore.currentWeather.temperature?.current,
                         )}
                     </div>
                     <div class="text-xs text-muted-foreground">
                         Feels like {formatTemp(
-                            weatherStore.currentWeather.temperature.feels_like,
+                            weatherStore.currentWeather.temperature?.feels_like,
                         )}
                     </div>
                 </div>
@@ -144,22 +144,21 @@
                 <div class="detail-item">
                     <span class="text-muted-foreground">Humidity</span>
                     <span class="font-medium"
-                        >{weatherStore.currentWeather.details.humidity}%</span
+                        >{weatherStore.currentWeather.details?.humidity ?? '--'}%</span
                     >
                 </div>
                 <div class="detail-item">
                     <span class="text-muted-foreground">Wind</span>
                     <span class="font-medium"
-                        >{weatherStore.currentWeather.details.wind_speed}
-                        {weatherStore.currentWeather.details
-                            .wind_direction}</span
+                        >{weatherStore.currentWeather.details?.wind_speed ?? '--'}
+                        {weatherStore.currentWeather.details?.wind_direction ?? ''}</span
                     >
                 </div>
                 <div class="detail-item">
                     <span class="text-muted-foreground">Sunrise</span>
                     <span class="font-medium"
                         >{formatTime(
-                            weatherStore.currentWeather.sun.sunrise,
+                            weatherStore.currentWeather.sun?.sunrise,
                         )}</span
                     >
                 </div>
@@ -167,7 +166,7 @@
                     <span class="text-muted-foreground">Sunset</span>
                     <span class="font-medium"
                         >{formatTime(
-                            weatherStore.currentWeather.sun.sunset,
+                            weatherStore.currentWeather.sun?.sunset,
                         )}</span
                     >
                 </div>
@@ -187,7 +186,7 @@
                                 </div>
                                 <svelte:component
                                     this={getWeatherIcon(
-                                        day.intervals[0]?.weather.condition,
+                                        day.intervals[0]?.weather?.condition,
                                     )}
                                     class="h-5 w-5 my-1 text-primary"
                                 />
@@ -205,7 +204,7 @@
             <!-- Last Updated -->
             <div class="text-xs text-muted-foreground mt-2 text-right">
                 Last updated: {formatTime(
-                    weatherStore.currentWeather.last_updated,
+                    weatherStore.currentWeather?.last_updated,
                 )}
             </div>
         </Card>

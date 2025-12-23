@@ -18,18 +18,18 @@
     import { spring } from "svelte/motion";
     import { onMount, onDestroy } from "svelte";
     import { browser } from "$app/environment";
-    import { IslandNotificationService } from "$lib/services/island-notification.service.svelte";
+    import {
+        IslandNotificationService,
+        STATUS_INDICATOR_CONFIG,
+        getStatusIndicatorState,
+        shouldIconAnimate,
+        type SystemStatus,
+    } from "$lib/features/status-indicator";
     import { NetworkService } from "$lib/services/network.service.svelte";
     import { ApiLoadingService } from "$lib/services/api-loading.service.svelte";
     import { RealtimeService } from "$lib/services/realtime.service.svelte";
     import { HealthService } from "$lib/services/health.service.svelte";
     import { Clock } from "lucide-svelte";
-    import {
-        STATUS_INDICATOR_CONFIG,
-        getStatusIndicatorState,
-        shouldIconAnimate,
-        type SystemStatus,
-    } from "$lib/utils/status-indicator.util";
     import {
         loadPosition,
         savePosition,
@@ -54,6 +54,37 @@
 
     // Get status indicator state
     let statusState = $derived(getStatusIndicatorState(systemStatus));
+
+    // Debug: log API loading changes
+    $effect(() => {
+        console.log(
+            '[StatusIndicator] isApiLoading:',
+            systemStatus.isApiLoading,
+            '| activeCount:', ApiLoadingService.activeCount,
+            '| activeRequestIds:', ApiLoadingService.activeRequestIds,
+            '| direct isLoading:', ApiLoadingService.isLoading,
+        );
+    });
+
+    // Debug: log when systemStatus changes
+    $effect(() => {
+        console.log('[StatusIndicator] systemStatus changed:', {
+            isApiLoading: systemStatus.isApiLoading,
+            isBackendDown: systemStatus.isBackendDown,
+            isOffline: systemStatus.isOffline,
+            realtimeStatus: systemStatus.realtimeStatus,
+        });
+    });
+
+    // Debug: log shimmer condition
+    $effect(() => {
+        const shouldShowShimmer = systemStatus.isApiLoading && !currentNotification;
+        console.log('[StatusIndicator] Shimmer condition:', {
+            shouldShowShimmer,
+            isApiLoading: systemStatus.isApiLoading,
+            hasNotification: !!currentNotification,
+        });
+    });
 
     // Current time
     let currentTime = $state("");
@@ -306,7 +337,7 @@
             </div>
         {:else}
             <!-- Default State: Time + Status -->
-            {@const StatusIcon = statusState.icon}
+            {@const StatusIcon = (systemStatus.isApiLoading && !currentNotification) ? Clock : statusState.icon}
             <div
                 class="px-3 flex items-center justify-center gap-2 h-full"
                 in:scale={{ duration: 300, start: 1.1 }}
@@ -316,7 +347,7 @@
                     <div class="{statusState.iconColor} flex-shrink-0">
                         <StatusIcon
                             size={14}
-                            class={shouldIconAnimate(systemStatus)
+                            class={(shouldIconAnimate(systemStatus) && !(systemStatus.isApiLoading && !currentNotification))
                                 ? "animate-spin"
                                 : ""}
                         />
