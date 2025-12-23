@@ -31,8 +31,6 @@
     import ButtonControl from "$lib/components/debug/controls/ButtonControl.svelte";
     import SwitchControl from "$lib/components/debug/controls/SwitchControl.svelte";
     import { toast } from "svelte-sonner";
-    // @ts-ignore - canvas-confetti types
-    import confetti from "canvas-confetti";
 
     // Debug settings with automatic localStorage management
     const debugSettings = new DebugSettings("tasksDebugSettings", {
@@ -284,11 +282,6 @@
                             ? { ...t, completed: !wasCompleted }
                             : t,
                     );
-
-                    // Celebrate completion!
-                    if (!wasCompleted) {
-                        triggerConfetti();
-                    }
                 },
             },
         );
@@ -334,15 +327,6 @@
 
     function handleFocusFilter(event: CustomEvent) {
         filter = { ...filter, ...event.detail };
-    }
-
-    // Confetti celebration
-    function triggerConfetti() {
-        confetti({
-            particleCount: 100,
-            spread: 70,
-            origin: { y: 0.6 },
-        });
     }
 
     // Keyboard shortcuts
