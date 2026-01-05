@@ -1,0 +1,70 @@
+{
+  "name": "nenspace-extension",
+  "displayName": "Nenspace Auth Extension",
+  "version": "0.0.1",
+  "description": "Browser extension for authenticating and syncing with Nenspace backend",
+  "author": "Shashank Sharma <shashank.sharma98@gmail.com>",
+  "scripts": {
+    "dev": "plasmo dev",
+    "prebuild": "node scripts/inject-build-info.js",
+    "build": "plasmo build",
+    "package": "plasmo package",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "test:watch": "vitest --watch",
+    "test:ci": "vitest --coverage --reporter=verbose",
+    "analyze": "plasmo build --analyze",
+    "docs": "typedoc src/lib --out docs --theme default",
+    "docs:serve": "typedoc src/lib --out docs --theme default --watch"
+  },
+  "dependencies": {
+    "@plasmohq/messaging": "^0.6.0",
+    "@plasmohq/storage": "^1.0.0",
+    "lucide-svelte": "^0.294.0",
+    "pocketbase": "^0.21.5",
+    "plasmo": "^0.90.5",
+    "svelte": "^4.2.19"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.1.2",
+    "@types/chrome": "0.0.258",
+    "@types/node": "20.11.5",
+    "@vitest/ui": "^1.0.0",
+    "autoprefixer": "^10.4.17",
+    "axe-core": "^4.8.3",
+    "jsdom": "^23.0.0",
+    "rollup-plugin-visualizer": "^5.9.2",
+    "typedoc": "^0.25.4",
+    "postcss": "^8.4.35",
+    "prettier": "3.2.4",
+    "svelte-preprocess": "^6.0.3",
+    "tailwindcss": "^3.4.1",
+    "typescript": "5.3.3",
+    "vitest": "^1.0.0"
+  },
+  "manifest": {
+    "host_permissions": [
+      "http://localhost:8090/*",
+      "https://*/*"
+    ],
+    "permissions": [
+      "storage",
+      "tabs",
+      "activeTab",
+      "history",
+      "alarms",
+      "contextMenus",
+      "notifications",
+      "idle"
+    ],
+    "content_security_policy": {
+      "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https: http://localhost:8090 ws://localhost:*;"
+    },
+    "applications": {
+      "gecko": {
+        "id": "nenspace-auth-extension@shasharma.dev"
+      }
+    }
+  }
+}

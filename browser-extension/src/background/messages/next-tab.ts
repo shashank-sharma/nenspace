@@ -1,0 +1,48 @@
+import type { PlasmoMessaging } from "@plasmohq/messaging"
+import { BrowserAPI } from "~background/utils/browser-api"
+import { createLogger } from "~background/utils/logger"
+import type { NextTabRequest, NextTabResponse } from "~lib/types/messages"
+import { getErrorMessage } from "~lib/utils/error-message.util"
+
+const logger = createLogger('[Msg:NextTab]')
+
+const handler: PlasmoMessaging.MessageHandler<NextTabRequest, NextTabResponse> = async (req, res) => {
+  logger.debug('Handling NEXT_TAB message')
+  
+  try {
+    const tabs = await BrowserAPI.tabs.query({ currentWindow: true })
+    
+    if (tabs.length <= 1) {
+      res.send({ success: false, error: 'No next tab' })
+      return
+    }
+    
+    const currentTab = tabs.find(tab => tab.active)
+    if (!currentTab) {
+      res.send({ success: false, error: 'Current tab not found' })
+      return
+    }
+    
+    const currentIndex = tabs.indexOf(currentTab)
+    const nextIndex = currentIndex === tabs.length - 1 ? 0 : currentIndex + 1
+    const nextTab = tabs[nextIndex]
+    
+    await BrowserAPI.tabs.update(nextTab.id!, { active: true })
+    res.send({ success: true })
+  } catch (error) {
+    logger.error('Failed to switch to next tab', error)
+    res.send({ success: false, error: getErrorMessage(error) })
+  }
+}
+
+export default handler
+
+
+
+
+
+
+
+
+
+

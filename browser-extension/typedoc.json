@@ -1,0 +1,48 @@
+{
+  "entryPoints": ["src/lib"],
+  "out": "docs",
+  "theme": "default",
+  "name": "Nenspace Extension API",
+  "includeVersion": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeExternals": true,
+  "excludeInternal": true,
+  "readme": "README.md",
+  "categorizeByGroup": true,
+  "defaultCategory": "Other",
+  "categoryOrder": [
+    "Services",
+    "Utilities", 
+    "Components",
+    "Types",
+    "Configuration",
+    "Features",
+    "*"
+  ],
+  "sort": ["source-order"],
+  "kindSortOrder": [
+    "Project",
+    "Module", 
+    "Namespace",
+    "Enum",
+    "Class",
+    "Interface",
+    "Type alias",
+    "Constructor",
+    "Property",
+    "Variable",
+    "Function",
+    "Accessor",
+    "Method"
+  ],
+  "navigation": {
+    "includeCategories": true,
+    "includeGroups": true
+  },
+  "searchInComments": true,
+  "cleanOutputDir": true,
+  "plugin": ["typedoc-plugin-markdown"],
+  "gitRevision": "main",
+  "gitRemote": "origin"
+}
