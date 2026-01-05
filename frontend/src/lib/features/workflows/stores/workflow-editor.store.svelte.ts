@@ -2,7 +2,9 @@ import { browser } from '$app/environment';
 import { WorkflowService } from '../services/workflow.service';
 import { workflowNodeToFlowNode, flowNodeToWorkflowNode, workflowConnectionToFlowEdge, flowEdgeToWorkflowConnection, generateNodeId, generateEdgeId } from '../utils/node-mapper.util';
 import { validateWorkflowGraph } from '../utils/validation.util';
+import { topologicalSortNodes, groupNodesByLevel } from '../utils/topological-sort';
 import type { FlowNode, FlowEdge, ValidationResult, WorkflowNode, WorkflowConnection, Connector, DataSchema, DataEnvelope } from '../types';
+import { workflowStore } from './workflow.store.svelte';
 
 const STORAGE_PREFIX = 'workflow_editor_';
 
@@ -64,6 +66,16 @@ class WorkflowEditorStore {
     nodeSchemas = $state<Map<string, DataSchema>>(new Map());
     nodeSampleData = $state<Map<string, DataEnvelope>>(new Map());
     loadingSchema = $state<Map<string, boolean>>(new Map());
+    
+    // Workflow data preloading state
+    isLoadingWorkflowData = $state<boolean>(false);
+    loadProgress = $state<{ current: number; total: number; phase: string }>({ current: 0, total: 0, phase: '' });
+    loadErrors = $state<Map<string, string>>(new Map());
+    
+    // Undo/Redo history
+    private history: Array<{ nodes: FlowNode[]; edges: FlowEdge[] }> = [];
+    private historyIndex = $state(-1);
+    private maxHistorySize = 50;
 
     get hasNodes() {
         return this.nodes.length > 0;
@@ -79,6 +91,58 @@ class WorkflowEditorStore {
 
     get destinationNodes() {
         return this.nodes.filter(n => n.data.workflowNodeType === 'destination');
+    }
+
+    get canUndo() {
+        return this.historyIndex > 0;
+    }
+
+    get canRedo() {
+        return this.historyIndex < this.history.length - 1;
+    }
+
+    private saveState() {
+        // Remove any future history if we're not at the end
+        if (this.historyIndex < this.history.length - 1) {
+            this.history = this.history.slice(0, this.historyIndex + 1);
+        }
+        
+        // Add current state to history
+        this.history.push({
+            nodes: JSON.parse(JSON.stringify(this.nodes)),
+            edges: JSON.parse(JSON.stringify(this.edges))
+        });
+        
+        // Limit history size
+        if (this.history.length > this.maxHistorySize) {
+            this.history.shift();
+        } else {
+            this.historyIndex++;
+        }
+    }
+
+    undo() {
+        if (!this.canUndo) return;
+        
+        this.historyIndex--;
+        const state = this.history[this.historyIndex];
+        this.nodes = JSON.parse(JSON.stringify(state.nodes));
+        this.edges = JSON.parse(JSON.stringify(state.edges));
+        this.isDirty = true;
+        this.persistToLocalStorage();
+        this.validate();
+    }
+
+    redo() {
+        if (!this.canRedo) return;
+        
+        this.historyIndex++;
+        const state = this.history[this.historyIndex];
+        this.nodes = JSON.parse(JSON.stringify(state.nodes));
+        this.edges = JSON.parse(JSON.stringify(state.edges));
+        this.isDirty = true;
+        this.persistToLocalStorage();
+        this.validate();
     }
 
     setConnectors(connectors: Connector[]) {
@@ -144,16 +208,37 @@ class WorkflowEditorStore {
                 this.nodes = mergedNodes;
                 this.edges = localData.edges.length > 0 ? localData.edges : serverEdges;
                 this.isDirty = true; // Mark as dirty since we're using local data
+                
+                // Initialize history with current state
+                this.history = [{
+                    nodes: JSON.parse(JSON.stringify(this.nodes)),
+                    edges: JSON.parse(JSON.stringify(this.edges))
+                }];
+                this.historyIndex = 0;
             } else {
                 // No local data, use server data
                 this.nodes = serverNodes;
                 this.edges = serverEdges;
+                
+                // Initialize history with current state
+                this.history = [{
+                    nodes: JSON.parse(JSON.stringify(this.nodes)),
+                    edges: JSON.parse(JSON.stringify(this.edges))
+                }];
+                this.historyIndex = 0;
                 this.isDirty = false;
             }
 
             this.selectedNode = null;
-            // Validate after loading
-            this.validate();
+            
+            // Clear old data before preloading
+            this.nodeSchemas.clear();
+            this.nodeSampleData.clear();
+            this.loadErrors.clear();
+            this.validationResult = null;
+            
+            // Preload all workflow data (schemas, sample data, validation)
+            await this.preloadAllWorkflowData();
         } catch (error) {
             this.error = error instanceof Error ? error.message : 'Unknown error occurred';
         } finally {
@@ -162,6 +247,8 @@ class WorkflowEditorStore {
     }
 
     addNode(node: Omit<FlowNode, 'id'> | { connectorId: string; position: { x: number; y: number } }) {
+        this.saveState();
+        
         let newNode: FlowNode;
         
         if ('connectorId' in node) {
@@ -231,7 +318,12 @@ class WorkflowEditorStore {
         return allRequiredFieldsValid;
     }
 
-    updateNode(nodeId: string, updates: Partial<FlowNode>) {
+    updateNode(nodeId: string, updates: Partial<FlowNode>, saveHistory: boolean = false) {
+        // Save state only if explicitly requested (e.g., when drag ends)
+        if (saveHistory) {
+            this.saveState();
+        }
+        
         this.nodes = this.nodes.map(n => 
             n.id === nodeId ? { ...n, ...updates } : n
         );
@@ -244,6 +336,8 @@ class WorkflowEditorStore {
     }
 
     removeNode(nodeId: string) {
+        this.saveState();
+        
         this.nodes = this.nodes.filter(n => n.id !== nodeId);
         this.edges = this.edges.filter(e => e.source !== nodeId && e.target !== nodeId);
         this.isDirty = true;
@@ -255,6 +349,8 @@ class WorkflowEditorStore {
     }
 
     addEdge(edge: Omit<FlowEdge, 'id'>) {
+        this.saveState();
+        
         const newEdge: FlowEdge = {
             ...edge,
             id: generateEdgeId()
@@ -295,6 +391,8 @@ class WorkflowEditorStore {
     }
 
     removeEdge(edgeId: string) {
+        this.saveState();
+        
         const edge = this.edges.find(e => e.id === edgeId);
         this.edges = this.edges.filter(e => e.id !== edgeId);
         this.isDirty = true;
@@ -358,7 +456,7 @@ class WorkflowEditorStore {
         return /^node_\d+_[a-z0-9]+$/i.test(nodeId);
     }
 
-    async fetchNodeSchemaAndSample(nodeId: string) {
+    async fetchNodeSchemaAndSample(nodeId: string, retryCount = 0) {
         // Check if node exists
         const node = this.nodes.find(n => n.id === nodeId);
         if (!node) return;
@@ -379,15 +477,56 @@ class WorkflowEditorStore {
         // For saved nodes, use backend API
         if (!this.workflowId) return;
         
-        // For source nodes, always fetch (they don't need upstream)
-        // For processor/destination nodes, check if they have upstream connections
+        // For processor/destination nodes, ensure upstream schemas are fetched first
         if (node.data.workflowNodeType !== 'source') {
-            const hasUpstream = this.edges.some(e => e.target === nodeId);
-            if (!hasUpstream) {
+            const upstreamNodeIds = this.edges
+                .filter(e => e.target === nodeId)
+                .map(e => e.source);
+            
+            if (upstreamNodeIds.length === 0) {
                 // No upstream nodes, clear any cached data
                 this.nodeSchemas.delete(nodeId);
                 this.nodeSampleData.delete(nodeId);
                 return;
+            }
+            
+            // Fetch all upstream schemas first (recursively)
+            // This ensures we have all necessary data before fetching this node's schema
+            const upstreamPromises = upstreamNodeIds
+                .filter(id => !this.isTemporaryNodeId(id))
+                .map(async (upstreamId) => {
+                    // If already cached, we're good
+                    if (this.nodeSchemas.has(upstreamId)) {
+                        return;
+                    }
+                    // If already loading, wait for it to complete
+                    if (this.loadingSchema.get(upstreamId)) {
+                        // Wait for the loading to complete (poll with timeout)
+                        const maxWait = 10000; // 10 seconds max
+                        const startTime = Date.now();
+                        while (this.loadingSchema.get(upstreamId) && (Date.now() - startTime) < maxWait) {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                        }
+                        // If still not cached after waiting, fetch it
+                        if (!this.nodeSchemas.has(upstreamId)) {
+                            await this.fetchNodeSchemaAndSample(upstreamId);
+                        }
+                    } else {
+                        // Not loading and not cached - fetch it
+                        await this.fetchNodeSchemaAndSample(upstreamId);
+                    }
+                });
+            
+            // Wait for all upstream schemas to be fetched
+            await Promise.all(upstreamPromises);
+            
+            // Verify all upstream schemas are now available
+            const allUpstreamSchemasAvailable = upstreamNodeIds
+                .filter(id => !this.isTemporaryNodeId(id))
+                .every(id => this.nodeSchemas.has(id));
+            
+            if (!allUpstreamSchemasAvailable) {
+                console.warn(`Some upstream schemas still missing for node ${nodeId} after fetch attempt`);
             }
         }
         
@@ -404,6 +543,11 @@ class WorkflowEditorStore {
                 console.log(`✅ Schema fetched for node ${nodeId}:`, schema);
             } else {
                 console.warn(`⚠️ No schema returned for node ${nodeId}`);
+                // Retry once if schema is missing and we haven't retried yet
+                if (retryCount === 0) {
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
+                    return this.fetchNodeSchemaAndSample(nodeId, retryCount + 1);
+                }
             }
             
             // Fetch sample data (limit to 10 for preview) - backend recursively executes chain
@@ -442,7 +586,12 @@ class WorkflowEditorStore {
                 // Don't log this as an error, it's expected for unsaved nodes
             } else {
                 console.error('Failed to fetch node schema/sample:', error);
-                // Clear cached data on error
+                // Retry once on network errors
+                if (retryCount === 0 && (error?.status >= 500 || error?.message?.includes('network'))) {
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+                    return this.fetchNodeSchemaAndSample(nodeId, retryCount + 1);
+                }
+                // Clear cached data on error after retries exhausted
                 this.nodeSchemas.delete(nodeId);
                 this.nodeSampleData.delete(nodeId);
             }
@@ -676,9 +825,19 @@ class WorkflowEditorStore {
      * For processor nodes, this is the merged output schema of all upstream nodes.
      * Handles multiple upstream nodes by merging their schemas.
      */
+    /**
+     * Get the input schema for a node (what it receives from upstream).
+     * For processor nodes, this is the merged output schema of all upstream nodes.
+     * Handles multiple upstream nodes by merging their schemas.
+     * 
+     * Simplified: Just reads from cache (no dynamic fetching).
+     * All schemas should be preloaded via preloadAllWorkflowData().
+     */
     getNodeInputSchema(nodeId: string): DataSchema | null {
         const node = this.nodes.find(n => n.id === nodeId);
-        if (!node) return null;
+        if (!node) {
+            return null;
+        }
         
         // For source nodes, there's no input schema
         if (node.data.workflowNodeType === 'source') {
@@ -690,52 +849,56 @@ class WorkflowEditorStore {
             .filter(e => e.target === nodeId)
             .map(e => e.source);
         
-        if (upstreamNodeIds.length === 0) return null;
+        if (upstreamNodeIds.length === 0) {
+            return null;
+        }
         
-        // Get output schemas from all upstream nodes
+        // Get output schemas from all upstream nodes (from cache only)
         const upstreamSchemas: DataSchema[] = [];
-        const missingSchemas: string[] = [];
         
         for (const upstreamNodeId of upstreamNodeIds) {
             const upstreamSchema = this.nodeSchemas.get(upstreamNodeId);
             if (upstreamSchema) {
                 upstreamSchemas.push(upstreamSchema);
             } else {
-                missingSchemas.push(upstreamNodeId);
-                // Don't trigger fetch here - this method is called from $derived() contexts
-                // Fetching should be done separately, not inside getters
+                // Schema not in cache - this shouldn't happen if preloading worked
+                // But we'll return null gracefully instead of triggering fetch
+                console.warn(`getNodeInputSchema: Schema not in cache for upstream node ${upstreamNodeId}`);
             }
         }
         
-        // If we have missing schemas, schedule them to be fetched (but don't await)
-        // This avoids state mutations in derived contexts
-        if (missingSchemas.length > 0) {
-            // Use setTimeout to defer the fetch outside of the reactive context
-            setTimeout(() => {
-                for (const upstreamNodeId of missingSchemas) {
-                    if (!this.loadingSchema.get(upstreamNodeId) && !this.nodeSchemas.has(upstreamNodeId)) {
-                        this.fetchNodeSchemaAndSample(upstreamNodeId).catch((error) => {
-                            console.error(`❌ Failed to fetch/compute schema for upstream node ${upstreamNodeId}:`, error);
-                        });
-                    }
-                }
-            }, 0);
-        }
-        
-        // If we have at least one schema, return merged result
+        // If no schemas available, return null
         if (upstreamSchemas.length === 0) {
-            // No schemas available yet, return null (will be available after fetch)
             return null;
         }
         
         // If single upstream node, return its schema directly
+        // But ensure source_nodes includes the upstream node ID and fields have source_node set
         if (upstreamSchemas.length === 1) {
-            return upstreamSchemas[0];
+            const schema = upstreamSchemas[0];
+            const upstreamNodeId = upstreamNodeIds[0];
+            
+            // Check if we need to update source_nodes or field source_node properties
+            const needsSourceNodesUpdate = !schema.source_nodes || schema.source_nodes.length === 0 || !schema.source_nodes.includes(upstreamNodeId);
+            const needsFieldSourceNodeUpdate = schema.fields && schema.fields.some(f => !f.source_node);
+            
+            if (needsSourceNodesUpdate || needsFieldSourceNodeUpdate) {
+                return {
+                    ...schema,
+                    source_nodes: schema.source_nodes && schema.source_nodes.length > 0 
+                        ? [...schema.source_nodes, upstreamNodeId].filter((id, index, arr) => arr.indexOf(id) === index) // Remove duplicates
+                        : [upstreamNodeId],
+                    fields: schema.fields ? schema.fields.map(field => ({
+                        ...field,
+                        source_node: field.source_node || upstreamNodeId
+                    })) : []
+                };
+            }
+            
+            return schema;
         }
         
         // Multiple upstream nodes: merge schemas
-        // The backend already merges schemas when computing input, but we need to do it here
-        // for the UI to show all available fields
         return this.mergeSchemas(upstreamSchemas, upstreamNodeIds);
     }
     
@@ -756,13 +919,22 @@ class WorkflowEditorStore {
             source_nodes: []
         };
         
-        // Collect all source nodes
+        // Collect all source nodes from schemas
         const sourceNodeSet = new Set<string>();
         for (const schema of schemas) {
             for (const nodeId of schema.source_nodes || []) {
                 sourceNodeSet.add(nodeId);
             }
         }
+        
+        // If schemas don't have source_nodes populated (backend issue), use the upstream node IDs
+        // This ensures we always have the correct source nodes even if backend doesn't populate them
+        if (sourceNodeSet.size === 0 && sourceNodeIds.length > 0) {
+            for (const nodeId of sourceNodeIds) {
+                sourceNodeSet.add(nodeId);
+            }
+        }
+        
         merged.source_nodes = Array.from(sourceNodeSet);
         
         // Build node labels map for conflict resolution
@@ -779,7 +951,11 @@ class WorkflowEditorStore {
         const conflictFields = new Set<string>();
         
         // First pass: collect all fields and count occurrences
-        for (const schema of schemas) {
+        // Also track which schema each field comes from
+        for (let schemaIndex = 0; schemaIndex < schemas.length; schemaIndex++) {
+            const schema = schemas[schemaIndex];
+            const sourceNodeId = sourceNodeIds[schemaIndex]; // Get the corresponding source node ID
+            
             for (const field of schema.fields) {
                 const existing = fieldMap.get(field.name);
                 if (existing) {
@@ -791,16 +967,24 @@ class WorkflowEditorStore {
             }
         }
         
-        // Second pass: add fields with conflict resolution
+        // Second pass: add fields with conflict resolution and ensure source_node is set
         const addedFields = new Set<string>();
-        for (const schema of schemas) {
+        for (let schemaIndex = 0; schemaIndex < schemas.length; schemaIndex++) {
+            const schema = schemas[schemaIndex];
+            const sourceNodeId = sourceNodeIds[schemaIndex]; // Get the corresponding source node ID
+            
             for (const field of schema.fields) {
                 let fieldName = field.name;
                 let fieldToAdd = { ...field };
                 
+                // Ensure source_node is set (use the source node ID for this schema)
+                if (!fieldToAdd.source_node) {
+                    fieldToAdd.source_node = sourceNodeId;
+                }
+                
                 // If field conflicts, prefix with source node label
                 if (conflictFields.has(field.name)) {
-                    const sourceLabel = nodeLabels.get(field.source_node || '') || field.source_node?.substring(0, 8) || 'unknown';
+                    const sourceLabel = nodeLabels.get(fieldToAdd.source_node || '') || fieldToAdd.source_node?.substring(0, 8) || 'unknown';
                     fieldName = `${sourceLabel}_${field.name}`;
                     fieldToAdd.name = fieldName;
                     fieldToAdd.description = field.description || `${field.name} (from ${sourceLabel})`;
@@ -820,16 +1004,20 @@ class WorkflowEditorStore {
     /**
      * Get the output schema for a node (what it produces after transformations).
      * This is the node's own output schema, which includes all transformations applied.
+     * 
+     * Simplified: Just reads from cache (no dynamic fetching).
+     * All schemas should be preloaded via preloadAllWorkflowData().
      */
     getNodeOutputSchema(nodeId: string): DataSchema | null {
-        // The node's own output schema (cached from fetchNodeSchemaAndSample)
-        // This already includes all transformations from the entire chain
         return this.nodeSchemas.get(nodeId) || null;
     }
 
     /**
      * Get sample data that flows INTO this node (from upstream).
      * This is what the node will receive as input.
+     * 
+     * Simplified: Just reads from cache (no dynamic fetching).
+     * All sample data should be preloaded via preloadAllWorkflowData().
      */
     getNodeInputSampleData(nodeId: string): DataEnvelope | null {
         const node = this.nodes.find(n => n.id === nodeId);
@@ -847,19 +1035,18 @@ class WorkflowEditorStore {
         
         if (upstreamNodeIds.length === 0) return null;
         
-        // Get output sample data from first upstream node
-        // This is what flows into this node
-        const upstreamOutputSample = this.nodeSampleData.get(upstreamNodeIds[0]);
-        return upstreamOutputSample || null;
+        // Get output sample data from first upstream node (from cache)
+        return this.nodeSampleData.get(upstreamNodeIds[0]) || null;
     }
 
     /**
      * Get sample data that flows OUT OF this node (after transformations).
      * This is what the node produces after applying its transformations.
+     * 
+     * Simplified: Just reads from cache (no dynamic fetching).
+     * All sample data should be preloaded via preloadAllWorkflowData().
      */
     getNodeOutputSampleData(nodeId: string): DataEnvelope | null {
-        // The node's own output sample data (cached from fetchNodeSchemaAndSample)
-        // This already includes all transformations from the entire chain
         return this.nodeSampleData.get(nodeId) || null;
     }
 
@@ -872,6 +1059,246 @@ class WorkflowEditorStore {
         return this.getNodeInputSampleData(nodeId);
     }
 
+    /**
+     * Preloads all workflow data: schemas, sample data, and validation
+     * This ensures all data is available before user interaction
+     */
+    async preloadAllWorkflowData(): Promise<void> {
+        if (!this.workflowId || this.nodes.length === 0) {
+            return;
+        }
+
+        // Prevent duplicate calls - if already loading, return early
+        if (this.isLoadingWorkflowData) {
+            console.log('preloadAllWorkflowData: Already loading, skipping duplicate call');
+            return;
+        }
+
+        this.isLoadingWorkflowData = true;
+        this.loadErrors.clear();
+        this.loadProgress = { current: 0, total: this.nodes.length, phase: 'Initializing...' };
+
+        try {
+            // Filter out temporary nodes (only preload saved nodes)
+            const savedNodes = this.nodes.filter(n => !this.isTemporaryNodeId(n.id));
+            
+            if (savedNodes.length === 0) {
+                // No saved nodes, just run validation
+                this.loadProgress = { current: 0, total: 0, phase: 'Validating...' };
+                await this.validate();
+                this.isLoadingWorkflowData = false;
+                return;
+            }
+
+            // Topologically sort nodes to respect dependencies
+            const sortedNodes = topologicalSortNodes(savedNodes, this.edges);
+            const nodeLevels = groupNodesByLevel(savedNodes, this.edges);
+
+            // Phase 1: Load output schemas in dependency order
+            this.loadProgress = { current: 0, total: sortedNodes.length, phase: 'Loading Schemas' };
+            
+            for (let i = 0; i < sortedNodes.length; i++) {
+                const node = sortedNodes[i];
+                this.loadProgress = { current: i + 1, total: sortedNodes.length, phase: 'Loading Schemas' };
+
+                try {
+                    // Skip if schema already loaded
+                    if (this.nodeSchemas.has(node.id)) {
+                        continue;
+                    }
+
+                    // For source nodes, fetch output schema directly
+                    if (node.data.workflowNodeType === 'source') {
+                        const schema = await WorkflowService.getNodeOutputSchema(this.workflowId, node.id);
+                        if (schema) {
+                            this.nodeSchemas.set(node.id, schema);
+                        } else {
+                            this.loadErrors.set(`${node.id}_schema`, `Failed to load schema for ${node.data.label}`);
+                        }
+                    } else {
+                        // For processor/destination nodes, ensure upstream schemas are loaded first
+                        const upstreamNodeIds = this.edges
+                            .filter(e => e.target === node.id)
+                            .map(e => e.source);
+
+                        // Check if all upstream schemas are available
+                        const allUpstreamSchemasAvailable = upstreamNodeIds.every(id => this.nodeSchemas.has(id));
+                        
+                        if (allUpstreamSchemasAvailable) {
+                            const schema = await WorkflowService.getNodeOutputSchema(this.workflowId, node.id);
+                            if (schema) {
+                                this.nodeSchemas.set(node.id, schema);
+                            } else {
+                                this.loadErrors.set(`${node.id}_schema`, `Failed to load schema for ${node.data.label}`);
+                            }
+                        } else {
+                            // Upstream schemas not available yet, skip for now
+                            // Will be retried in next iteration if needed
+                            this.loadErrors.set(`${node.id}_schema`, `Upstream schemas not available for ${node.data.label}`);
+                        }
+                    }
+                } catch (error) {
+                    // Ignore auto-cancellation errors (they're expected for duplicate requests)
+                    if (error instanceof Error && (error.message?.includes('autocancelled') || error.message?.includes('auto-cancelled'))) {
+                        console.log(`Schema request for node ${node.id} was auto-cancelled (duplicate request)`);
+                        continue; // Skip this error
+                    }
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    this.loadErrors.set(`${node.id}_schema`, `Error loading schema: ${errorMsg}`);
+                    console.error(`Failed to load schema for node ${node.id}:`, error);
+                }
+            }
+
+            // Phase 2: Load sample data (can be done in parallel for nodes at same level)
+            this.loadProgress = { current: 0, total: sortedNodes.length, phase: 'Loading Sample Data' };
+
+            for (let level = 0; level < nodeLevels.length; level++) {
+                const levelNodes = nodeLevels[level];
+                
+                // Process nodes at this level in parallel, but skip if already loaded
+                const sampleDataPromises = levelNodes
+                    .filter(node => {
+                        // Skip if already loaded or schema not available
+                        if (this.nodeSampleData.has(node.id)) {
+                            return false; // Already loaded
+                        }
+                        if (!this.nodeSchemas.has(node.id)) {
+                            return false; // Schema not available, can't load sample data
+                        }
+                        return true;
+                    })
+                    .map(async (node) => {
+                        const nodeIndex = sortedNodes.findIndex(n => n.id === node.id);
+                        this.loadProgress = { 
+                            current: nodeIndex + 1, 
+                            total: sortedNodes.length, 
+                            phase: 'Loading Sample Data' 
+                        };
+
+                        try {
+                            // Double-check we haven't loaded it in the meantime
+                            if (!this.nodeSampleData.has(node.id) && this.nodeSchemas.has(node.id) && this.workflowId) {
+                                const sampleData = await WorkflowService.getNodeSampleData(this.workflowId, node.id, 10);
+                                if (sampleData) {
+                                    this.nodeSampleData.set(node.id, sampleData);
+                                } else {
+                                    this.loadErrors.set(`${node.id}_sample`, `Failed to load sample data for ${node.data.label}`);
+                                }
+                            }
+                        } catch (error) {
+                            // Ignore auto-cancellation errors (they're expected for duplicate requests)
+                            if (error instanceof Error && (error.message?.includes('autocancelled') || error.message?.includes('auto-cancelled'))) {
+                                console.log(`Sample data request for node ${node.id} was auto-cancelled (duplicate request)`);
+                                return; // Skip this error
+                            }
+                            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                            this.loadErrors.set(`${node.id}_sample`, `Error loading sample data: ${errorMsg}`);
+                            console.error(`Failed to load sample data for node ${node.id}:`, error);
+                        }
+                    });
+
+                await Promise.all(sampleDataPromises);
+            }
+
+            // Phase 3: Run validation (requires all schemas to be loaded)
+            this.loadProgress = { current: sortedNodes.length, total: sortedNodes.length, phase: 'Validating Workflow' };
+            await this.validate();
+
+        } catch (error) {
+            console.error('Error during workflow data preload:', error);
+            this.error = error instanceof Error ? error.message : 'Failed to preload workflow data';
+        } finally {
+            this.isLoadingWorkflowData = false;
+            this.loadProgress = { current: 0, total: 0, phase: '' };
+        }
+    }
+
+    /**
+     * Check if workflow data has been fully loaded
+     */
+    isWorkflowDataLoaded(): boolean {
+        if (!this.workflowId || this.nodes.length === 0) {
+            return false;
+        }
+
+        const savedNodes = this.nodes.filter(n => !this.isTemporaryNodeId(n.id));
+        
+        // Check if all saved nodes have schemas loaded
+        const allSchemasLoaded = savedNodes.every(node => {
+            // Source nodes must have schema
+            if (node.data.workflowNodeType === 'source') {
+                return this.nodeSchemas.has(node.id);
+            }
+            // Processor/destination nodes need schema if they have upstream connections
+            const hasUpstream = this.edges.some(e => e.target === node.id);
+            if (hasUpstream) {
+                return this.nodeSchemas.has(node.id);
+            }
+            return true; // No upstream, schema not required
+        });
+
+        return allSchemasLoaded && !this.isLoadingWorkflowData;
+    }
+
+    /**
+     * Retry loading data for failed nodes
+     */
+    async retryFailedNodes(): Promise<void> {
+        if (!this.workflowId) {
+            return;
+        }
+
+        const failedNodeIds = new Set<string>();
+        for (const [key] of this.loadErrors.entries()) {
+            const nodeId = key.split('_')[0];
+            failedNodeIds.add(nodeId);
+        }
+
+        if (failedNodeIds.size === 0) {
+            return;
+        }
+
+        this.isLoadingWorkflowData = true;
+        const failedNodes = this.nodes.filter(n => failedNodeIds.has(n.id));
+
+        try {
+            for (const node of failedNodes) {
+                // Retry schema
+                if (this.loadErrors.has(`${node.id}_schema`)) {
+                    try {
+                        const schema = await WorkflowService.getNodeOutputSchema(this.workflowId, node.id);
+                        if (schema) {
+                            this.nodeSchemas.set(node.id, schema);
+                            this.loadErrors.delete(`${node.id}_schema`);
+                        }
+                    } catch (error) {
+                        console.error(`Retry failed for schema ${node.id}:`, error);
+                    }
+                }
+
+                // Retry sample data (only if schema is now available)
+                if (this.loadErrors.has(`${node.id}_sample`) && this.nodeSchemas.has(node.id)) {
+                    try {
+                        const sampleData = await WorkflowService.getNodeSampleData(this.workflowId, node.id, 10);
+                        if (sampleData) {
+                            this.nodeSampleData.set(node.id, sampleData);
+                            this.loadErrors.delete(`${node.id}_sample`);
+                        }
+                    } catch (error) {
+                        console.error(`Retry failed for sample data ${node.id}:`, error);
+                    }
+                }
+            }
+
+            // Re-run validation if needed
+            if (this.loadErrors.size === 0 || Array.from(this.loadErrors.keys()).every(k => !k.endsWith('_schema'))) {
+                await this.validate();
+            }
+        } finally {
+            this.isLoadingWorkflowData = false;
+        }
+    }
+
     async validate(): Promise<ValidationResult> {
         const result = validateWorkflowGraph(this.nodes, this.edges, this.connectors);
         this.validationResult = result;
@@ -879,7 +1306,14 @@ class WorkflowEditorStore {
     }
 
     async save(): Promise<boolean> {
-        if (!this.workflowId) {
+        let workflowId = this.workflowId;
+        
+        if (!workflowId && workflowStore.selectedWorkflow) {
+            workflowId = workflowStore.selectedWorkflow.id;
+            this.workflowId = workflowId;
+        }
+        
+        if (!workflowId) {
             this.error = 'No workflow ID set';
             return false;
         }
@@ -889,7 +1323,7 @@ class WorkflowEditorStore {
 
         try {
             const result = await WorkflowService.saveWorkflowGraph(
-                this.workflowId,
+                workflowId,
                 this.nodes,
                 this.edges
             );

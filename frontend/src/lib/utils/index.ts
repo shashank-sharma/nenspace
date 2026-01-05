@@ -1,16 +1,7 @@
-/**
- * Utilities Index
- * 
- * Centralized exports for all utility functions
- */
+export { cn, flyAndScale, formatDate, getPriorityColor, type WithElementRef, type WithoutChildren } from './ui.util';
 
-// UI utilities
-export { cn, flyAndScale, formatDate, getPriorityColor } from './ui.util';
-
-// Date utilities
 export { DateUtil } from './date.util';
 
-// Error handling
 export {
     withErrorHandling,
     withBatchErrorHandling,
@@ -19,10 +10,8 @@ export {
     type ParsedError,
 } from './error-handler.util';
 
-// Debug helpers
 export { DebugSettings, createPageDebug } from './debug-helper';
 
-// ID generation
 export {
     generateLocalId,
     isLocalId,
@@ -31,10 +20,8 @@ export {
     extractTimestamp,
 } from './id.util';
 
-// Storage
 export { storage, TypeSafeStorage } from './storage.util';
 
-// Validation
 export {
     validate,
     validateWithToast,
@@ -56,10 +43,8 @@ export {
     type ValidationResult,
 } from './validation.util';
 
-// PocketBase filter builder
 export { FilterBuilder } from './pocketbase-filter.util';
 
-// PocketBase utilities
 export {
     fetchAllPages,
     fetchPage,
@@ -71,7 +56,6 @@ export {
     type FetchAllPagesOptions,
 } from './pocketbase.util';
 
-// Hash utilities
 export {
     sha256,
     sha256Sync,
@@ -79,7 +63,6 @@ export {
     hashMultiple,
 } from './hash.util';
 
-// Email utilities
 export {
     formatEmailString,
     formatEmailDate,

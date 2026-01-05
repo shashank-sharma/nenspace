@@ -8,6 +8,7 @@
     import { CredentialsService } from "$lib/features/credentials/services";
     import { withErrorHandling } from "$lib/utils";
     import type { CredentialsStats } from "$lib/features/credentials/types";
+    import CredentialUsageCharts from "$lib/features/credentials/components/CredentialUsageCharts.svelte";
 
     let stats = $state<CredentialsStats>({
         totalTokens: 0,
@@ -32,7 +33,6 @@
 
         await withErrorHandling(
             async () => {
-                // Fetch all collections in parallel
                 const [tokens, devTokens, securityKeys] = await Promise.all([
                     CredentialsService.getTokens(),
                     CredentialsService.getDeveloperTokens(),
@@ -42,7 +42,7 @@
                 return {
                     totalTokens: tokens.length,
                     totalDeveloperTokens: devTokens.length,
-                    totalApiKeys: 0, // Placeholder - collection doesn't exist yet
+                    totalApiKeys: 0,
                     totalSecurityKeys: securityKeys.length,
                 };
             },
@@ -89,7 +89,6 @@
         />
     {:else}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <!-- API Tokens Card -->
             <Card.Root
                 class="cursor-pointer hover:bg-accent/50 transition-colors"
                 role="button"
@@ -118,7 +117,6 @@
                 </Card.Content>
             </Card.Root>
 
-            <!-- Developer Tokens Card -->
             <Card.Root
                 class="cursor-pointer hover:bg-accent/50 transition-colors"
                 role="button"
@@ -147,7 +145,6 @@
                 </Card.Content>
             </Card.Root>
 
-            <!-- API Keys Card - Coming Soon -->
             <Card.Root class="opacity-50 cursor-not-allowed">
                 <Card.Header
                     class="flex flex-row items-center justify-between space-y-0 pb-2"
@@ -170,7 +167,6 @@
                 </Card.Content>
             </Card.Root>
 
-            <!-- Security Keys Card -->
             <Card.Root
                 class="cursor-pointer hover:bg-accent/50 transition-colors"
                 role="button"
@@ -198,6 +194,10 @@
                     </p>
                 </Card.Content>
             </Card.Root>
+        </div>
+
+        <div class="mt-8">
+            <CredentialUsageCharts days={30} />
         </div>
     {/if}
 </div>

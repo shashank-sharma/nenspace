@@ -24,6 +24,7 @@
     import ButtonControl from "$lib/components/debug/controls/ButtonControl.svelte";
     import SwitchControl from "$lib/components/debug/controls/SwitchControl.svelte";
     import { SEARCH_DEBOUNCE_MS } from "../constants";
+    import CredentialUsageCharts from "./CredentialUsageCharts.svelte";
 
     // State
     let tokens = $state<DeveloperToken[]>([]);
@@ -248,6 +249,11 @@
                 New Token
             </Button>
         </div>
+    </div>
+
+    <!-- Usage Charts -->
+    <div class="mb-6">
+        <CredentialUsageCharts credentialType="dev_token" days={30} />
     </div>
 
     <div class="mb-6">

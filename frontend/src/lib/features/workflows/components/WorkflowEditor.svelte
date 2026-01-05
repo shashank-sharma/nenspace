@@ -1,7 +1,7 @@
 <script lang="ts">
-    import * as Card from '$lib/components/ui/card';
     import { Button } from '$lib/components/ui/button';
-    import { Save, X, ArrowRight, ArrowLeft, CheckCircle2, AlertCircle, Trash2 } from 'lucide-svelte';
+    import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+    import { Save, X, ArrowRight, ArrowLeft, CheckCircle2, AlertCircle, Trash2, Undo2, Redo2, Grid3x3, Map, MoreVertical, ZoomIn, ZoomOut, Maximize2, HelpCircle } from 'lucide-svelte';
     import { workflowEditorStore } from '../stores';
     import { NODE_COLORS } from '../constants';
     import type { FlowNode, FlowEdge } from '../types';
@@ -30,6 +30,13 @@
     let panStart = $state({ x: 0, y: 0 });
     let panStartPosition = $state({ x: 0, y: 0 });
     let isSpacePressed = $state(false);
+    
+    // View options
+    let showGrid = $state(true);
+    let showMinimap = $state(false);
+    let snapToGrid = $state(false);
+    let showHelpDialog = $state(false);
+    let isExecuting = $state(false);
 
     $effect(() => {
         if (workflowEditorStore.selectedNode) {
@@ -202,7 +209,11 @@
         if (isSpacePressed) {
             return;
         }
-        workflowEditorStore.selectNode(node);
+        
+        // Track initial mouse position to distinguish clicks from drags
+        const initialMousePos = { x: e.clientX, y: e.clientY };
+        const dragThreshold = 5; // pixels - if mouse moves more than this, it's a drag
+        
         isDragging = true;
         draggedNode = node;
         draggedNodeElement = (e.currentTarget as HTMLElement);
@@ -228,8 +239,16 @@
             void draggedNodeElement.offsetHeight;
         }
         
+        let hasMoved = false;
+        
         // Add document-level listeners for dragging (so it works even if mouse leaves canvas)
         const handleDocumentMouseMove = (moveEvent: MouseEvent) => {
+            // Check if mouse has moved significantly (drag threshold)
+            const deltaX = Math.abs(moveEvent.clientX - initialMousePos.x);
+            const deltaY = Math.abs(moveEvent.clientY - initialMousePos.y);
+            if (deltaX > dragThreshold || deltaY > dragThreshold) {
+                hasMoved = true;
+            }
             handleMouseMove(moveEvent);
         };
         
@@ -237,6 +256,11 @@
             handleMouseUp(upEvent);
             document.removeEventListener('mousemove', handleDocumentMouseMove);
             document.removeEventListener('mouseup', handleDocumentMouseUp);
+            
+            // Only select node if it was a click (not a drag)
+            if (!hasMoved) {
+                workflowEditorStore.selectNode(node);
+            }
         };
         
         document.addEventListener('mousemove', handleDocumentMouseMove);
@@ -253,8 +277,16 @@
             const rect = canvasRef.getBoundingClientRect();
             const mouseX = (e.clientX - rect.left - canvasPosition.x) / scale;
             const mouseY = (e.clientY - rect.top - canvasPosition.y) / scale;
-            const newX = mouseX - dragOffset.x;
-            const newY = mouseY - dragOffset.y;
+            let newX = mouseX - dragOffset.x;
+            let newY = mouseY - dragOffset.y;
+            
+            // Snap to grid if enabled
+            if (snapToGrid) {
+                const gridSize = 20;
+                newX = Math.round(newX / gridSize) * gridSize;
+                newY = Math.round(newY / gridSize) * gridSize;
+            }
+            
             const clampedX = Math.max(0, newX);
             const clampedY = Math.max(0, newY);
             
@@ -323,7 +355,7 @@
             const finalY = parseFloat(draggedNodeElement.style.top) || draggedNode.position.y;
             workflowEditorStore.updateNode(draggedNode.id, {
                 position: { x: finalX, y: finalY }
-            });
+            }, true); // Save history when drag ends
             lastStoreUpdate = { x: finalX, y: finalY };
             
             // Check if mouse is over delete zone when releasing
@@ -374,8 +406,60 @@
     }
     
     function handleKeyDown(e: KeyboardEvent) {
+        // Prevent shortcuts when typing in inputs
+        if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') {
+            return;
+        }
+
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const ctrlKey = isMac ? e.metaKey : e.ctrlKey;
+        
+        // Save (Ctrl/Cmd + S)
+        if (ctrlKey && e.key === 's') {
+            e.preventDefault();
+            handleSave();
+            return;
+        }
+
+        // Undo (Ctrl/Cmd + Z)
+        if (ctrlKey && e.key === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            handleUndo();
+            return;
+        }
+
+        // Redo (Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y)
+        if (ctrlKey && (e.shiftKey && e.key === 'z') || (!e.shiftKey && e.key === 'y')) {
+            e.preventDefault();
+            handleRedo();
+            return;
+        }
+
+        // Fit view (Ctrl/Cmd + F)
+        if (ctrlKey && e.key === 'f') {
+            e.preventDefault();
+            handleFitView();
+            return;
+        }
+
+        // Delete selected node
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (workflowEditorStore.selectedNode) {
+                e.preventDefault();
+                handleDeleteSelected();
+            }
+            return;
+        }
+
+        // Help dialog (?)
+        if (e.key === '?' && !ctrlKey) {
+            e.preventDefault();
+            showHelpDialog = !showHelpDialog;
+            return;
+        }
+
         // Track space key for panning
-        if (e.key === ' ' && e.target === canvasRef || (e.target as HTMLElement)?.closest('.workflow-canvas')) {
+        if (e.key === ' ' && (e.target === canvasRef || (e.target as HTMLElement)?.closest('.workflow-canvas'))) {
             if (!isSpacePressed) {
                 isSpacePressed = true;
                 if (canvasRef && !isDragging) {
@@ -714,6 +798,22 @@
         }
     }
 
+
+    function handleUndo() {
+        workflowEditorStore.undo();
+    }
+
+    function handleRedo() {
+        workflowEditorStore.redo();
+    }
+
+    function handleDeleteSelected() {
+        if (workflowEditorStore.selectedNode) {
+            workflowEditorStore.removeNode(workflowEditorStore.selectedNode.id);
+            toast.success('Node deleted');
+        }
+    }
+
     function handleZoomIn() {
         scale = Math.min(scale + 0.1, 2);
     }
@@ -787,25 +887,83 @@
     }
 </script>
 
-<Card.Root class="h-full flex flex-col">
-    <Card.Header class="flex flex-row items-center justify-between">
-        <Card.Title class="text-sm font-medium">Workflow Editor</Card.Title>
+<div class="h-full flex flex-col">
+    <!-- Toolbar -->
+    <div class="flex items-center justify-between px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <!-- Left Section: Actions -->
         <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" on:click={handleZoomOut}>-</Button>
-            <span class="text-xs">{Math.round(scale * 100)}%</span>
-            <Button variant="outline" size="sm" on:click={handleZoomIn}>+</Button>
-            <Button variant="outline" size="sm" on:click={handleFitView}>Fit</Button>
-            <Button size="sm" on:click={handleSave} disabled={!workflowEditorStore.isDirty || workflowEditorStore.isLoading}>
+            <Button 
+                variant="outline" 
+                size="sm" 
+                onclick={handleSave} 
+                disabled={!workflowEditorStore.isDirty || workflowEditorStore.isLoading}
+                class="hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Save (Ctrl/Cmd + S)"
+            >
                 <Save class="h-4 w-4 mr-2" />
                 Save
             </Button>
         </div>
-    </Card.Header>
-    <Card.Content class="p-0 relative overflow-hidden flex-1 min-h-0 flex flex-col h-full w-full">
+
+        <!-- Right Section: View Options -->
+        <div class="flex items-center gap-1 ml-4">
+            <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8 hover:bg-accent transition-colors {showGrid ? 'bg-accent' : ''}"
+                onclick={() => showGrid = !showGrid}
+                title="Toggle grid"
+            >
+                <Grid3x3 class="h-4 w-4" />
+            </Button>
+            <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8 hover:bg-accent transition-colors {showMinimap ? 'bg-accent' : ''}"
+                onclick={() => showMinimap = !showMinimap}
+                title="Toggle minimap"
+            >
+                <Map class="h-4 w-4" />
+            </Button>
+            <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild let:builder>
+                    <Button variant="ghost" size="icon" class="h-8 w-8 hover:bg-accent transition-colors" builders={[builder]} title="More options">
+                        <MoreVertical class="h-4 w-4" />
+                    </Button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Content>
+                    <DropdownMenu.Item onclick={handleUndo} disabled={!workflowEditorStore.canUndo}>
+                        <Undo2 class="h-4 w-4 mr-2" />
+                        Undo
+                        <span class="ml-auto text-xs text-muted-foreground">Ctrl+Z</span>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item onclick={handleRedo} disabled={!workflowEditorStore.canRedo}>
+                        <Redo2 class="h-4 w-4 mr-2" />
+                        Redo
+                        <span class="ml-auto text-xs text-muted-foreground">Ctrl+Shift+Z</span>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator />
+                    <DropdownMenu.Item onclick={() => snapToGrid = !snapToGrid}>
+                        <Grid3x3 class="h-4 w-4 mr-2" />
+                        {snapToGrid ? 'Disable' : 'Enable'} Snap to Grid
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator />
+                    <DropdownMenu.Item onclick={() => showHelpDialog = true}>
+                        <HelpCircle class="h-4 w-4 mr-2" />
+                        Keyboard Shortcuts
+                        <span class="ml-auto text-xs text-muted-foreground">?</span>
+                    </DropdownMenu.Item>
+                </DropdownMenu.Content>
+            </DropdownMenu.Root>
+        </div>
+    </div>
+
+    <!-- Canvas Area -->
+    <div class="relative overflow-hidden flex-1 min-h-0 flex flex-col h-full w-full">
         <div
             bind:this={canvasRef}
             class="absolute inset-0 w-full h-full bg-background select-none workflow-canvas"
-            style="background-image: linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px); background-size: 20px 20px; cursor: {isSpacePressed ? 'grab' : 'default'};"
+            style="background-image: {showGrid ? 'linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)' : 'none'}; background-size: 20px 20px; cursor: {isSpacePressed ? 'grab' : 'default'};"
             role="region"
             aria-label="Workflow canvas"
             onmousedown={handleCanvasMouseDown}
@@ -872,7 +1030,7 @@
                                 variant="ghost"
                                 size="icon"
                                 class="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground"
-                                on:click={(e) => handleNodeDelete(node, e)}
+                                onclick={(e) => handleNodeDelete(node, e)}
                                 title="Delete node"
                             >
                                 <Trash2 class="h-3 w-3" />
@@ -943,9 +1101,86 @@
                 <Trash2 class="h-8 w-8" />
                 <span class="text-sm font-medium">Drop here to delete</span>
             </div>
+
+            <!-- Zoom Controls (Bottom Left) -->
+            <div class="absolute bottom-4 left-4 flex items-center gap-1 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border rounded-lg shadow-lg p-1 z-50">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8 hover:bg-accent transition-colors"
+                    onclick={handleZoomOut}
+                    title="Zoom out"
+                >
+                    <ZoomOut class="h-4 w-4" />
+                </Button>
+                <span class="text-xs font-medium px-2 min-w-[3rem] text-center">{Math.round(scale * 100)}%</span>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8 hover:bg-accent transition-colors"
+                    onclick={handleZoomIn}
+                    title="Zoom in"
+                >
+                    <ZoomIn class="h-4 w-4" />
+                </Button>
+                <div class="h-6 w-px bg-border mx-1"></div>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8 hover:bg-accent transition-colors"
+                    onclick={handleFitView}
+                    title="Fit view (Ctrl/Cmd + F)"
+                >
+                    <Maximize2 class="h-4 w-4" />
+                </Button>
+            </div>
         </div>
-    </Card.Content>
-</Card.Root>
+    </div>
+
+    <!-- Help Dialog -->
+    {#if showHelpDialog}
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={() => showHelpDialog = false} role="dialog" aria-modal="true">
+            <div class="bg-background border rounded-lg shadow-lg p-6 max-w-md w-full mx-4" onclick={(e) => e.stopPropagation()}>
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold">Keyboard Shortcuts</h3>
+                    <Button variant="ghost" size="icon" class="h-6 w-6" onclick={() => showHelpDialog = false}>
+                        <X class="h-4 w-4" />
+                    </Button>
+                </div>
+                <div class="space-y-2 text-sm">
+                    <div class="flex items-center justify-between py-2 border-b">
+                        <span class="text-muted-foreground">Pan canvas</span>
+                        <kbd class="px-2 py-1 bg-muted rounded text-xs">Space</kbd>
+                    </div>
+                    <div class="flex items-center justify-between py-2 border-b">
+                        <span class="text-muted-foreground">Save workflow</span>
+                        <kbd class="px-2 py-1 bg-muted rounded text-xs">Ctrl/Cmd + S</kbd>
+                    </div>
+                    <div class="flex items-center justify-between py-2 border-b">
+                        <span class="text-muted-foreground">Undo</span>
+                        <kbd class="px-2 py-1 bg-muted rounded text-xs">Ctrl/Cmd + Z</kbd>
+                    </div>
+                    <div class="flex items-center justify-between py-2 border-b">
+                        <span class="text-muted-foreground">Redo</span>
+                        <kbd class="px-2 py-1 bg-muted rounded text-xs">Ctrl/Cmd + Shift + Z</kbd>
+                    </div>
+                    <div class="flex items-center justify-between py-2 border-b">
+                        <span class="text-muted-foreground">Fit view</span>
+                        <kbd class="px-2 py-1 bg-muted rounded text-xs">Ctrl/Cmd + F</kbd>
+                    </div>
+                    <div class="flex items-center justify-between py-2 border-b">
+                        <span class="text-muted-foreground">Delete node</span>
+                        <kbd class="px-2 py-1 bg-muted rounded text-xs">Delete / Backspace</kbd>
+                    </div>
+                    <div class="flex items-center justify-between py-2">
+                        <span class="text-muted-foreground">Show shortcuts</span>
+                        <kbd class="px-2 py-1 bg-muted rounded text-xs">?</kbd>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {/if}
+</div>
 
 <style>
     .workflow-canvas:active {

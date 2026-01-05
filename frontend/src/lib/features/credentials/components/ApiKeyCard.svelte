@@ -4,7 +4,9 @@
     import { Button } from "$lib/components/ui/button";
     import { Switch } from "$lib/components/ui/switch";
     import { Badge } from "$lib/components/ui/badge";
-    import { Eye, EyeOff, Edit, Trash2 } from "lucide-svelte";
+    import { Eye, EyeOff, Edit, Trash2, BarChart3 } from "lucide-svelte";
+    import UsageStatsCard from "./UsageStatsCard.svelte";
+    import * as Dialog from "$lib/components/ui/dialog";
 
     interface Props {
         apiKey: ApiKey;
@@ -16,6 +18,7 @@
     let { apiKey, onedit, ondelete, ontoggleStatus } = $props<Props>();
 
     let showSecret = $state(false);
+    let showStats = $state(false);
 </script>
 
 <Card.Root>
@@ -74,6 +77,14 @@
             <Button
                 variant="outline"
                 size="icon"
+                onclick={() => showStats = true}
+                title="View usage statistics"
+            >
+                <BarChart3 class="w-4 h-4" />
+            </Button>
+            <Button
+                variant="outline"
+                size="icon"
                 onclick={() => onedit?.()}
             >
                 <Edit class="w-4 h-4" />
@@ -88,3 +99,21 @@
         </div>
     </Card.Footer>
 </Card.Root>
+
+<Dialog.Root bind:open={showStats}>
+    <Dialog.Content class="max-w-2xl">
+        <Dialog.Header>
+            <Dialog.Title>Usage Statistics - {apiKey.name}</Dialog.Title>
+            <Dialog.Description>
+                View detailed usage statistics for this API key
+            </Dialog.Description>
+        </Dialog.Header>
+        <div class="py-4">
+            <UsageStatsCard 
+                credentialType="api_key" 
+                credentialId={apiKey.id} 
+                showDetails={true}
+            />
+        </div>
+    </Dialog.Content>
+</Dialog.Root>

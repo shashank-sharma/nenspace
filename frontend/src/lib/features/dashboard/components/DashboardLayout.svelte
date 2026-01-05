@@ -3,6 +3,7 @@
     import DashboardHeader from "./DashboardHeader.svelte";
     import FullscreenSettingsModal from "$lib/components/FullscreenSettingsModal.svelte";
     import BackgroundPattern from "$lib/components/BackgroundPattern.svelte";
+    import PageTransition from "$lib/components/PageTransition.svelte";
     import { SettingsService } from "$lib/services/settings.service.svelte";
     import { fade, scale } from "svelte/transition";
     import type { DashboardSection } from "../types";
@@ -62,7 +63,9 @@
             <DashboardHeader on:show-shortcuts={onShowShortcuts} />
 
             <main class="flex-1 overflow-auto p-0">
-                {@render children()}
+                <PageTransition type="section" duration={200}>
+                    {@render children()}
+                </PageTransition>
                 {#if isMobileView}
                     <!-- Spacer to prevent content from being hidden behind the mobile navigation -->
                     <div class="h-20 w-full mt-6"></div>

@@ -77,7 +77,7 @@ class ApiLoadingServiceImpl {
         // Reassign to trigger reactivity on $state(Set)
         this.#activeRequests = new Set(this.#activeRequests);
         
-        console.log(`[API] ▶ Started (${this.#activeRequests.size} active)${label ? ': ' + label : ''}`);
+        // console.log(`[API] ▶ Started (${this.#activeRequests.size} active)${label ? ': ' + label : ''}`);
         
         this.#emitStatusUpdate();
         
@@ -98,11 +98,11 @@ class ApiLoadingServiceImpl {
         
         if (wasTracking) {
             const remaining = this.activeRequestsDetailed;
-            console.log(
-                `[API] ✓ Ended (${this.#activeRequests.size} active)${endedLabel ? ': ' + endedLabel : ''}`,
-                remaining.length > 0 ? '\n[API] ▶ Still active:' : '' ,
-                remaining.length > 0 ? remaining : ''
-            );
+            // console.log(
+            //     `[API] ✓ Ended (${this.#activeRequests.size} active)${endedLabel ? ': ' + endedLabel : ''}`,
+            //     remaining.length > 0 ? '\n[API] ▶ Still active:' : '' ,
+            //     remaining.length > 0 ? remaining : ''
+            // );
         } else {
             console.warn(`[API] ⚠️ Tried to end non-tracked request: ${requestId}`);
         }
@@ -123,7 +123,7 @@ class ApiLoadingServiceImpl {
         this.#activeRequests = new Set();
         
         if (count > 0) {
-            console.log(`[API] 🧹 Cleared ${count} stuck requests`);
+            // console.log(`[API] 🧹 Cleared ${count} stuck requests`);
         }
 
         this.#emitStatusUpdate();
@@ -133,11 +133,11 @@ class ApiLoadingServiceImpl {
      * Debug method to log current state
      */
     debugState(): void {
-        console.log(`[API] Debug State:`, {
-            isLoading: this.isLoading,
-            activeCount: this.activeCount,
-            activeRequests: this.activeRequestsDetailed,
-        });
+        // console.log(`[API] Debug State:`, {
+        //     isLoading: this.isLoading,
+        //     activeCount: this.activeCount,
+        //     activeRequests: this.activeRequestsDetailed,
+        // });
     }
 
     /**

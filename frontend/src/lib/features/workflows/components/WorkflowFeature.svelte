@@ -8,11 +8,11 @@
     import * as Dialog from '$lib/components/ui/dialog';
     import { Label } from '$lib/components/ui/label';
     import { Textarea } from '$lib/components/ui/textarea';
-    import { Search, Plus, ArrowLeft, X } from 'lucide-svelte';
+    import { Search, Plus, ArrowLeft, Play, Circle, CircleDot, Code2, PlayCircle } from 'lucide-svelte';
     import WorkflowList from './WorkflowList.svelte';
     import WorkflowEditor from './WorkflowEditor.svelte';
     import NodePalette from './NodePalette.svelte';
-    import ConnectorConfigPanel from './ConnectorConfigPanel.svelte';
+    import NodeConfigDrawer from './NodeConfigDrawer.svelte';
     import WorkflowExecutionPanel from './WorkflowExecutionPanel.svelte';
     import WorkflowValidation from './WorkflowValidation.svelte';
     import ExecutionList from './ExecutionList.svelte';
@@ -31,11 +31,8 @@
 
     let lastSearchQuery = $state('');
     let lastSelectedWorkflowId = $state<string | null>(null);
-    let openConfigNodes = $state<Set<string>>(new Set());
-    let collapsedConfigNodes = $state<Set<string>>(new Set());
     let validationCollapsed = $state(false);
     let selectedExecutionId = $state<string | null>(null);
-    let executionListReloadTrigger = $state(0);
     
     // Resizable splitter state
     let rightSidebarWidth = $state(400); // Default width in pixels
@@ -103,41 +100,6 @@
         }
     });
 
-    // Handle node selection - add to open config panels and collapse others
-    $effect(() => {
-        const selectedNode = workflowEditorStore.selectedNode;
-        if (selectedNode) {
-            // If node is not in open configs, add it
-            if (!openConfigNodes.has(selectedNode.id)) {
-                openConfigNodes.add(selectedNode.id);
-                openConfigNodes = new Set(openConfigNodes); // Trigger reactivity
-            }
-            // Collapse all other nodes and expand the selected one
-            const newCollapsed = new Set<string>();
-            openConfigNodes.forEach(nodeId => {
-                if (nodeId !== selectedNode.id) {
-                    newCollapsed.add(nodeId);
-                }
-            });
-            collapsedConfigNodes = newCollapsed;
-        }
-    });
-
-    // Clean up config panels when nodes are deleted
-    $effect(() => {
-        const nodes = workflowEditorStore.nodes;
-        const nodeIds = new Set(nodes.map(n => n.id));
-        const toRemove: string[] = [];
-        openConfigNodes.forEach(nodeId => {
-            if (!nodeIds.has(nodeId)) {
-                toRemove.push(nodeId);
-            }
-        });
-        if (toRemove.length > 0) {
-            toRemove.forEach(id => openConfigNodes.delete(id));
-            openConfigNodes = new Set(openConfigNodes);
-        }
-    });
 
     $effect(() => {
         const currentWorkflowId = workflowStore.selectedWorkflow?.id || null;
@@ -157,7 +119,6 @@
                 }
             } else {
                 workflowEditorStore.reset();
-                openConfigNodes.clear(); // Clear open configs when workflow is deselected
                 
                 // Remove workflow ID from URL (only if it exists)
                 const urlWorkflowId = $page.url.searchParams.get('id');
@@ -171,38 +132,10 @@
         }
     });
 
-    function handleCloseConfig(nodeId: string) {
-        openConfigNodes.delete(nodeId);
-        openConfigNodes = new Set(openConfigNodes); // Trigger reactivity
-        collapsedConfigNodes.delete(nodeId);
-        collapsedConfigNodes = new Set(collapsedConfigNodes);
-        // If this was the selected node, deselect it
-        if (workflowEditorStore.selectedNode?.id === nodeId) {
-            workflowEditorStore.selectNode(null);
-        }
-    }
-
-    function handleToggleConfig(nodeId: string) {
-        if (collapsedConfigNodes.has(nodeId)) {
-            collapsedConfigNodes.delete(nodeId);
-        } else {
-            collapsedConfigNodes.add(nodeId);
-        }
-        collapsedConfigNodes = new Set(collapsedConfigNodes);
-    }
-
     function handleNodeClick(nodeId: string) {
         const node = workflowEditorStore.nodes.find(n => n.id === nodeId);
         if (node) {
-            if (openConfigNodes.has(nodeId)) {
-                // Already open, just select it
-                workflowEditorStore.selectNode(node);
-            } else {
-                // Not open, add it and select it
-                openConfigNodes.add(nodeId);
-                openConfigNodes = new Set(openConfigNodes);
-                workflowEditorStore.selectNode(node);
-            }
+            workflowEditorStore.selectNode(node);
         }
     }
 
@@ -299,6 +232,27 @@
         }
     }
 
+    let isExecuting = $state(false);
+
+    async function handleExecute() {
+        if (!workflowStore.selectedWorkflow || isExecuting) return;
+        
+        isExecuting = true;
+        try {
+            const result = await WorkflowService.executeWorkflow(workflowStore.selectedWorkflow.id);
+            if (result && result.id) {
+                toast.success('Workflow execution started');
+            } else {
+                toast.error('Failed to start workflow execution');
+            }
+        } catch (error) {
+            console.error('Execution failed:', error);
+            toast.error('Failed to execute workflow');
+        } finally {
+            isExecuting = false;
+        }
+    }
+
     function handleResizeStart(e: MouseEvent) {
         isResizing = true;
         resizeStartX = e.clientX;
@@ -352,7 +306,8 @@
             </div>
             <Button
                 size="sm"
-                on:click={() => showNewDialog = true}
+                onclick={() => showNewDialog = true}
+                class="bg-primary hover:bg-primary/90 text-primary-foreground transition-colors shadow-sm hover:shadow"
             >
                 <Plus class="h-4 w-4 mr-2" />
                 New Workflow
@@ -380,8 +335,8 @@
                         <Button
                             variant="ghost"
                             size="icon"
-                            class="h-8 w-8"
-                            on:click={() => workflowStore.selectWorkflow(null)}
+                            class="h-8 w-8 hover:bg-accent transition-colors"
+                            onclick={() => workflowStore.selectWorkflow(null)}
                             title="Back to workflows"
                         >
                             <ArrowLeft class="h-4 w-4" />
@@ -391,14 +346,13 @@
                         </Card.Title>
                     </div>
                 </Card.Header>
-                <Card.Content class="p-0">
+                <Card.Content class="p-0 flex-1 min-h-0 overflow-hidden flex flex-col">
                     {#if activeTab === 'editor'}
                         <NodePalette />
                     {:else}
                         <ExecutionList 
                             workflowId={workflowStore.selectedWorkflow.id} 
                             bind:selectedExecutionId={selectedExecutionId}
-                            bind:reloadTrigger={executionListReloadTrigger}
                         />
                     {/if}
                 </Card.Content>
@@ -409,34 +363,52 @@
             {#if workflowStore.selectedWorkflow}
                 <Card.Header>
                     <div class="flex items-center justify-between">
-                        <div class="flex-1">
-                            <Card.Title class="text-lg font-semibold">{workflowStore.selectedWorkflow.name}</Card.Title>
-                            {#if workflowStore.selectedWorkflow.description}
-                                <Card.Description class="text-sm mt-1">{workflowStore.selectedWorkflow.description}</Card.Description>
+                        <div class="flex-1 flex items-center gap-2">
+                            {#if workflowStore.selectedWorkflow.active}
+                                <CircleDot class="h-5 w-5 text-green-500 flex-shrink-0" title="Active" />
+                            {:else}
+                                <Circle class="h-5 w-5 text-muted-foreground flex-shrink-0" title="Inactive" />
                             {/if}
+                            <div class="flex-1 min-w-0">
+                                <Card.Title class="text-lg font-semibold">{workflowStore.selectedWorkflow.name}</Card.Title>
+                                {#if workflowStore.selectedWorkflow.description}
+                                    <Card.Description class="text-sm mt-1">{workflowStore.selectedWorkflow.description}</Card.Description>
+                                {/if}
+                            </div>
                         </div>
                         <Button
-                            variant="outline"
                             size="sm"
-                            on:click={handleValidate}
+                            onclick={handleExecute}
+                            disabled={isExecuting || !workflowStore.selectedWorkflow.active}
+                            class="bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 text-white transition-colors shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Execute workflow"
                         >
-                            Validate
+                            <Play class="h-4 w-4 mr-2" />
+                            {isExecuting ? 'Executing...' : 'Execute'}
                         </Button>
                     </div>
                 </Card.Header>
                 <Card.Content class="p-0 flex flex-col h-full">
-                    <div class="flex gap-2 px-6 py-3 border-b bg-background">
+                    <div class="flex gap-0.5 px-4 pt-3 pb-0 border-b bg-muted/30">
                         <button
-                            class="px-4 py-2 border-none bg-transparent cursor-pointer border-b-2 transition-all text-sm text-muted-foreground mb-[-1px] hover:text-foreground hover:bg-accent/50 {activeTab === 'editor' ? 'border-b-primary text-primary font-medium' : 'border-b-transparent'}"
+                            class="relative px-5 py-2.5 rounded-t-md cursor-pointer transition-all text-sm font-medium mb-[-1px] flex items-center gap-2 group {activeTab === 'editor' ? 'text-primary bg-background border-t border-l border-r border-b-0 shadow-[0_-2px_4px_rgba(0,0,0,0.05)] dark:shadow-[0_-2px_4px_rgba(0,0,0,0.2)]' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}"
                             onclick={() => activeTab = 'editor'}
                         >
-                            Editor
+                            <Code2 class="h-4 w-4 transition-colors {activeTab === 'editor' ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}" />
+                            <span>Editor</span>
+                            {#if activeTab === 'editor'}
+                                <div class="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-full"></div>
+                            {/if}
                         </button>
                         <button
-                            class="px-4 py-2 border-none bg-transparent cursor-pointer border-b-2 transition-all text-sm text-muted-foreground mb-[-1px] hover:text-foreground hover:bg-accent/50 {activeTab === 'execution' ? 'border-b-primary text-primary font-medium' : 'border-b-transparent'}"
+                            class="relative px-5 py-2.5 rounded-t-md cursor-pointer transition-all text-sm font-medium mb-[-1px] flex items-center gap-2 group {activeTab === 'execution' ? 'text-primary bg-background border-t border-l border-r border-b-0 shadow-[0_-2px_4px_rgba(0,0,0,0.05)] dark:shadow-[0_-2px_4px_rgba(0,0,0,0.2)]' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}"
                             onclick={() => activeTab = 'execution'}
                         >
-                            Execution
+                            <PlayCircle class="h-4 w-4 transition-colors {activeTab === 'execution' ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}" />
+                            <span>Execution</span>
+                            {#if activeTab === 'execution'}
+                                <div class="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-full"></div>
+                            {/if}
                         </button>
                     </div>
                     <div class="flex-1 min-h-0 overflow-hidden flex flex-col h-full">
@@ -449,9 +421,7 @@
                                     workflowId={workflowStore.selectedWorkflow.id}
                                     bind:selectedExecutionId={selectedExecutionId}
                                     onExecutionCreated={(executionId) => {
-                                        // Trigger reload of execution list
-                                        executionListReloadTrigger++;
-                                        console.log('[WorkflowFeature] Execution created, triggering reload:', executionId);
+                                        // Subscription will handle the new execution automatically
                                     }}
                                 />
                             </div>
@@ -463,7 +433,7 @@
                     <div class="text-center">
                         <h2 class="text-xl font-semibold mb-2">No workflow selected</h2>
                         <p class="text-muted-foreground mb-4">Select a workflow from the list or create a new one</p>
-                        <Button on:click={() => showNewDialog = true}>
+                        <Button onclick={() => showNewDialog = true}>
                             <Plus class="h-4 w-4 mr-2" />
                             Create New Workflow
                         </Button>
@@ -475,7 +445,13 @@
         {#if workflowStore.selectedWorkflow}
             <div class="w-1 bg-border cursor-col-resize relative z-10 transition-colors hover:bg-primary active:bg-primary select-none flex-shrink-0 h-full" onmousedown={handleResizeStart} role="separator" aria-label="Resize sidebar" tabindex="0"></div>
             <div class="flex flex-col gap-2 h-full min-w-0 flex-shrink-0 overflow-hidden" style="min-width: 300px; max-width: 800px;">
-                {#if workflowEditorStore.validationResult}
+                {#if workflowEditorStore.isLoadingWorkflowData}
+                    <Card.Root class="flex-shrink-0">
+                        <Card.Content class="flex items-center justify-center p-4">
+                            <p class="text-xs text-muted-foreground">Loading validation...</p>
+                        </Card.Content>
+                    </Card.Root>
+                {:else if workflowEditorStore.validationResult}
                     <div class="flex-shrink-0">
                         <WorkflowValidation 
                             validationResult={workflowEditorStore.validationResult} 
@@ -485,52 +461,12 @@
                 {/if}
                 <Card.Root class="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col h-full">
                     <Card.Content class="flex flex-col h-full overflow-y-auto p-1 h-full custom-scrollbar">
-                        {#if openConfigNodes.size > 0}
-                            <div class="flex flex-col gap-1 h-full flex-1 min-h-0">
-                                <div class="px-3 py-2 border-b flex-shrink-0">
-                                    <h3 class="text-sm font-medium">Node Configuration</h3>
-                                </div>
-                                {#each Array.from(openConfigNodes) as nodeId}
-                                    {@const node = workflowEditorStore.nodes.find(n => n.id === nodeId)}
-                                    {@const isCollapsed = collapsedConfigNodes.has(nodeId)}
-                                    {#if node}
-                                        <div class="flex flex-col {isCollapsed ? 'flex-shrink-0 flex-grow-0' : 'flex-1 min-h-0'}">
-                                            <div class="px-3 py-2 border-b cursor-pointer hover:bg-muted/50 flex items-center justify-between flex-shrink-0" onclick={() => handleToggleConfig(nodeId)} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggleConfig(nodeId); } }}>
-                                                <div class="flex-1 min-w-0">
-                                                    <p class="text-xs font-medium truncate">{node.data.label}</p>
-                                                    <p class="text-[10px] text-muted-foreground truncate">{node.data.nodeType}</p>
-                                                </div>
-                                                <div class="flex items-center gap-2 flex-shrink-0">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        class="h-5 w-5"
-                                                        on:click={(e) => {
-                                                            e.stopPropagation();
-                                                            handleCloseConfig(nodeId);
-                                                        }}
-                                                        title="Close configuration"
-                                                    >
-                                                        <X class="h-3 w-3" />
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                            {#if !isCollapsed}
-                                                <div class="flex-1 min-h-0 overflow-hidden">
-                                                    <ConnectorConfigPanel node={node} onClose={() => handleCloseConfig(nodeId)} hideHeader={true} />
-                                                </div>
-                                            {/if}
-                                        </div>
-                                    {/if}
-                                {/each}
+                        <div class="flex items-center justify-center h-full w-full">
+                            <div class="text-xs text-muted-foreground text-center px-4">
+                                <p class="mb-2">Node configuration</p>
+                                <p class="text-[10px] opacity-75">Click on a node to configure it in the drawer</p>
                             </div>
-                        {:else}
-                            <div class="flex items-center justify-center h-full w-full">
-                                <div class="text-xs text-muted-foreground text-center">
-                                    Select a node to configure it
-                                </div>
-                            </div>
-                        {/if}
+                        </div>
                     </Card.Content>
                 </Card.Root>
             </div>
@@ -580,11 +516,13 @@
             </div>
         </div>
         <Dialog.Footer>
-            <Button variant="outline" on:click={() => showNewDialog = false}>Cancel</Button>
-            <Button on:click={handleCreateWorkflow}>Create</Button>
+            <Button variant="outline" onclick={() => showNewDialog = false} class="hover:bg-accent transition-colors">Cancel</Button>
+            <Button onclick={handleCreateWorkflow} class="bg-primary hover:bg-primary/90 text-primary-foreground transition-colors shadow-sm hover:shadow">Create</Button>
         </Dialog.Footer>
     </Dialog.Content>
 </Dialog.Root>
+
+<NodeConfigDrawer />
 
 <style>
     .workflow-floating-layout {

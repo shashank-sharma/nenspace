@@ -1,8 +1,9 @@
 <script lang="ts">
-    import { Key, Trash2 } from "lucide-svelte";
+    import { Key, Trash2, BarChart3 } from "lucide-svelte";
     import { Badge } from "$lib/components/ui/badge";
     import { Button } from "$lib/components/ui/button";
     import { Switch } from "$lib/components/ui/switch";
+    import * as Dialog from "$lib/components/ui/dialog";
     import {
         Card,
         CardHeader,
@@ -13,6 +14,7 @@
     } from "$lib/components/ui/card";
     import type { Token } from "../types";
     import { createEventDispatcher } from "svelte";
+    import UsageStatsCard from "$lib/features/credentials/components/UsageStatsCard.svelte";
 
     const dispatch = createEventDispatcher<{
         edit: Token;
@@ -23,6 +25,8 @@
     let { token } = $props<{
         token: Token;
     }>();
+
+    let showStats = $state(false);
 
     function handleCardClick(e: MouseEvent) {
         const target = e.target as HTMLElement;
@@ -86,6 +90,16 @@
                 {token.is_active ? "Active" : "Disabled"}
             </span>
         </div>
+        <div class="flex gap-2">
+            <Button
+                variant="outline"
+                size="icon"
+                class="action-button"
+                onclick={() => showStats = true}
+                title="View usage statistics"
+            >
+                <BarChart3 class="w-4 h-4" />
+            </Button>
         <Button
             variant="destructive"
             size="icon"
@@ -94,5 +108,24 @@
         >
             <Trash2 class="w-4 h-4" />
         </Button>
+        </div>
     </CardFooter>
 </Card>
+
+<Dialog.Root bind:open={showStats}>
+    <Dialog.Content class="max-w-2xl">
+        <Dialog.Header>
+            <Dialog.Title>Usage Statistics - {token.provider}</Dialog.Title>
+            <Dialog.Description>
+                View detailed usage statistics for this OAuth token
+            </Dialog.Description>
+        </Dialog.Header>
+        <div class="py-4">
+            <UsageStatsCard 
+                credentialType="token" 
+                credentialId={token.id} 
+                showDetails={true}
+            />
+        </div>
+    </Dialog.Content>
+</Dialog.Root>

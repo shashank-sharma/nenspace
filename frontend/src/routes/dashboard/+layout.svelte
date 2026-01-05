@@ -1,15 +1,16 @@
 <script lang="ts">
     import DashboardLayout from "$lib/features/dashboard/components/DashboardLayout.svelte";
     import { DASHBOARD_SECTIONS } from "$lib/features/dashboard/constants";
-    import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { authService } from "$lib/services/authService.svelte";
     import { HealthService } from "$lib/services/health.service.svelte"; // Import for automatic initialization
-    import { RealtimeService } from "$lib/services/realtime.service.svelte"; // Dashboard-only: real-time notifications
     import { SettingsService } from "$lib/services/settings.service.svelte"; // Preload settings for dashboard
     import StatusIndicator from "$lib/components/StatusIndicator.svelte";
     import ShortcutsHelpPanel from "$lib/components/ShortcutsHelpPanel.svelte";
+    import DashboardLoading from "$lib/components/DashboardLoading.svelte";
     import { Toaster } from "$lib/components/ui/sonner";
+    import { onMount } from "svelte";
+    import { onNavigate } from "$app/navigation";
     import type { Snippet } from "svelte";
 
     // Register feature sync services (DASHBOARD-ONLY - not loaded on homepage/auth)
@@ -35,32 +36,20 @@
         }
     });
 
-    // Initialize dashboard-only services
+    // Cleanup on unmount
     onMount(() => {
-        // Preload user settings first (critical for UI state)
-        // This will also trigger font application via applyGlobalSettings()
-        SettingsService.ensureLoaded().catch((err) => {
-            console.error("[Dashboard] Failed to preload settings:", err);
-        });
-        
-        // Initialize realtime notifications (only in dashboard)
-        // Note: NotificationSyncService is initialized at root layout level
-        RealtimeService.initialize().catch((err) => {
-            console.error(
-                "[Dashboard] Failed to initialize realtime service:",
-                err,
-            );
-        });
-
-        // Cleanup on unmount
         return () => {
-            RealtimeService.cleanup().catch((err) => {
-                console.error(
-                    "[Dashboard] Failed to cleanup realtime service:",
-                    err,
-                );
-            });
+            // Cleanup is handled by individual services
         };
+    });
+
+    // Handle navigation for transitions
+    onNavigate((navigation) => {
+        // Navigation state is handled by PageTransition component
+        // This hook ensures navigation completes properly
+        if (navigation?.to) {
+            // Navigation will be handled by the transition system
+        }
     });
 
     function handleShowShortcuts() {
@@ -73,22 +62,24 @@
 </script>
 
 {#if authService.isAuthenticated}
-    <!-- Toaster for dashboard -->
-    <Toaster />
+    <DashboardLoading>
+        <!-- Toaster for dashboard -->
+        <Toaster />
 
-    <!-- Island notification (top-center) - handles both notifications and network status -->
-    {#if shouldShowStatusIndicator}
-        <StatusIndicator />
-    {/if}
-    
-    <ShortcutsHelpPanel
-        visible={showShortcuts}
-        on:close={handleCloseShortcuts}
-    />
+        <!-- Island notification (top-center) - handles both notifications and network status -->
+        {#if shouldShowStatusIndicator}
+            <StatusIndicator />
+        {/if}
+        
+        <ShortcutsHelpPanel
+            visible={showShortcuts}
+            on:close={handleCloseShortcuts}
+        />
 
-    <DashboardLayout {sections} onShowShortcuts={handleShowShortcuts}>
-        {@render children()}
-    </DashboardLayout>
+        <DashboardLayout {sections} onShowShortcuts={handleShowShortcuts}>
+            {@render children()}
+        </DashboardLayout>
+    </DashboardLoading>
 {:else}
     <div
         class="flex items-center justify-center h-screen bg-background text-foreground"

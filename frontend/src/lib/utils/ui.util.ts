@@ -1,16 +1,10 @@
-/**
- * UI Utilities
- * Helper functions for UI components and styling
- */
-
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { cubicOut } from "svelte/easing";
 import type { TransitionConfig } from "svelte/transition";
+import type { HTMLAttributes } from "svelte/elements";
+import type { Snippet } from "svelte";
 
-/**
- * Format date to readable string
- */
 export function formatDate(date: string): string {
     return new Date(date).toLocaleDateString('en-US', {
         year: 'numeric',
@@ -21,9 +15,6 @@ export function formatDate(date: string): string {
     });
 }
 
-/**
- * Get Tailwind color class for priority level
- */
 export function getPriorityColor(priority: string): string {
     switch (priority) {
         case 'urgent': return 'text-red-500 dark:text-red-400';
@@ -34,13 +25,15 @@ export function getPriorityColor(priority: string): string {
     }
 }
 
-/**
- * Merge Tailwind classes with clsx
- * Handles conflicts intelligently (e.g., "px-2 px-4" → "px-4")
- */
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
+
+export type WithElementRef<T extends HTMLAttributes<HTMLElement>> = T & {
+	ref?: HTMLElement | null;
+};
+
+export type WithoutChildren<T> = Omit<T, "children">;
 
 type FlyAndScaleParams = {
     y?: number;
@@ -49,9 +42,6 @@ type FlyAndScaleParams = {
     duration?: number;
 };
 
-/**
- * Svelte transition: Fly and scale animation
- */
 export const flyAndScale = (
     node: Element,
     params: FlyAndScaleParams = { y: -8, x: 0, start: 0.95, duration: 150 }

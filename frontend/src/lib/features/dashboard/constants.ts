@@ -23,7 +23,9 @@ import {
     Calendar,
     PenTool,
     Waves,
-    GitBranch
+    GitBranch,
+    StickyNote,
+    Folder
 } from "lucide-svelte";
 
 export const DASHBOARD_SECTIONS: DashboardSection[] = [
@@ -32,6 +34,7 @@ export const DASHBOARD_SECTIONS: DashboardSection[] = [
     { id: "mails", label: "Mails", icon: Inbox, path: "/dashboard/mails" },
     { id: "servers", label: "Servers", icon: Server, path: "/dashboard/servers" },
     { id: "notebooks", label: "Notebooks", icon: Book, path: "/dashboard/notebooks" },
+    { id: "notes", label: "Notes", icon: StickyNote, path: "/dashboard/notes" },
     { id: "posts", label: "Posts", icon: FileText, path: "/dashboard/posts" },
     { id: "colors", label: "Colors", icon: Palette, path: "/dashboard/colors" },
     { id: "inventory", label: "Inventory", icon: Package, path: "/dashboard/inventory" },
@@ -44,6 +47,7 @@ export const DASHBOARD_SECTIONS: DashboardSection[] = [
     { id: "whiteboard", label: "Whiteboard", icon: PenTool, path: "/dashboard/whiteboard" },
     { id: "journal", label: "Stream", icon: Waves, path: "/dashboard/journal" },
     { id: "workflows", label: "Workflows", icon: GitBranch, path: "/dashboard/workflows" },
+    { id: "file-manager", label: "Files", icon: Folder, path: "/dashboard/file-manager" },
     { 
         id: "credentials", 
         label: "Credentials", 

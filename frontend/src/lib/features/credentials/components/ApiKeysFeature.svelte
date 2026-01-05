@@ -21,6 +21,7 @@
     import ButtonControl from "$lib/components/debug/controls/ButtonControl.svelte";
     import SwitchControl from "$lib/components/debug/controls/SwitchControl.svelte";
     import { SEARCH_DEBOUNCE_MS } from "../constants";
+    import CredentialUsageCharts from "./CredentialUsageCharts.svelte";
 
     // State
     let apiKeys = $state<ApiKey[]>([]);
@@ -239,6 +240,11 @@
                 New API Key
             </Button>
         </div>
+    </div>
+
+    <!-- Usage Charts -->
+    <div class="mb-6">
+        <CredentialUsageCharts credentialType="api_key" days={30} />
     </div>
 
     <div class="mb-6">

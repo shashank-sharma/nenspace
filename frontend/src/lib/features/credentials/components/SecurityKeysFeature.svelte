@@ -9,7 +9,10 @@
         Copy,
         Pencil,
         Trash2,
+        BarChart3,
     } from "lucide-svelte";
+    import * as Dialog from "$lib/components/ui/dialog";
+    import UsageStatsCard from "./UsageStatsCard.svelte";
     import { Button } from "$lib/components/ui/button";
     import * as Card from "$lib/components/ui/card";
     import { Badge } from "$lib/components/ui/badge";
@@ -32,12 +35,15 @@
     import SwitchControl from "$lib/components/debug/controls/SwitchControl.svelte";
     import { SEARCH_DEBOUNCE_MS } from "../constants";
     import { toast } from "svelte-sonner";
+    import CredentialUsageCharts from "./CredentialUsageCharts.svelte";
 
     // State
     let securityKeys = $state<SecurityKey[]>([]);
     let isLoading = $state(true);
     let searchQuery = $state("");
     let showingPrivateKey = $state<Record<string, boolean>>({});
+    let showStatsFor = $state<string | null>(null);
+    let statsDialogOpen = $state(false);
 
     // Modal management using hook
     const modals = useModalState<SecurityKey>();
@@ -293,6 +299,11 @@
         </div>
     </div>
 
+    <!-- Usage Charts -->
+    <div class="mb-6">
+        <CredentialUsageCharts credentialType="security_key" days={30} />
+    </div>
+
     <div class="mb-6">
         <SearchInput
             bind:value={searchQuery}
@@ -399,6 +410,17 @@
                             <Button
                                 variant="ghost"
                                 size="sm"
+                                on:click={() => {
+                                    showStatsFor = key.id;
+                                    statsDialogOpen = true;
+                                }}
+                                title="View usage statistics"
+                            >
+                                <BarChart3 class="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
                                 on:click={() => handleEdit(key)}
                             >
                                 <Pencil class="h-4 w-4" />
@@ -436,5 +458,31 @@
         variant="destructive"
         onconfirm={handleDelete}
     />
+
+    <!-- Usage Stats Dialog -->
+    {#if showStatsFor}
+        {@const selectedKey = securityKeys.find(k => k.id === showStatsFor)}
+        <Dialog.Root bind:open={statsDialogOpen} onOpenChange={(open) => { 
+            if (!open) {
+                showStatsFor = null;
+            }
+        }}>
+            <Dialog.Content class="max-w-2xl">
+                <Dialog.Header>
+                    <Dialog.Title>Usage Statistics - {selectedKey?.name || 'Security Key'}</Dialog.Title>
+                    <Dialog.Description>
+                        View detailed usage statistics for this security key
+                    </Dialog.Description>
+                </Dialog.Header>
+                <div class="py-4">
+                    <UsageStatsCard 
+                        credentialType="security_key" 
+                        credentialId={showStatsFor} 
+                        showDetails={true}
+                    />
+                </div>
+            </Dialog.Content>
+        </Dialog.Root>
+    {/if}
 </div>
 

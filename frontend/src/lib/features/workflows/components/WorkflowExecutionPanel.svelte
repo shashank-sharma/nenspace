@@ -1,16 +1,17 @@
 <script lang="ts">
-    import * as Card from '$lib/components/ui/card';
     import { Button } from '$lib/components/ui/button';
     import { Progress } from '$lib/components/ui/progress';
-    import { Play, Square, CheckCircle2, XCircle, Clock, AlertCircle, ChevronRight, Calendar, Timer, FileText, Database, Loader2, X, ChevronDown } from 'lucide-svelte';
+    import { CheckCircle2, XCircle, Clock, AlertCircle, Calendar, Timer, FileText, Database, Loader2, X, ChevronDown, ChevronUp, TrendingUp, Activity, BarChart3, Zap, Hash, Copy, Download, AlertTriangle } from 'lucide-svelte';
     import { WorkflowService, WorkflowExecutionService } from '../services';
     import WorkflowStatusBadge from './WorkflowStatusBadge.svelte';
     import ExecutionLogs from './ExecutionLogs.svelte';
-    import { onMount, onDestroy, untrack } from 'svelte';
+    import { DateUtil } from '$lib/utils/date.util';
+    import { STATUS_COLORS } from '../constants';
+    import { onMount, untrack } from 'svelte';
     import type { WorkflowExecution } from '../types';
+    import { workflowExecutionStore } from '../stores';
+    import { toast } from 'svelte-sonner';
     import { pb } from '$lib/config/pocketbase';
-    import { COLLECTIONS } from '../constants';
-    import type { UnsubscribeFunc } from 'pocketbase';
 
     let { 
         workflowId,
@@ -22,319 +23,109 @@
         onExecutionCreated?: (executionId: string) => void;
     }>();
 
-    let currentExecution = $state<WorkflowExecution | null>(null);
-    let isExecuting = $state(false);
-    let stopPolling = $state<(() => void) | null>(null);
-    let executionHistory = $state<WorkflowExecution[]>([]);
-    let selectedExecutionId = $derived(propSelectedExecutionId);
-    let isLoadingHistory = $state(false);
-    let liveExecutionSubscription = $state<UnsubscribeFunc | null>(null);
-    let liveExecutionId = $state<string | null>(null);
-    let liveStatusExpanded = $state(true);
-    let liveStatusClosed = $state(false);
     let isLoadingExecution = $state(false);
-    let lastLoadedExecutionId = $state<string | null>(null);
-    let loadingPromise: Promise<void> | null = null;
-    let previousSelectedId = $state<string | null>(null);
+    let logsExpanded = $state(true);
+    let resultsExpanded = $state(true);
+    let errorExpanded = $state(true);
 
-    // Watch for selectedExecutionId changes from parent
-    // Only run when propSelectedExecutionId actually changes
+    const currentExecution = $derived(workflowExecutionStore.selectedExecution);
+    const executions = $derived(workflowExecutionStore.getExecutions(workflowId));
+
+    let lastSelectedId = $state<string | null>(null);
+
     $effect(() => {
-        // Only track propSelectedExecutionId - nothing else
         const selectedId = propSelectedExecutionId;
+        const prevId = untrack(() => lastSelectedId);
         
-        // Read previousSelectedId outside untrack so we can compare properly
-        // But we need to be careful not to make it a dependency
-        const prevId = untrack(() => previousSelectedId);
-        
-        console.log('[WorkflowExecutionPanel] Effect triggered, selectedId:', selectedId, 'previousSelectedId:', prevId);
-        
-        // Early return if the value hasn't actually changed
         if (selectedId === prevId) {
-            console.log('[WorkflowExecutionPanel] Skipping - value unchanged');
             return;
         }
         
-        console.log('[WorkflowExecutionPanel] Value changed, processing...');
-        
-        // Update previous value immediately to prevent retriggering (inside untrack)
         untrack(() => {
-            previousSelectedId = selectedId;
+            lastSelectedId = selectedId;
         });
-        
-        // Use untrack to read all other state without making them dependencies
-        const snapshot = untrack(() => ({
-            currentId: currentExecution?.id,
-            isLoading: isLoadingExecution,
-            lastLoaded: lastLoadedExecutionId,
-            hasLoadingPromise: loadingPromise !== null
-        }));
-        
-        // If no execution is selected, clear current execution
-        if (!selectedId) {
-            if (snapshot.currentId) {
-                untrack(() => {
-                    currentExecution = null;
-                    if (liveExecutionSubscription) {
-                        liveExecutionSubscription();
-                        liveExecutionSubscription = null;
-                    }
-                    if (stopPolling) {
-                        stopPolling();
-                    }
-                    liveExecutionId = null;
-                    lastLoadedExecutionId = null;
-                    loadingPromise = null;
-                });
+
+        if (selectedId) {
+            const execution = untrack(() => workflowExecutionStore.getExecution(selectedId));
+            const loading = untrack(() => isLoadingExecution);
+            
+            if (!execution && !loading) {
+                isLoadingExecution = true;
+                workflowExecutionStore.ensureExecutionLoaded(selectedId)
+                    .finally(() => {
+                        untrack(() => {
+                            isLoadingExecution = false;
+                        });
+                    });
+            } else if (execution) {
+                workflowExecutionStore.selectExecution(selectedId);
             }
-            return;
+        } else {
+            workflowExecutionStore.selectExecution(null);
         }
-
-        // If this is already the current execution, don't reload
-        if (snapshot.currentId === selectedId) {
-            return;
-        }
-
-        // If we're already loading this execution, don't start another load
-        if (snapshot.isLoading && snapshot.lastLoaded === selectedId) {
-            return;
-        }
-
-        // If there's already a loading promise for this execution, don't start another
-        if (snapshot.hasLoadingPromise && snapshot.lastLoaded === selectedId) {
-            return;
-        }
-
-        console.log('[WorkflowExecutionPanel] Loading execution:', selectedId);
-
-        // Load the selected execution - update loading state (this is fine, won't retrigger effect)
-        isLoadingExecution = true;
-        lastLoadedExecutionId = selectedId;
-        
-        // Store the promise to prevent duplicate loads
-        loadingPromise = WorkflowExecutionService.getExecutionStatus(selectedId)
-            .then(execution => {
-                console.log('[WorkflowExecutionPanel] Execution loaded:', execution?.id, 'for selected:', selectedId);
-                // Only update if this is still the selected execution (prevent race conditions)
-                if (execution && execution.id === selectedId) {
-                    // Update currentExecution directly (untrack only prevents effect retriggering, not UI reactivity)
-                    currentExecution = execution;
-                    if (execution.status === 'running') {
-                        untrack(() => {
-                            liveExecutionId = execution.id;
-                            liveStatusClosed = false;
-                            liveStatusExpanded = true;
-                        });
-                        startPolling(execution.id);
-                        subscribeToExecutionUpdates(execution.id);
-                    } else {
-                        // Stop any existing polling/subscription for non-running executions
-                        untrack(() => {
-                            if (liveExecutionSubscription) {
-                                liveExecutionSubscription();
-                                liveExecutionSubscription = null;
-                            }
-                            if (stopPolling) {
-                                stopPolling();
-                            }
-                            liveExecutionId = null;
-                        });
-                    }
-                } else {
-                    console.warn('[WorkflowExecutionPanel] Execution ID mismatch:', execution?.id, 'expected:', selectedId);
-                }
-            })
-            .catch(error => {
-                console.error('[WorkflowExecutionPanel] Failed to load execution:', error);
-                untrack(() => {
-                    isLoadingExecution = false;
-                    loadingPromise = null;
-                });
-            })
-            .finally(() => {
-                // Only clear loading state if we're still loading the same execution
-                // Use untrack to prevent retriggering
-                untrack(() => {
-                    if (lastLoadedExecutionId === selectedId) {
-                        isLoadingExecution = false;
-                        loadingPromise = null;
-                    }
-                });
-            });
     });
 
     onMount(() => {
-        loadExecutionHistory();
+        workflowExecutionStore.fetchExecutions(workflowId).then(() => {
+            const executions = workflowExecutionStore.getExecutions(workflowId);
+            if (!propSelectedExecutionId && executions.length > 0 && executions[0].status === 'running') {
+                propSelectedExecutionId = executions[0].id;
+                workflowExecutionStore.selectExecution(executions[0].id);
+            }
+        });
     });
 
-    onDestroy(() => {
-        if (stopPolling) {
-            stopPolling();
-        }
-        if (liveExecutionSubscription) {
-            liveExecutionSubscription();
-            liveExecutionSubscription = null;
-        }
-    });
-
-    async function loadExecutionHistory() {
-        isLoadingHistory = true;
-        try {
-            const history = await WorkflowExecutionService.getExecutionHistory(workflowId, 10);
-            executionHistory = history;
-            // If no execution is selected and there's a running execution, select it
-            if (!propSelectedExecutionId && history.length > 0 && history[0].status === 'running') {
-                currentExecution = history[0];
-                propSelectedExecutionId = history[0].id;
-                liveExecutionId = history[0].id;
-                liveStatusClosed = false;
-                liveStatusExpanded = true;
-                startPolling(history[0].id);
-                subscribeToExecutionUpdates(history[0].id);
-            }
-        } finally {
-            isLoadingHistory = false;
-        }
-    }
-
-    async function handleExecute() {
-        if (isExecuting) return;
-
-        isExecuting = true;
-        try {
-            const result = await WorkflowService.executeWorkflow(workflowId);
-            if (result && result.id) {
-                const execution = await WorkflowExecutionService.getExecutionStatus(result.id);
-                if (execution) {
-                    currentExecution = execution;
-                    liveExecutionId = execution.id;
-                    liveStatusClosed = false;
-                    liveStatusExpanded = true;
-                    propSelectedExecutionId = execution.id;
-                    
-                    if (execution.status === 'running') {
-                        startPolling(execution.id);
-                        subscribeToExecutionUpdates(execution.id);
-                    }
-                    // Reload history to get the new execution in the list
-                    await loadExecutionHistory();
-                    
-                    // Notify parent that a new execution was created (to trigger ExecutionList reload)
-                    if (onExecutionCreated) {
-                        onExecutionCreated(execution.id);
-                    }
-                    
-                    // Also trigger a small delay to ensure PocketBase subscription has time to propagate
-                    // The subscription should handle it, but this ensures it's in the list
-                    setTimeout(() => {
-                        loadExecutionHistory();
-                        if (onExecutionCreated) {
-                            onExecutionCreated(execution.id);
-                        }
-                    }, 500);
-                } else {
-                    console.error('Failed to get execution status for id:', result.id);
-                }
-            } else {
-                console.error('Invalid execution result:', result);
-            }
-        } catch (error) {
-            console.error('Failed to execute workflow:', error);
-        } finally {
-            isExecuting = false;
-        }
-    }
-
-    function subscribeToExecutionUpdates(executionId: string) {
-        // Unsubscribe from any existing subscription
-        if (liveExecutionSubscription) {
-            liveExecutionSubscription();
-            liveExecutionSubscription = null;
-        }
-
-        // Subscribe to real-time updates for this execution
-        pb.collection(COLLECTIONS.WORKFLOW_EXECUTIONS)
-            .subscribe(executionId, (e: any) => {
-                console.log('Execution update received:', e.action, e.record);
-                
-                if (e.record) {
-                    const updatedExecution: WorkflowExecution = {
-                        id: e.record.id,
-                        workflow_id: e.record.workflow_id,
-                        status: e.record.status,
-                        start_time: e.record.start_time,
-                        end_time: e.record.end_time || '',
-                        duration: e.record.duration || 0,
-                        logs: typeof e.record.logs === 'string' ? e.record.logs : JSON.stringify(e.record.logs || []),
-                        results: typeof e.record.results === 'string' ? e.record.results : JSON.stringify(e.record.results || {}),
-                        error_message: e.record.error_message,
-                        result_file_ids: e.record.result_file_ids
-                    };
-
-                    // Update current execution if it's the same one
-                    // Only update if this is the currently selected execution to prevent loops
-                    // Use untrack to prevent triggering the effect
-                    const currentId = untrack(() => currentExecution?.id);
-                    if (currentId === updatedExecution.id && 
-                        propSelectedExecutionId === updatedExecution.id) {
-                        untrack(() => {
-                            currentExecution = updatedExecution;
-                        });
-                    }
-
-                    // If execution is no longer running, unsubscribe and refresh history
-                    if (updatedExecution.status !== 'running') {
-                        if (liveExecutionSubscription) {
-                            liveExecutionSubscription();
-                            liveExecutionSubscription = null;
-                        }
-                        if (stopPolling) {
-                            stopPolling();
-                            stopPolling = null;
-                        }
-                        loadExecutionHistory();
-                    }
-                }
-            })
-            .then((unsubscribe: UnsubscribeFunc) => {
-                liveExecutionSubscription = unsubscribe;
-            })
-            .catch((error) => {
-                console.error('Failed to subscribe to execution updates:', error);
+    const executionStats = $derived(() => {
+        const total = executions.length;
+        const completed = executions.filter(e => e.status === 'completed').length;
+        const failed = executions.filter(e => e.status === 'failed').length;
+        
+        const successRate = total > 0 ? (completed / total) * 100 : 0;
+        
+        const completedExecutions = executions.filter(e => e.status === 'completed' && e.duration > 0);
+        const avgDuration = completedExecutions.length > 0
+            ? completedExecutions.reduce((sum, e) => sum + e.duration, 0) / completedExecutions.length
+            : 0;
+        
+        const last10Days = executions.filter(e => {
+            const execDate = new Date(e.start_time);
+            const tenDaysAgo = new Date();
+            tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+            return execDate >= tenDaysAgo;
+        });
+        
+        const dailyStats = Array.from({ length: 10 }, (_, i) => {
+            const date = new Date();
+            date.setDate(date.getDate() - (9 - i));
+            date.setHours(0, 0, 0, 0);
+            const nextDate = new Date(date);
+            nextDate.setDate(nextDate.getDate() + 1);
+            
+            const dayExecutions = last10Days.filter(e => {
+                const execDate = new Date(e.start_time);
+                return execDate >= date && execDate < nextDate;
             });
-    }
-
-    function startPolling(executionId: string) {
-        if (stopPolling) {
-            stopPolling();
-        }
-
-        stopPolling = WorkflowExecutionService.pollExecutionStatus(
-            executionId,
-            (execution) => {
-                currentExecution = execution;
-                if (execution.status !== 'running') {
-                    if (stopPolling) {
-                        stopPolling();
-                        stopPolling = null;
-                    }
-                    if (liveExecutionSubscription) {
-                        liveExecutionSubscription();
-                        liveExecutionSubscription = null;
-                    }
-                    loadExecutionHistory();
-                }
-            },
-            1000
-        );
-    }
-
-    function handleStop() {
-        if (stopPolling) {
-            stopPolling();
-            stopPolling = null;
-        }
-    }
+            
+            const success = dayExecutions.filter(e => e.status === 'completed').length;
+            const failure = dayExecutions.filter(e => e.status === 'failed').length;
+            
+            return {
+                date: new Date(date),
+                label: i === 9 ? 'Today' : i === 8 ? 'Yesterday' : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                success,
+                failure,
+                total: dayExecutions.length
+            };
+        });
+        
+        return {
+            total,
+            successRate,
+            avgDuration,
+            last7Days: last10Days.length,
+            dailyStats
+        };
+    });
 
     let progress = $derived(currentExecution?.status === 'running' ? undefined : 100);
     let results = $derived(currentExecution ? WorkflowExecutionService.parseResults(currentExecution.results) : {});
@@ -352,11 +143,62 @@
     function formatDuration(duration: number): string {
         if (!duration || duration === 0) return 'N/A';
         if (duration < 1000) return `${duration}ms`;
-        if (duration < 60000) return `${(duration / 1000).toFixed(2)}s`;
+        if (duration < 60000) return `${(duration / 1000).toFixed(1)}s`;
         const minutes = Math.floor(duration / 60000);
-        const seconds = ((duration % 60000) / 1000).toFixed(2);
-        return `${minutes}m ${seconds}s`;
+        const seconds = Math.floor((duration % 60000) / 1000);
+        if (minutes < 60) return `${minutes}m ${seconds}s`;
+        const hours = Math.floor(minutes / 60);
+        const remainingMinutes = minutes % 60;
+        return `${hours}h ${remainingMinutes}m`;
     }
+
+    function truncateId(id: string): string {
+        return id.substring(0, 8);
+    }
+
+    function copyExecutionId(id: string) {
+        navigator.clipboard.writeText(id).then(() => {
+            toast.success('Execution ID copied');
+        }).catch(() => {
+            toast.error('Failed to copy ID');
+        });
+    }
+
+    function parseFileIds(fileIds: string | undefined): string[] {
+        if (!fileIds) return [];
+        try {
+            if (fileIds.startsWith('[') || fileIds.startsWith('{')) {
+                const parsed = JSON.parse(fileIds);
+                return Array.isArray(parsed) ? parsed : [parsed].filter(Boolean);
+            }
+            return fileIds.split(',').map(id => id.trim()).filter(Boolean);
+        } catch {
+            return fileIds.split(',').map(id => id.trim()).filter(Boolean);
+        }
+    }
+
+    function getFileDownloadUrl(fileId: string): string {
+        return pb.files.getUrl({ id: fileId, collection: 'workflow_executions' }, fileId);
+    }
+
+    function isStructuredResults(data: any): boolean {
+        if (!data || typeof data !== 'object') return false;
+        if (Array.isArray(data)) {
+            return data.length > 0 && typeof data[0] === 'object' && data[0] !== null;
+        }
+        return false;
+    }
+
+    function getResultCount(data: any): number {
+        if (Array.isArray(data)) return data.length;
+        if (typeof data === 'object' && data !== null) {
+            return Object.keys(data).length;
+        }
+        return 0;
+    }
+
+    const parsedFileIds = $derived(currentExecution ? parseFileIds(currentExecution.result_file_ids) : []);
+    const logs = $derived(currentExecution ? WorkflowExecutionService.parseLogs(currentExecution.logs) : []);
 
     function getStatusIcon(status: string) {
         switch (status) {
@@ -382,211 +224,334 @@
         };
         return colors[status] || colors.cancelled;
     }
-
-    // This function is no longer needed as selection is handled by parent
-    // Keeping for backward compatibility but it won't be used
 </script>
 
-<Card.Root class="h-full flex flex-col">
-    <Card.Header>
-        <Card.Title class="text-sm font-medium">Execution</Card.Title>
-    </Card.Header>
-    <Card.Content class="space-y-4 flex-1 overflow-y-auto">
-        <div class="flex items-center gap-2">
-            <Button
-                on:click={handleExecute}
-                disabled={isExecuting || (currentExecution?.status === 'running')}
-                size="sm"
-            >
-                <Play class="h-4 w-4 mr-2" />
-                Execute
-            </Button>
-            {#if currentExecution?.status === 'running'}
-                <Button
-                    variant="outline"
-                    size="sm"
-                    on:click={handleStop}
+<div class="h-full flex flex-col">
+    <div class="flex flex-row items-center justify-between pb-2 px-4 pt-4">
+        <div></div>
+        {#if currentExecution}
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-mono text-muted-foreground">{truncateId(currentExecution.id)}</span>
+                <button
+                    class="p-1 hover:bg-muted rounded transition-colors"
+                    onclick={() => copyExecutionId(currentExecution.id)}
+                    title="Copy execution ID"
                 >
-                    <Square class="h-4 w-4 mr-2" />
-                    Stop
+                    <Copy class="h-3 w-3 text-muted-foreground" />
+                </button>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-6 w-6"
+                    onclick={() => {
+                        propSelectedExecutionId = null;
+                        workflowExecutionStore.selectExecution(null);
+                    }}
+                    title="Close execution details"
+                >
+                    <X class="h-4 w-4" />
                 </Button>
-            {/if}
-        </div>
-
-        {#if !currentExecution && !isLoadingExecution}
-            <div class="flex flex-col items-center justify-center py-12 text-center">
-                <div class="text-sm text-muted-foreground mb-2">No execution selected</div>
-                <div class="text-xs text-muted-foreground">Select an execution from the left sidebar to view details</div>
             </div>
         {/if}
-
+    </div>
+    <div class="space-y-4 flex-1 overflow-y-auto px-4 pb-4">
         {#if isLoadingExecution}
             <div class="flex flex-col items-center justify-center py-12">
                 <Loader2 class="h-6 w-6 animate-spin text-muted-foreground mb-2" />
                 <div class="text-xs text-muted-foreground">Loading execution...</div>
             </div>
-        {/if}
-
-        {#if currentExecution && (!liveExecutionId || currentExecution.status !== 'running' || liveStatusClosed)}
-            {@const StatusIcon = getStatusIcon(currentExecution.status)}
-            <div class="space-y-3 pt-0">
-                <div class="text-xs font-medium">Execution Details</div>
-                <div class="space-y-3">
-                    <div class="flex items-center gap-2">
-                        <StatusIcon class="h-4 w-4 {getStatusColor(currentExecution.status)} flex-shrink-0" />
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-muted-foreground">Status:</span>
-                            <WorkflowStatusBadge status={currentExecution.status} size="sm" />
+        {:else if !currentExecution}
+            {@const stats = executionStats()}
+            <div class="space-y-6">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="border rounded-lg p-3 bg-card">
+                        <div class="flex items-center gap-2 mb-1">
+                            <Activity class="h-3.5 w-3.5 text-muted-foreground" />
+                            <span class="text-xs text-muted-foreground">Total Executions</span>
                         </div>
+                        <div class="text-lg font-semibold">{stats.total}</div>
                     </div>
-                    <div class="space-y-1.5 pl-6">
-                        <div class="flex items-center gap-2">
-                            <Calendar class="h-3 w-3 text-muted-foreground" />
-                            <div class="flex flex-col gap-0.5">
-                                <span class="text-xs text-muted-foreground">Start Time</span>
-                                <span class="text-xs">{formatDate(currentExecution.start_time)}</span>
-                            </div>
+                    <div class="border rounded-lg p-3 bg-card">
+                        <div class="flex items-center gap-2 mb-1">
+                            <TrendingUp class="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                            <span class="text-xs text-muted-foreground">Success Rate</span>
                         </div>
-                        {#if currentExecution.end_time}
-                            <div class="flex items-center gap-2">
-                                <Calendar class="h-3 w-3 text-muted-foreground" />
-                                <div class="flex flex-col gap-0.5">
-                                    <span class="text-xs text-muted-foreground">End Time</span>
-                                    <span class="text-xs">{formatDate(currentExecution.end_time)}</span>
-                                </div>
-                            </div>
-                        {/if}
-                        {#if currentExecution.duration > 0}
-                            <div class="flex items-center gap-2">
-                                <Timer class="h-3 w-3 text-muted-foreground" />
-                                <div class="flex flex-col gap-0.5">
-                                    <span class="text-xs text-muted-foreground">Duration</span>
-                                    <span class="text-xs">{formatDuration(currentExecution.duration)}</span>
-                                </div>
-                            </div>
-                        {/if}
+                        <div class="text-lg font-semibold">{stats.total > 0 ? stats.successRate.toFixed(1) : '0'}%</div>
                     </div>
-                    {#if currentExecution.status === 'running'}
-                        <div class="pl-6">
-                            <Progress value={undefined} class="h-1" />
+                    <div class="border rounded-lg p-3 bg-card">
+                        <div class="flex items-center gap-2 mb-1">
+                            <Timer class="h-3.5 w-3.5 text-muted-foreground" />
+                            <span class="text-xs text-muted-foreground">Avg Duration</span>
                         </div>
-                    {/if}
-                    {#if currentExecution.error_message}
-                        <div class="text-xs p-2 rounded" style="color: rgb(239 68 68); background-color: rgb(239 68 68 / 0.1);">
-                            {currentExecution.error_message}
+                        <div class="text-lg font-semibold">{stats.avgDuration > 0 ? formatDuration(stats.avgDuration) : 'N/A'}</div>
+                    </div>
+                    <div class="border rounded-lg p-3 bg-card">
+                        <div class="flex items-center gap-2 mb-1">
+                            <Zap class="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                            <span class="text-xs text-muted-foreground">Last 7 Days</span>
                         </div>
-                    {/if}
+                        <div class="text-lg font-semibold">{stats.last7Days}</div>
+                    </div>
                 </div>
+
+                {#if stats.dailyStats.length > 0}
+                    {@const maxValue = Math.max(...stats.dailyStats.map(d => d.success + d.failure), 1)}
+                    {@const barHeight = 160}
+                    {@const barGap = 4}
+                    <div class="border rounded-lg p-4 bg-card">
+                        <div class="mb-4">
+                            <h3 class="text-sm font-semibold mb-1">Past 10 Days</h3>
+                            <p class="text-xs text-muted-foreground">Success vs Failure by day</p>
+                        </div>
+                        <div class="flex items-end gap-2 overflow-x-auto pb-2" style="height: {barHeight + 50}px; align-items: flex-end;">
+                            {#each stats.dailyStats as dayStat}
+                                {@const totalHeight = dayStat.success + dayStat.failure}
+                                {@const successHeight = totalHeight > 0 ? (dayStat.success / maxValue) * barHeight : 0}
+                                {@const failureHeight = totalHeight > 0 ? (dayStat.failure / maxValue) * barHeight : 0}
+                                <div class="flex-1 flex flex-col items-center gap-1 min-w-0 flex-shrink-0 group relative" style="height: {barHeight + 50}px; max-width: 100%;">
+                                    <div class="w-full flex flex-col justify-end flex-shrink-0" style="height: {barHeight}px;">
+                                        {#if dayStat.total === 0}
+                                            <div class="w-full h-1 bg-muted rounded-full"></div>
+                                        {:else}
+                                            <div class="w-full flex flex-col rounded-lg overflow-hidden">
+                                                {#if dayStat.failure > 0}
+                                                    <div
+                                                        class="w-full bg-rose-600 dark:bg-rose-500 transition-all hover:bg-rose-700 dark:hover:bg-rose-600 rounded-t-lg"
+                                                        style="height: {failureHeight}px; min-height: {failureHeight > 0 ? '4px' : '0'};"
+                                                    ></div>
+                                                {/if}
+                                                {#if dayStat.success > 0 && dayStat.failure > 0}
+                                                    <div style="height: {barGap}px;"></div>
+                                                {/if}
+                                                {#if dayStat.success > 0}
+                                                    <div
+                                                        class="w-full bg-emerald-600 dark:bg-emerald-500 transition-all hover:bg-emerald-700 dark:hover:bg-emerald-600 rounded-b-lg"
+                                                        style="height: {successHeight}px; min-height: {successHeight > 0 ? '4px' : '0'};"
+                                                    ></div>
+                                                {/if}
+                                            </div>
+                                        {/if}
+                                    </div>
+                                    <div class="text-xs text-muted-foreground text-center mt-2 w-full overflow-hidden text-ellipsis whitespace-nowrap px-0.5">
+                                        {dayStat.label}
+                                    </div>
+                                    <div class="text-xs font-medium mt-1">
+                                        {dayStat.total}
+                                    </div>
+                                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-popover text-popover-foreground text-xs rounded-md shadow-lg border opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-nowrap">
+                                        <div class="font-semibold mb-1">{dayStat.label}</div>
+                                        <div class="flex items-center gap-2">
+                                            <div class="flex items-center gap-1">
+                                                <div class="w-2 h-2 bg-emerald-600 dark:bg-emerald-500 rounded-full"></div>
+                                                <span>Success: {dayStat.success}</span>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-2 mt-1">
+                                            <div class="flex items-center gap-1">
+                                                <div class="w-2 h-2 bg-rose-600 dark:bg-rose-500 rounded-full"></div>
+                                                <span>Failure: {dayStat.failure}</span>
+                                            </div>
+                                        </div>
+                                        <div class="mt-1 pt-1 border-t border-border">
+                                            <span>Total: {dayStat.total}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            {/each}
+                        </div>
+                    </div>
+                {/if}
+
+                {#if stats.total === 0}
+                    <div class="flex flex-col items-center justify-center py-12 text-center border rounded-lg bg-muted/30">
+                        <Activity class="h-12 w-12 text-muted-foreground/50 mb-3" />
+                        <p class="text-sm font-medium text-foreground mb-1">No executions yet</p>
+                        <p class="text-xs text-muted-foreground">Execute your workflow to see execution history and statistics here</p>
+                    </div>
+                {/if}
             </div>
         {/if}
 
-        {#if liveExecutionId && currentExecution && currentExecution.status === 'running' && !liveStatusClosed}
-            <div class="border-2 border-yellow-500/50 bg-yellow-500/10 rounded-lg overflow-hidden">
-                <div 
-                    class="flex items-center justify-between p-3 cursor-pointer hover:bg-yellow-500/20 transition-colors"
-                    onclick={() => liveStatusExpanded = !liveStatusExpanded}
-                    role="button"
-                    tabindex="0"
-                    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); liveStatusExpanded = !liveStatusExpanded; } }}
-                >
-                    <div class="flex items-center gap-2 flex-1 min-w-0">
-                        <Loader2 class="h-4 w-4 text-yellow-600 dark:text-yellow-400 animate-spin flex-shrink-0" />
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-center gap-2">
-                                <span class="text-sm font-medium text-yellow-600 dark:text-yellow-400">Execution in Progress</span>
-                                <WorkflowStatusBadge status="running" size="sm" />
-                            </div>
-                            <div class="text-xs text-muted-foreground mt-0.5">
-                                {formatDate(currentExecution.start_time)}
-                            </div>
-                        </div>
+        {#if currentExecution}
+            {@const statusColor = STATUS_COLORS[currentExecution.status as keyof typeof STATUS_COLORS] || STATUS_COLORS.cancelled}
+            {@const startTime = new Date(currentExecution.start_time).getTime()}
+            {@const endTime = currentExecution.end_time ? new Date(currentExecution.end_time).getTime() : Date.now()}
+            {@const totalDuration = endTime - startTime}
+            {@const currentDuration = currentExecution.status === 'running' ? Date.now() - startTime : currentExecution.duration}
+            {@const progressPercent = currentExecution.status === 'running' ? Math.min((currentDuration / Math.max(totalDuration, 1)) * 100, 95) : 100}
+            <div class="space-y-4">
+                <div>
+                    <div class="flex items-center gap-2 mb-3">
+                        <Calendar class="h-4 w-4 text-muted-foreground" />
+                        <h3 class="text-sm font-semibold">Timeline</h3>
                     </div>
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            class="h-6 w-6"
-                            on:click={(e) => {
-                                e.stopPropagation();
-                                liveStatusClosed = true;
-                            }}
-                            title="Close live status"
-                        >
-                            <X class="h-3 w-3" />
-                        </Button>
-                        <ChevronDown class="h-4 w-4 text-muted-foreground transition-transform {liveStatusExpanded ? 'rotate-180' : ''}" />
-                    </div>
-                </div>
-                {#if liveStatusExpanded}
-                    <div class="border-t border-yellow-500/30 p-3 space-y-3">
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between text-xs">
-                                <span class="text-muted-foreground">Status</span>
-                                <WorkflowStatusBadge status={currentExecution.status} size="sm" />
-                            </div>
-                            <div class="flex items-center justify-between text-xs">
-                                <span class="text-muted-foreground">Start Time</span>
-                                <span>{formatDate(currentExecution.start_time)}</span>
-                            </div>
-                            {#if currentExecution.duration > 0}
-                                <div class="flex items-center justify-between text-xs">
-                                    <span class="text-muted-foreground">Duration</span>
-                                    <span>{formatDuration(currentExecution.duration)}</span>
-                                </div>
-                            {/if}
+                    <div class="flex items-start gap-6 flex-wrap">
+                        <div>
+                            <div class="text-xs font-medium text-muted-foreground mb-1">Start</div>
+                            <div class="text-sm text-foreground">{new Date(currentExecution.start_time).toLocaleString()}</div>
+                            <div class="text-xs text-muted-foreground mt-0.5">{DateUtil.timeAgo(currentExecution.start_time)}</div>
                         </div>
-                        <Progress value={undefined} class="h-1" />
-                        {#if currentExecution.error_message}
-                            <div class="text-xs p-2 rounded" style="color: rgb(239 68 68); background-color: rgb(239 68 68 / 0.1);">
-                                {currentExecution.error_message}
+                        {#if currentExecution.end_time}
+                            <div>
+                                <div class="text-xs font-medium text-muted-foreground mb-1">End</div>
+                                <div class="text-sm text-foreground">{new Date(currentExecution.end_time).toLocaleString()}</div>
+                                <div class="text-xs text-muted-foreground mt-0.5">{DateUtil.timeAgo(currentExecution.end_time)}</div>
                             </div>
                         {/if}
-                        <div class="space-y-1">
-                            <div class="flex items-center gap-2 text-xs font-medium">
-                                <FileText class="h-3 w-3 text-muted-foreground" />
-                                <span>Live Logs</span>
+                        <div>
+                            <div class="text-xs font-medium text-muted-foreground mb-1">Duration</div>
+                            <div class="text-sm text-foreground">{formatDuration(currentExecution.duration > 0 ? currentExecution.duration : currentDuration)}</div>
+                        </div>
+                    </div>
+                </div>
+
+                {#if currentExecution.error_message}
+                    <div class="pt-4 border-t">
+                        <div 
+                            class="flex items-center justify-between cursor-pointer"
+                            onclick={() => errorExpanded = !errorExpanded}
+                            role="button"
+                            tabindex="0"
+                            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); errorExpanded = !errorExpanded; } }}
+                        >
+                            <div class="flex items-center gap-2">
+                                <AlertTriangle class="h-4 w-4 text-red-600 dark:text-red-400" />
+                                <h3 class="text-sm font-semibold text-red-700 dark:text-red-300">Error Details</h3>
                             </div>
-                            <div class="h-32 border rounded bg-background">
-                                <ExecutionLogs logsString={currentExecution.logs} />
+                            {#if errorExpanded}
+                                <ChevronUp class="h-4 w-4 text-muted-foreground" />
+                            {:else}
+                                <ChevronDown class="h-4 w-4 text-muted-foreground" />
+                            {/if}
+                        </div>
+                        {#if errorExpanded}
+                            <div class="mt-3 pt-3 border-t border-red-200/50 dark:border-red-800/50">
+                                <p class="text-sm text-red-700 dark:text-red-300 whitespace-pre-wrap">{currentExecution.error_message}</p>
                             </div>
+                        {/if}
+                    </div>
+                {/if}
+
+                <div class="pt-4 border-t">
+                    <div 
+                        class="flex items-center justify-between cursor-pointer mb-3"
+                        onclick={() => logsExpanded = !logsExpanded}
+                        role="button"
+                        tabindex="0"
+                        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); logsExpanded = !logsExpanded; } }}
+                    >
+                        <div class="flex items-center gap-2">
+                            <FileText class="h-4 w-4 text-muted-foreground" />
+                            <h3 class="text-sm font-semibold">Logs</h3>
+                            {#if logs.length > 0}
+                                <span class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{logs.length}</span>
+                            {/if}
+                        </div>
+                        {#if logsExpanded}
+                            <ChevronUp class="h-4 w-4 text-muted-foreground" />
+                        {:else}
+                            <ChevronDown class="h-4 w-4 text-muted-foreground" />
+                        {/if}
+                    </div>
+                    {#if logsExpanded}
+                        <div class="border rounded bg-background" style="height: {currentExecution.status === 'running' ? '200px' : '300px'};">
+                            <ExecutionLogs logsString={currentExecution.logs} />
+                        </div>
+                    {/if}
+                </div>
+
+                {#if Object.keys(results).length > 0}
+                    <div class="pt-4 border-t">
+                        <div 
+                            class="flex items-center justify-between cursor-pointer mb-3"
+                            onclick={() => resultsExpanded = !resultsExpanded}
+                            role="button"
+                            tabindex="0"
+                            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); resultsExpanded = !resultsExpanded; } }}
+                        >
+                            <div class="flex items-center gap-2">
+                                <Database class="h-4 w-4 text-muted-foreground" />
+                                <h3 class="text-sm font-semibold">Results</h3>
+                                {#if isStructuredResults(results)}
+                                    <span class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{getResultCount(results)} items</span>
+                                {/if}
+                            </div>
+                            {#if resultsExpanded}
+                                <ChevronUp class="h-4 w-4 text-muted-foreground" />
+                            {:else}
+                                <ChevronDown class="h-4 w-4 text-muted-foreground" />
+                            {/if}
+                        </div>
+                        {#if resultsExpanded}
+                            <div class="border rounded bg-background overflow-auto max-h-96 custom-scrollbar">
+                                {#if isStructuredResults(results)}
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-xs">
+                                            <thead class="bg-muted/50 sticky top-0">
+                                                <tr>
+                                                    {#each Object.keys(results[0]) as key}
+                                                        <th class="px-3 py-2 text-left font-medium text-muted-foreground border-b">{key}</th>
+                                                    {/each}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {#each results as row}
+                                                    <tr class="border-b hover:bg-muted/30">
+                                                        {#each Object.keys(results[0]) as key}
+                                                            <td class="px-3 py-2">
+                                                                {#if typeof row[key] === 'object' && row[key] !== null}
+                                                                    <pre class="text-xs whitespace-pre-wrap">{JSON.stringify(row[key], null, 2)}</pre>
+                                                                {:else}
+                                                                    {String(row[key] ?? '')}
+                                                                {/if}
+                                                            </td>
+                                                        {/each}
+                                                    </tr>
+                                                {/each}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                {:else}
+                                    <pre class="text-xs p-4 whitespace-pre-wrap">{JSON.stringify(results, null, 2)}</pre>
+                                {/if}
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
+
+                {#if parsedFileIds.length > 0}
+                    <div class="pt-4 border-t">
+                        <div class="flex items-center gap-2 mb-3">
+                            <Download class="h-4 w-4 text-muted-foreground" />
+                            <h3 class="text-sm font-semibold">Result Files</h3>
+                            <span class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{parsedFileIds.length}</span>
+                        </div>
+                        <div class="space-y-2">
+                            {#each parsedFileIds as fileId}
+                                <a
+                                    href={getFileDownloadUrl(fileId)}
+                                    download
+                                    class="flex items-center gap-2 p-2 border rounded hover:bg-muted transition-colors text-sm"
+                                >
+                                    <Download class="h-4 w-4 text-muted-foreground" />
+                                    <span class="font-mono text-xs">{truncateId(fileId)}</span>
+                                </a>
+                            {/each}
                         </div>
                     </div>
                 {/if}
             </div>
         {/if}
 
-        {#if currentExecution && (!liveExecutionId || currentExecution.status !== 'running' || liveStatusClosed)}
-            <div class="space-y-2 pt-2 border-t">
-                <div class="flex items-center gap-2">
-                    <FileText class="h-3 w-3 text-muted-foreground" />
-                    <div class="text-xs font-medium">Logs</div>
-                </div>
-                <div class="h-48 border rounded">
-                    <ExecutionLogs logsString={currentExecution.logs} />
-                </div>
-            </div>
-        {/if}
 
-        {#if currentExecution && Object.keys(results).length > 0 && (!liveExecutionId || currentExecution.status !== 'running' || liveStatusClosed)}
-            <div class="space-y-2 pt-2 border-t">
-                <div class="flex items-center gap-2">
-                    <Database class="h-3 w-3 text-muted-foreground" />
-                    <div class="text-xs font-medium">Results</div>
-                </div>
-                <pre class="text-xs p-2 bg-muted rounded overflow-auto max-h-32 custom-scrollbar">{JSON.stringify(results, null, 2)}</pre>
-            </div>
-        {/if}
-
-
-    </Card.Content>
-</Card.Root>
+    </div>
+</div>
 
 <style>
-    /* Custom scrollbar for execution history */
     .custom-scrollbar {
-        scrollbar-width: thin; /* Firefox */
+        scrollbar-width: thin;
         scrollbar-color: hsl(var(--muted-foreground) / 0.5)
-            hsl(var(--muted) / 0.2); /* thumb track */
+            hsl(var(--muted) / 0.2);
     }
 
     .custom-scrollbar::-webkit-scrollbar {
@@ -612,4 +577,3 @@
         background-color: hsl(var(--foreground) / 0.6);
     }
 </style>
-

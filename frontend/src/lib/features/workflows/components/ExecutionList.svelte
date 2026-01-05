@@ -1,51 +1,60 @@
 <script lang="ts">
-    import * as Card from '$lib/components/ui/card';
-    import { CheckCircle2, XCircle, Clock, AlertCircle, Timer } from 'lucide-svelte';
-    import { WorkflowExecutionService } from '../services';
+    import { CheckCircle2, XCircle, Clock, AlertCircle, Timer, Hash, Copy, Loader2, AlertTriangle, Package } from 'lucide-svelte';
     import WorkflowStatusBadge from './WorkflowStatusBadge.svelte';
-    import { onMount } from 'svelte';
+    import { DateUtil } from '$lib/utils/date.util';
+    import { STATUS_COLORS } from '../constants';
+    import { onDestroy } from 'svelte';
     import type { WorkflowExecution } from '../types';
-    import { pb } from '$lib/config/pocketbase';
-    import { COLLECTIONS } from '../constants';
-    import type { UnsubscribeFunc } from 'pocketbase';
+    import { workflowExecutionStore } from '../stores';
+    import { toast } from 'svelte-sonner';
 
     let { 
         workflowId, 
-        selectedExecutionId = $bindable<string | null>(null),
-        reloadTrigger = $bindable<number>(0)
+        selectedExecutionId = $bindable<string | null>(null)
     } = $props<{ 
         workflowId: string;
         selectedExecutionId?: string | null;
-        reloadTrigger?: number;
     }>();
 
+    let lastWorkflowId = $state<string | null>(null);
+    let isInitialized = $state(false);
     let executions = $state<WorkflowExecution[]>([]);
-    let isLoading = $state(false);
-    let subscription = $state<UnsubscribeFunc | null>(null);
+    let statusFilter = $state<'all' | 'running' | 'completed' | 'failed' | 'cancelled'>('all');
 
-    function formatDate(dateString: string): string {
-        if (!dateString) return 'N/A';
-        try {
-            const date = new Date(dateString);
-            return date.toLocaleString();
-        } catch {
-            return dateString;
+    const isLoading = $derived(workflowExecutionStore.isLoading(workflowId));
+
+    const filteredExecutions = $derived(
+        statusFilter === 'all' 
+            ? executions 
+            : executions.filter(e => e.status === statusFilter)
+    );
+
+    $effect(() => {
+        if (!workflowId) {
+            executions = [];
+            return;
         }
-    }
+        const map = workflowExecutionStore.executionsByWorkflow;
+        const storeExecutions = map.get(workflowId) || [];
+        executions = storeExecutions;
+    });
 
     function formatDuration(duration: number): string {
         if (!duration || duration === 0) return 'N/A';
         if (duration < 1000) return `${duration}ms`;
-        if (duration < 60000) return `${(duration / 1000).toFixed(2)}s`;
+        if (duration < 60000) return `${(duration / 1000).toFixed(1)}s`;
         const minutes = Math.floor(duration / 60000);
-        const seconds = ((duration % 60000) / 1000).toFixed(2);
-        return `${minutes}m ${seconds}s`;
+        const seconds = Math.floor((duration % 60000) / 1000);
+        if (minutes < 60) return `${minutes}m ${seconds}s`;
+        const hours = Math.floor(minutes / 60);
+        const remainingMinutes = minutes % 60;
+        return `${hours}h ${remainingMinutes}m`;
     }
 
     function getStatusIcon(status: string) {
         switch (status) {
             case 'running':
-                return Clock;
+                return Loader2;
             case 'completed':
                 return CheckCircle2;
             case 'failed':
@@ -57,212 +66,258 @@
         }
     }
 
-    function getStatusColor(status: string): string {
+    function getStatusBorderColor(status: string): string {
         const colors: Record<string, string> = {
-            running: 'text-blue-600 dark:text-blue-400',
-            completed: 'text-green-600 dark:text-green-400',
-            failed: 'text-red-600 dark:text-red-400',
-            cancelled: 'text-gray-600 dark:text-gray-400'
+            running: 'border-l-blue-500',
+            completed: 'border-l-green-500',
+            failed: 'border-l-red-500',
+            cancelled: 'border-l-gray-500'
         };
         return colors[status] || colors.cancelled;
     }
 
-    async function loadExecutions() {
-        isLoading = true;
+    function getStatusBgColor(status: string): string {
+        const colors: Record<string, string> = {
+            running: 'bg-blue-50/50 dark:bg-blue-950/20',
+            completed: 'bg-green-50/50 dark:bg-green-950/20',
+            failed: 'bg-red-50/50 dark:bg-red-950/20',
+            cancelled: 'bg-gray-50/50 dark:bg-gray-950/20'
+        };
+        return colors[status] || colors.cancelled;
+    }
+
+    function truncateId(id: string): string {
+        return id.substring(0, 8);
+    }
+
+    function copyExecutionId(id: string, e: MouseEvent) {
+        e.stopPropagation();
+        navigator.clipboard.writeText(id).then(() => {
+            toast.success('Execution ID copied');
+        }).catch(() => {
+            toast.error('Failed to copy ID');
+        });
+    }
+
+    function getDateGroupLabel(dateString: string): string {
+        if (!dateString) return 'Unknown';
         try {
-            const history = await WorkflowExecutionService.getExecutionHistory(workflowId, 20);
-            // Sort by start_time descending (newest first)
-            executions = history.sort((a, b) => {
-                const timeA = new Date(a.start_time).getTime();
-                const timeB = new Date(b.start_time).getTime();
-                return timeB - timeA;
-            });
-        } finally {
-            isLoading = false;
+            const date = new Date(dateString);
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const executionDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            
+            if (executionDate.getTime() === today.getTime()) return 'Today';
+            if (executionDate.getTime() === yesterday.getTime()) return 'Yesterday';
+            
+            const daysDiff = Math.floor((today.getTime() - executionDate.getTime()) / (1000 * 60 * 60 * 24));
+            if (daysDiff < 7) return 'This Week';
+            if (daysDiff < 30) return 'This Month';
+            
+            return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        } catch {
+            return 'Unknown';
         }
     }
+
+    function groupExecutionsByDate(execs: WorkflowExecution[]): Map<string, WorkflowExecution[]> {
+        const groups = new Map<string, WorkflowExecution[]>();
+        for (const exec of execs) {
+            const label = getDateGroupLabel(exec.start_time);
+            if (!groups.has(label)) {
+                groups.set(label, []);
+            }
+            groups.get(label)!.push(exec);
+        }
+        return groups;
+    }
+
+    const groupedExecutions = $derived(groupExecutionsByDate(filteredExecutions));
 
     function handleExecutionClick(execution: WorkflowExecution) {
         selectedExecutionId = execution.id;
+        workflowExecutionStore.upsertExecution(execution);
+        workflowExecutionStore.selectExecution(execution.id);
     }
 
-    // Subscribe to all executions for this workflow using filter
-    function subscribeToExecutions() {
-        if (subscription) {
-            subscription();
-            subscription = null;
-        }
-
-        // Subscribe to all executions for this workflow
-        console.log('[ExecutionList] Setting up subscription for workflowId:', workflowId);
-        pb.collection(COLLECTIONS.WORKFLOW_EXECUTIONS)
-            .subscribe('*', (e: any) => {
-                console.log('[ExecutionList] Subscription event received:', {
-                    action: e.action,
-                    recordId: e.record?.id,
-                    recordWorkflowId: e.record?.workflow_id,
-                    expectedWorkflowId: workflowId,
-                    matches: e.record?.workflow_id === workflowId,
-                    record: e.record
-                });
-                // Only process updates for executions belonging to this workflow
-                if (e.record && e.record.workflow_id === workflowId) {
-                    const updatedExecution: WorkflowExecution = {
-                        id: e.record.id,
-                        workflow_id: e.record.workflow_id,
-                        status: e.record.status,
-                        start_time: e.record.start_time,
-                        end_time: e.record.end_time || '',
-                        duration: e.record.duration || 0,
-                        logs: typeof e.record.logs === 'string' ? e.record.logs : JSON.stringify(e.record.logs || []),
-                        results: typeof e.record.results === 'string' ? e.record.results : JSON.stringify(e.record.results || {}),
-                        error_message: e.record.error_message,
-                        result_file_ids: e.record.result_file_ids
-                    };
-
-                    if (e.action === 'create') {
-                        // Add new execution at the beginning, but check if it already exists
-                        const existingIndex = executions.findIndex(exec => exec.id === updatedExecution.id);
-                        if (existingIndex === -1) {
-                            // New execution, add at the beginning
-                            executions = [updatedExecution, ...executions];
-                            console.log('[ExecutionList] New execution added:', updatedExecution.id, updatedExecution.status);
-                        } else {
-                            // Already exists, update it
-                            executions[existingIndex] = updatedExecution;
-                            executions = [...executions];
-                        }
-                    } else if (e.action === 'update') {
-                        // Update existing execution
-                        const index = executions.findIndex(exec => exec.id === updatedExecution.id);
-                        if (index >= 0) {
-                            executions[index] = updatedExecution;
-                            executions = [...executions]; // Trigger reactivity
-                            console.log('[ExecutionList] Execution updated:', updatedExecution.id, updatedExecution.status);
-                        } else {
-                            // If not found, add it at the beginning (might be a new execution that we missed)
-                            executions = [updatedExecution, ...executions];
-                            console.log('[ExecutionList] Execution added (was missing):', updatedExecution.id, updatedExecution.status);
-                        }
-                    } else if (e.action === 'delete') {
-                        // Remove deleted execution
-                        executions = executions.filter(exec => exec.id !== e.record.id);
-                    }
-                }
-            }, {
-                filter: `workflow_id = "${workflowId}"`
-            })
-            .then((unsubscribe: UnsubscribeFunc) => {
-                subscription = unsubscribe;
-            })
-            .catch((error) => {
-                console.error('Failed to subscribe to executions:', error);
-            });
-    }
-
-    let lastWorkflowId = $state<string | null>(null);
-    let lastReloadTrigger = $state(0);
-    
-    // Reload when workflowId prop changes (but only if it actually changed)
     $effect(() => {
         if (workflowId && workflowId !== lastWorkflowId) {
-            console.log('[ExecutionList] WorkflowId changed, reloading:', workflowId);
             lastWorkflowId = workflowId;
-            // Unsubscribe from old subscription
-            if (subscription) {
-                subscription();
-                subscription = null;
-            }
-            // Reload and resubscribe
-            loadExecutions();
-            subscribeToExecutions();
+            isInitialized = false;
+            
+            workflowExecutionStore.unsubscribeFromWorkflow(workflowId);
+            
+            workflowExecutionStore.fetchExecutions(workflowId).then(() => {
+                workflowExecutionStore.subscribeToWorkflow(workflowId);
+                isInitialized = true;
+                executions = workflowExecutionStore.getExecutions(workflowId);
+            });
+        } else if (workflowId && !isInitialized && lastWorkflowId === workflowId) {
+            isInitialized = true;
+            workflowExecutionStore.fetchExecutions(workflowId).then(() => {
+                workflowExecutionStore.subscribeToWorkflow(workflowId);
+                executions = workflowExecutionStore.getExecutions(workflowId);
+            });
         }
     });
     
-    // Reload when reloadTrigger changes (triggered from parent after execution)
     $effect(() => {
-        if (reloadTrigger > 0 && reloadTrigger !== lastReloadTrigger) {
-            console.log('[ExecutionList] Reload triggered by parent');
-            lastReloadTrigger = reloadTrigger;
-            loadExecutions();
+        if (!workflowId) {
+            executions = [];
+            return;
         }
-    });
-    
-    onMount(() => {
-        if (workflowId) {
-            lastWorkflowId = workflowId;
-            loadExecutions();
-            subscribeToExecutions();
-        }
+        const map = workflowExecutionStore.executionsByWorkflow;
+        const storeExecutions = map.get(workflowId) || [];
+        executions = storeExecutions;
     });
 
-    // Cleanup subscription on destroy
-    import { onDestroy } from 'svelte';
     onDestroy(() => {
-        if (subscription) {
-            subscription();
-            subscription = null;
+        if (workflowId) {
+            workflowExecutionStore.unsubscribeFromWorkflow(workflowId);
         }
     });
 </script>
 
-<div class="h-full overflow-y-auto custom-scrollbar">
-    {#if isLoading}
-        <div class="space-y-2 p-4">
-            {#each Array(5) as _}
-                <div class="border border-white/20 rounded-lg p-3 animate-pulse">
-                    <div class="flex items-start gap-3">
-                        <div class="h-4 w-4 rounded-full bg-muted flex-shrink-0 mt-0.5"></div>
-                        <div class="flex-1 min-w-0 space-y-1.5">
-                            <div class="h-4 w-24 rounded bg-muted"></div>
-                            <div class="h-3 w-32 rounded bg-muted"></div>
-                        </div>
-                    </div>
-                </div>
-            {/each}
-        </div>
-    {:else if executions.length > 0}
-        <div class="space-y-1 p-2">
-            {#each executions as execution}
-                {@const StatusIcon = getStatusIcon(execution.status)}
-                {@const isSelected = selectedExecutionId === execution.id}
-                <div
-                    class="border border-white/20 rounded-lg p-2 cursor-pointer hover:bg-muted/50 transition-colors {isSelected ? 'bg-muted border-primary' : ''}"
-                    onclick={() => handleExecutionClick(execution)}
-                    role="button"
-                    tabindex="0"
-                    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExecutionClick(execution); } }}
+<div class="h-full flex flex-col overflow-hidden">
+    {#if executions.length > 0}
+        <div class="px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0 space-y-2">
+            <div class="flex items-center gap-2">
+                <span class="text-sm font-medium">Executions</span>
+                <span class="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{filteredExecutions.length}</span>
+            </div>
+            <div class="flex items-center gap-1 flex-wrap">
+                <button
+                    class="text-xs px-2 py-1 rounded-sm font-medium transition-colors {statusFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}"
+                    onclick={() => statusFilter = 'all'}
                 >
-                    <div class="flex items-start gap-2">
-                        <StatusIcon class="h-3 w-3 {getStatusColor(execution.status)} flex-shrink-0 mt-0.5" />
-                        <div class="flex-1 min-w-0 space-y-1">
-                            <div class="flex items-center gap-1.5 flex-wrap">
-                                <WorkflowStatusBadge status={execution.status} size="sm" />
-                            </div>
-                            <div class="text-[10px] text-muted-foreground">
-                                {formatDate(execution.start_time)}
-                            </div>
-                            {#if execution.duration > 0}
-                                <div class="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                    <Timer class="h-2.5 w-2.5" />
-                                    <span>{formatDuration(execution.duration)}</span>
-                                </div>
-                            {/if}
-                            {#if execution.error_message}
-                                <div class="text-[10px] p-1 rounded truncate" style="color: rgb(239 68 68); background-color: rgb(239 68 68 / 0.1);" title={execution.error_message}>
-                                    {execution.error_message}
-                                </div>
-                            {/if}
-                        </div>
-                    </div>
-                </div>
-            {/each}
-        </div>
-    {:else}
-        <div class="text-xs text-muted-foreground text-center py-8 px-4">
-            No executions yet
+                    All
+                </button>
+                <button
+                    class="text-xs px-2 py-1 rounded-sm font-medium transition-colors {statusFilter === 'running' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}"
+                    onclick={() => statusFilter = 'running'}
+                >
+                    Running
+                </button>
+                <button
+                    class="text-xs px-2 py-1 rounded-sm font-medium transition-colors {statusFilter === 'completed' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}"
+                    onclick={() => statusFilter = 'completed'}
+                >
+                    Done
+                </button>
+                <button
+                    class="text-xs px-2 py-1 rounded-sm font-medium transition-colors {statusFilter === 'failed' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}"
+                    onclick={() => statusFilter = 'failed'}
+                >
+                    Failed
+                </button>
+            </div>
         </div>
     {/if}
+
+    <div class="flex-1 overflow-y-auto custom-scrollbar">
+        {#if isLoading}
+            <div class="space-y-2 p-4">
+                {#each Array(5) as _}
+                    <div class="border rounded-lg p-3 animate-pulse bg-muted/30">
+                        <div class="flex items-start gap-3">
+                            <div class="h-4 w-4 rounded-full bg-muted flex-shrink-0 mt-0.5"></div>
+                            <div class="flex-1 min-w-0 space-y-1.5">
+                                <div class="h-4 w-24 rounded bg-muted"></div>
+                                <div class="h-3 w-32 rounded bg-muted"></div>
+                            </div>
+                        </div>
+                    </div>
+                {/each}
+            </div>
+        {:else if filteredExecutions.length > 0}
+            <div class="p-2 space-y-3">
+                {#each Array.from(groupedExecutions.entries()) as [groupLabel, groupExecutions]}
+                    <div class="space-y-1.5">
+                        <div class="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                            {groupLabel}
+                        </div>
+                        {#each groupExecutions as execution}
+                            {@const StatusIcon = getStatusIcon(execution.status)}
+                            {@const isSelected = selectedExecutionId === execution.id}
+                            {@const relativeTime = DateUtil.timeAgo(execution.start_time)}
+                            {@const borderColor = getStatusBorderColor(execution.status)}
+                            {@const bgColor = getStatusBgColor(execution.status)}
+                            <div
+                                class="group relative border rounded-lg p-3 cursor-pointer transition-all shadow-sm hover:shadow-md {borderColor} {isSelected ? 'bg-accent border-primary border-l-4' : 'bg-card hover:bg-muted/50'} {!isSelected && execution.status === 'running' ? 'hover:border-blue-500/30' : ''} {!isSelected && execution.status === 'completed' ? 'hover:border-green-500/30' : ''} {!isSelected && execution.status === 'failed' ? 'hover:border-red-500/30' : ''} {!isSelected && execution.status === 'cancelled' ? 'hover:border-gray-500/30' : ''}"
+                                onclick={() => handleExecutionClick(execution)}
+                                role="button"
+                                tabindex="0"
+                                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExecutionClick(execution); } }}
+                            >
+                                <div class="flex items-start gap-3">
+                                    <div class="flex-shrink-0 mt-0.5">
+                                        {#if execution.status === 'running'}
+                                            <Loader2 class="h-4 w-4 text-blue-500 animate-spin" />
+                                        {:else}
+                                            <StatusIcon class="h-4 w-4" style="color: {STATUS_COLORS[execution.status as keyof typeof STATUS_COLORS] || STATUS_COLORS.cancelled}" />
+                                        {/if}
+                                    </div>
+                                    <div class="flex-1 min-w-0 space-y-2">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <WorkflowStatusBadge status={execution.status} size="sm" />
+                                            <span class="text-xs text-muted-foreground flex items-center gap-1">
+                                                <Clock class="h-3 w-3" />
+                                                {relativeTime}
+                                            </span>
+                                        </div>
+                                        
+                                        <div class="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                                            {#if execution.duration > 0}
+                                                <div class="flex items-center gap-1">
+                                                    <Timer class="h-3 w-3" />
+                                                    <span>{formatDuration(execution.duration)}</span>
+                                                </div>
+                                            {/if}
+                                        </div>
+
+                                        {#if execution.error_message}
+                                            <div class="flex items-start gap-1.5 p-2 rounded-md bg-red-50/50 dark:bg-red-950/20 border border-red-200/50 dark:border-red-800/50">
+                                                <AlertTriangle class="h-3.5 w-3.5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                                                <p class="text-xs text-red-700 dark:text-red-300 line-clamp-2" title={execution.error_message}>
+                                                    {execution.error_message}
+                                                </p>
+                                            </div>
+                                        {/if}
+                                    </div>
+                                </div>
+                                
+                                <!-- ID indicator at bottom right -->
+                                <button
+                                    class="absolute bottom-2 right-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer group/id"
+                                    onclick={(e) => copyExecutionId(execution.id, e)}
+                                    title="Click to copy ID"
+                                >
+                                    <Hash class="h-3 w-3 flex-shrink-0" />
+                                    <span class="font-mono whitespace-nowrap max-w-0 overflow-hidden group-hover/id:max-w-[200px] group-hover/id:ml-1 transition-all duration-200">
+                                        {execution.id}
+                                    </span>
+                                </button>
+                            </div>
+                        {/each}
+                    </div>
+                {/each}
+            </div>
+        {:else if executions.length === 0}
+            <div class="flex flex-col items-center justify-center py-12 px-4 text-center">
+                <Package class="h-12 w-12 text-muted-foreground/50 mb-3" />
+                <p class="text-sm font-medium text-foreground mb-1">No executions yet</p>
+                <p class="text-xs text-muted-foreground">Execute your workflow to see execution history here</p>
+            </div>
+        {:else}
+            <div class="flex flex-col items-center justify-center py-12 px-4 text-center">
+                <Package class="h-12 w-12 text-muted-foreground/50 mb-3" />
+                <p class="text-sm font-medium text-foreground mb-1">No {statusFilter === 'all' ? '' : statusFilter} executions</p>
+                <p class="text-xs text-muted-foreground">Try selecting a different filter</p>
+            </div>
+        {/if}
+    </div>
 </div>
 
 <style>

@@ -56,35 +56,35 @@
     let statusState = $derived(getStatusIndicatorState(systemStatus));
 
     // Debug: log API loading changes
-    $effect(() => {
-        console.log(
-            '[StatusIndicator] isApiLoading:',
-            systemStatus.isApiLoading,
-            '| activeCount:', ApiLoadingService.activeCount,
-            '| activeRequestIds:', ApiLoadingService.activeRequestIds,
-            '| direct isLoading:', ApiLoadingService.isLoading,
-        );
-    });
+    // $effect(() => {
+    //     console.log(
+    //         '[StatusIndicator] isApiLoading:',
+    //         systemStatus.isApiLoading,
+    //         '| activeCount:', ApiLoadingService.activeCount,
+    //         '| activeRequestIds:', ApiLoadingService.activeRequestIds,
+    //         '| direct isLoading:', ApiLoadingService.isLoading,
+    //     );
+    // });
 
-    // Debug: log when systemStatus changes
-    $effect(() => {
-        console.log('[StatusIndicator] systemStatus changed:', {
-            isApiLoading: systemStatus.isApiLoading,
-            isBackendDown: systemStatus.isBackendDown,
-            isOffline: systemStatus.isOffline,
-            realtimeStatus: systemStatus.realtimeStatus,
-        });
-    });
+    // // Debug: log when systemStatus changes
+    // $effect(() => {
+    //     console.log('[StatusIndicator] systemStatus changed:', {
+    //         isApiLoading: systemStatus.isApiLoading,
+    //         isBackendDown: systemStatus.isBackendDown,
+    //         isOffline: systemStatus.isOffline,
+    //         realtimeStatus: systemStatus.realtimeStatus,
+    //     });
+    // });
 
-    // Debug: log shimmer condition
-    $effect(() => {
-        const shouldShowShimmer = systemStatus.isApiLoading && !currentNotification;
-        console.log('[StatusIndicator] Shimmer condition:', {
-            shouldShowShimmer,
-            isApiLoading: systemStatus.isApiLoading,
-            hasNotification: !!currentNotification,
-        });
-    });
+    // // Debug: log shimmer condition
+    // $effect(() => {
+    //     const shouldShowShimmer = systemStatus.isApiLoading && !currentNotification;
+    //     console.log('[StatusIndicator] Shimmer condition:', {
+    //         shouldShowShimmer,
+    //         isApiLoading: systemStatus.isApiLoading,
+    //         hasNotification: !!currentNotification,
+    //     });
+    // });
 
     // Current time
     let currentTime = $state("");

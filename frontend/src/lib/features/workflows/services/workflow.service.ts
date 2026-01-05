@@ -1,8 +1,8 @@
 import { browser } from '$app/environment';
 import { pb } from '$lib/config/pocketbase';
 import { NetworkService } from '$lib/services/network.service.svelte';
-import { FilterBuilder } from '$lib/utils';
-import type { Workflow, WorkflowNode, WorkflowConnection, Connector, ValidationResult, FlowNode, FlowEdge } from '../types';
+import { FilterBuilder, withErrorHandling } from '$lib/utils';
+import type { Workflow, WorkflowNode, WorkflowConnection, Connector, ValidationResult, FlowNode, FlowEdge, DataSchema, DataEnvelope } from '../types';
 import type { RecordModel } from 'pocketbase';
 import { COLLECTIONS } from '../constants';
 
@@ -45,6 +45,23 @@ function convertToWorkflowConnection(record: RecordModel): WorkflowConnection {
 }
 
 class WorkflowServiceImpl {
+    #cache = new Map<string, Workflow>();
+
+    #unwrapResponse<T>(response: any, dataKey?: string): T {
+        if (dataKey && response?.[dataKey]) {
+            return response[dataKey];
+        }
+        return response?.data || response;
+    }
+
+    getCachedWorkflow(id: string): Workflow | undefined {
+        return this.#cache.get(id);
+    }
+
+    clearCache() {
+        this.#cache.clear();
+    }
+
     async fetchWorkflows(
         page: number = 1,
         perPage: number = 50,
@@ -58,280 +75,356 @@ class WorkflowServiceImpl {
         page: number;
         perPage: number;
     } | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const filterBuilder = FilterBuilder.create();
+
+                if (options?.searchQuery?.trim()) {
+                    const searchTerm = options.searchQuery.trim();
+                    const escapedTerm = searchTerm.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                    filterBuilder.or(
+                        `name ~ "${escapedTerm}"`,
+                        `description ~ "${escapedTerm}"`
+                    );
+                }
+
+                if (options?.active !== undefined) {
+                    filterBuilder.equals('active', options.active);
+                }
+
+                const filter = filterBuilder.build();
+
+                const response = await pb.collection(COLLECTIONS.WORKFLOWS).getList(page, perPage, {
+                    sort: '-updated',
+                    filter: filter || undefined
+                });
+
+                const items = response.items.map(convertToWorkflow);
+
+                items.forEach((item) => {
+                    this.#cache.set(item.id, item);
+                });
+
+                return {
+                    items,
+                    totalItems: response.totalItems,
+                    page: response.page,
+                    perPage: response.perPage
+                };
+            },
+            {
+                errorMessage: 'Failed to fetch workflows',
+                showToast: false,
+                logErrors: true
             }
-
-            const filterBuilder = FilterBuilder.create();
-
-            if (options?.searchQuery?.trim()) {
-                const searchTerm = options.searchQuery.trim();
-                const escapedTerm = searchTerm.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                filterBuilder.or(
-                    `name ~ "${escapedTerm}"`,
-                    `description ~ "${escapedTerm}"`
-                );
-            }
-
-            if (options?.active !== undefined) {
-                filterBuilder.equals('active', options.active);
-            }
-
-            const filter = filterBuilder.build();
-
-            const response = await pb.collection(COLLECTIONS.WORKFLOWS).getList(page, perPage, {
-                sort: '-updated',
-                filter: filter || undefined
-            });
-
-            const items = response.items.map(convertToWorkflow);
-
-            return {
-                items,
-                totalItems: response.totalItems,
-                page: response.page,
-                perPage: response.perPage
-            };
-        } catch (error) {
-            console.error('Failed to fetch workflows:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+        );
     }
 
     async getWorkflow(id: string): Promise<Workflow | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
-            }
-
-            const record = await pb.collection(COLLECTIONS.WORKFLOWS).getOne(id);
-            NetworkService.reportSuccess();
-            return convertToWorkflow(record);
-        } catch (error) {
-            console.error('Failed to get workflow:', error);
-            NetworkService.reportFailure();
-            return null;
+        const cached = this.#cache.get(id);
+        if (cached) {
+            return cached;
         }
+
+        const workflow = await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const record = await pb.collection(COLLECTIONS.WORKFLOWS).getOne(id);
+                NetworkService.reportSuccess();
+                return convertToWorkflow(record);
+            },
+            {
+                errorMessage: 'Failed to get workflow',
+                showToast: false,
+                logErrors: true
+            }
+        );
+
+        if (workflow) {
+            this.#cache.set(id, workflow);
+        }
+
+        return workflow;
     }
 
     async createWorkflow(data: Omit<Workflow, 'id' | 'created' | 'updated'>): Promise<Workflow | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
+        const workflow = await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const record = await pb.collection(COLLECTIONS.WORKFLOWS).create({
+                    name: data.name,
+                    description: data.description,
+                    active: data.active,
+                    user: data.user,
+                    config: data.config || {},
+                    timeout: data.timeout ?? 3600,
+                    max_retries: data.max_retries ?? 0,
+                    retry_delay: data.retry_delay ?? 1
+                });
+
+                NetworkService.reportSuccess();
+                return convertToWorkflow(record);
+            },
+            {
+                errorMessage: 'Failed to create workflow',
+                showToast: false,
+                logErrors: true
             }
+        );
 
-            const record = await pb.collection(COLLECTIONS.WORKFLOWS).create({
-                name: data.name,
-                description: data.description,
-                active: data.active,
-                user: data.user,
-                config: data.config || {},
-                timeout: data.timeout ?? 3600,
-                max_retries: data.max_retries ?? 0,
-                retry_delay: data.retry_delay ?? 1
-            });
-
-            NetworkService.reportSuccess();
-            return convertToWorkflow(record);
-        } catch (error) {
-            console.error('Failed to create workflow:', error);
-            NetworkService.reportFailure();
-            return null;
+        if (workflow) {
+            this.#cache.set(workflow.id, workflow);
         }
+
+        return workflow;
     }
 
     async updateWorkflow(id: string, data: Partial<Omit<Workflow, 'id' | 'created' | 'updated'>>): Promise<Workflow | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
-            }
+        const workflow = await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
 
-            const record = await pb.collection(COLLECTIONS.WORKFLOWS).update(id, data);
-            NetworkService.reportSuccess();
-            return convertToWorkflow(record);
-        } catch (error) {
-            console.error('Failed to update workflow:', error);
-            NetworkService.reportFailure();
-            return null;
+                const record = await pb.collection(COLLECTIONS.WORKFLOWS).update(id, data);
+                NetworkService.reportSuccess();
+                return convertToWorkflow(record);
+            },
+            {
+                errorMessage: 'Failed to update workflow',
+                showToast: false,
+                logErrors: true
+            }
+        );
+
+        if (workflow) {
+            this.#cache.set(id, workflow);
         }
+
+        return workflow;
     }
 
     async deleteWorkflow(id: string): Promise<boolean> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
-            }
+        const result = await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
 
-            await pb.collection(COLLECTIONS.WORKFLOWS).delete(id);
-            NetworkService.reportSuccess();
-            return true;
-        } catch (error) {
-            console.error('Failed to delete workflow:', error);
-            NetworkService.reportFailure();
-            return false;
+                await pb.collection(COLLECTIONS.WORKFLOWS).delete(id);
+                NetworkService.reportSuccess();
+                return true;
+            },
+            {
+                errorMessage: 'Failed to delete workflow',
+                showToast: false,
+                logErrors: true
+            }
+        );
+
+        if (result) {
+            this.#cache.delete(id);
         }
+
+        return result ?? false;
     }
 
     async getWorkflowGraph(workflowId: string): Promise<{
         nodes: WorkflowNode[];
         connections: WorkflowConnection[];
     } | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const response = await pb.send(`/api/workflows/workflow/${workflowId}/graph`, {
+                    method: 'GET'
+                }) as any;
+
+                NetworkService.reportSuccess();
+
+                const responseData = this.#unwrapResponse(response);
+
+                return {
+                    nodes: (responseData.nodes || []).map(convertToWorkflowNode),
+                    connections: (responseData.connections || []).map(convertToWorkflowConnection)
+                };
+            },
+            {
+                errorMessage: 'Failed to get workflow graph',
+                showToast: false,
+                logErrors: true
             }
-
-            const response = await pb.send(`/api/workflows/workflow/${workflowId}/graph`, {
-                method: 'GET'
-            }) as any;
-
-            NetworkService.reportSuccess();
-
-            const responseData = response.data || response;
-
-            return {
-                nodes: (responseData.nodes || []).map(convertToWorkflowNode),
-                connections: (responseData.connections || []).map(convertToWorkflowConnection)
-            };
-        } catch (error) {
-            console.error('Failed to get workflow graph:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+        );
     }
 
-    async getWorkflowNodes(workflowId: string): Promise<WorkflowNode[]> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
+    async getWorkflowNodes(workflowId: string): Promise<WorkflowNode[] | null> {
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const response = await pb.collection(COLLECTIONS.WORKFLOW_NODES).getList(1, 500, {
+                    filter: `workflow_id = "${workflowId}"`
+                });
+
+                NetworkService.reportSuccess();
+                return response.items.map(convertToWorkflowNode);
+            },
+            {
+                errorMessage: 'Failed to get workflow nodes',
+                showToast: false,
+                logErrors: true
             }
-
-            const response = await pb.collection(COLLECTIONS.WORKFLOW_NODES).getList(1, 500, {
-                filter: `workflow_id = "${workflowId}"`
-            });
-
-            NetworkService.reportSuccess();
-            return response.items.map(convertToWorkflowNode);
-        } catch (error) {
-            console.error('Failed to get workflow nodes:', error);
-            NetworkService.reportFailure();
-            return [];
-        }
+        );
     }
 
     async createWorkflowNode(data: Omit<WorkflowNode, 'id' | 'created' | 'updated'>): Promise<WorkflowNode | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const record = await pb.collection(COLLECTIONS.WORKFLOW_NODES).create({
+                    workflow_id: data.workflow_id,
+                    type: data.type,
+                    node_type: data.node_type,
+                    label: data.label,
+                    config: data.config,
+                    position_x: data.position_x,
+                    position_y: data.position_y
+                });
+
+                NetworkService.reportSuccess();
+                return convertToWorkflowNode(record);
+            },
+            {
+                errorMessage: 'Failed to create workflow node',
+                showToast: false,
+                logErrors: true
             }
-
-            const record = await pb.collection(COLLECTIONS.WORKFLOW_NODES).create({
-                workflow_id: data.workflow_id,
-                type: data.type,
-                node_type: data.node_type,
-                label: data.label,
-                config: data.config,
-                position_x: data.position_x,
-                position_y: data.position_y
-            });
-
-            NetworkService.reportSuccess();
-            return convertToWorkflowNode(record);
-        } catch (error) {
-            console.error('Failed to create workflow node:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+        );
     }
 
     async updateWorkflowNode(id: string, data: Partial<Omit<WorkflowNode, 'id' | 'created' | 'updated'>>): Promise<WorkflowNode | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
-            }
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
 
-            const record = await pb.collection(COLLECTIONS.WORKFLOW_NODES).update(id, data);
-            NetworkService.reportSuccess();
-            return convertToWorkflowNode(record);
-        } catch (error) {
-            console.error('Failed to update workflow node:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+                const record = await pb.collection(COLLECTIONS.WORKFLOW_NODES).update(id, data);
+                NetworkService.reportSuccess();
+                return convertToWorkflowNode(record);
+            },
+            {
+                errorMessage: 'Failed to update workflow node',
+                showToast: false,
+                logErrors: true
+            }
+        );
     }
 
     async deleteWorkflowNode(id: string): Promise<boolean> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
-            }
+        const result = await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
 
-            await pb.collection(COLLECTIONS.WORKFLOW_NODES).delete(id);
-            NetworkService.reportSuccess();
-            return true;
-        } catch (error) {
-            console.error('Failed to delete workflow node:', error);
-            NetworkService.reportFailure();
-            return false;
-        }
+                await pb.collection(COLLECTIONS.WORKFLOW_NODES).delete(id);
+                NetworkService.reportSuccess();
+                return true;
+            },
+            {
+                errorMessage: 'Failed to delete workflow node',
+                showToast: false,
+                logErrors: true
+            }
+        );
+
+        return result ?? false;
     }
 
-    async getWorkflowConnections(workflowId: string): Promise<WorkflowConnection[]> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
+    async getWorkflowConnections(workflowId: string): Promise<WorkflowConnection[] | null> {
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const response = await pb.collection(COLLECTIONS.WORKFLOW_CONNECTIONS).getList(1, 500, {
+                    filter: `workflow_id = "${workflowId}"`
+                });
+
+                NetworkService.reportSuccess();
+                return response.items.map(convertToWorkflowConnection);
+            },
+            {
+                errorMessage: 'Failed to get workflow connections',
+                showToast: false,
+                logErrors: true
             }
-
-            const response = await pb.collection(COLLECTIONS.WORKFLOW_CONNECTIONS).getList(1, 500, {
-                filter: `workflow_id = "${workflowId}"`
-            });
-
-            NetworkService.reportSuccess();
-            return response.items.map(convertToWorkflowConnection);
-        } catch (error) {
-            console.error('Failed to get workflow connections:', error);
-            NetworkService.reportFailure();
-            return [];
-        }
+        );
     }
 
     async createWorkflowConnection(data: Omit<WorkflowConnection, 'id' | 'created' | 'updated'>): Promise<WorkflowConnection | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const record = await pb.collection(COLLECTIONS.WORKFLOW_CONNECTIONS).create({
+                    workflow_id: data.workflow_id,
+                    source_id: data.source_id,
+                    target_id: data.target_id
+                });
+
+                NetworkService.reportSuccess();
+                return convertToWorkflowConnection(record);
+            },
+            {
+                errorMessage: 'Failed to create workflow connection',
+                showToast: false,
+                logErrors: true
             }
-
-            const record = await pb.collection(COLLECTIONS.WORKFLOW_CONNECTIONS).create({
-                workflow_id: data.workflow_id,
-                source_id: data.source_id,
-                target_id: data.target_id
-            });
-
-            NetworkService.reportSuccess();
-            return convertToWorkflowConnection(record);
-        } catch (error) {
-            console.error('Failed to create workflow connection:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+        );
     }
 
     async deleteWorkflowConnection(id: string): Promise<boolean> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
-            }
+        const result = await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
 
-            await pb.collection(COLLECTIONS.WORKFLOW_CONNECTIONS).delete(id);
-            NetworkService.reportSuccess();
-            return true;
-        } catch (error) {
-            console.error('Failed to delete workflow connection:', error);
-            NetworkService.reportFailure();
-            return false;
-        }
+                await pb.collection(COLLECTIONS.WORKFLOW_CONNECTIONS).delete(id);
+                NetworkService.reportSuccess();
+                return true;
+            },
+            {
+                errorMessage: 'Failed to delete workflow connection',
+                showToast: false,
+                logErrors: true
+            }
+        );
+
+        return result ?? false;
     }
 
     async saveWorkflowGraph(
@@ -343,222 +436,281 @@ class WorkflowServiceImpl {
         connections: WorkflowConnection[];
         validation: ValidationResult;
     } | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
-            }
-
-            const backendNodes = nodes.map(node => ({
-                id: node.id || null,
-                type: node.data.workflowNodeType,
-                node_type: node.data.nodeType,
-                name: node.data.label,
-                config: node.data.config || {},
-                position: {
-                    x: node.position.x,
-                    y: node.position.y
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
                 }
-            }));
-            
-            // Log config for PocketBase sources to verify collection is included
-            const pocketbaseNodes = backendNodes.filter(n => 
-                n.node_type?.toLowerCase().includes('pocketbase')
-            );
-            if (pocketbaseNodes.length > 0) {
-                console.log('💾 Saving PocketBase nodes with config:', pocketbaseNodes.map(n => ({
-                    id: n.id,
-                    node_type: n.node_type,
-                    collection: n.config?.collection
-                })));
+
+                const backendNodes = nodes.map(node => ({
+                    id: node.id || null,
+                    type: node.data.workflowNodeType,
+                    node_type: node.data.nodeType,
+                    name: node.data.label,
+                    config: node.data.config || {},
+                    position: {
+                        x: node.position.x,
+                        y: node.position.y
+                    }
+                }));
+
+                const backendConnections = edges.map(edge => ({
+                    id: edge.id || null,
+                    source: edge.source,
+                    target: edge.target
+                }));
+
+                const response = await pb.send(`/api/workflows/workflow/${workflowId}/graph`, {
+                    method: 'PUT',
+                    body: {
+                        nodes: backendNodes,
+                        connections: backendConnections
+                    }
+                }) as any;
+
+                NetworkService.reportSuccess();
+
+                const responseData = this.#unwrapResponse(response);
+
+                return {
+                    nodes: responseData.nodes || [],
+                    connections: responseData.connections || [],
+                    validation: responseData.validation || { valid: true, errors: [], warnings: [] }
+                };
+            },
+            {
+                errorMessage: 'Failed to save workflow graph',
+                showToast: false,
+                logErrors: true
             }
-
-            const backendConnections = edges.map(edge => ({
-                id: edge.id || null,
-                source: edge.source,
-                target: edge.target
-            }));
-
-            const response = await pb.send(`/api/workflows/workflow/${workflowId}/graph`, {
-                method: 'PUT',
-                body: {
-                    nodes: backendNodes,
-                    connections: backendConnections
-                }
-            }) as any;
-
-            NetworkService.reportSuccess();
-
-            const responseData = response.data || response;
-
-            return {
-                nodes: responseData.nodes || [],
-                connections: responseData.connections || [],
-                validation: responseData.validation || { valid: true, errors: [], warnings: [] }
-            };
-        } catch (error) {
-            console.error('Failed to save workflow graph:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+        );
     }
 
-    async getConnectors(): Promise<Connector[]> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
+    async getConnectors(): Promise<Connector[] | null> {
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const response = await pb.send('/api/workflows/connectors', {
+                    method: 'GET'
+                });
+
+                NetworkService.reportSuccess();
+                return response.connectors || [];
+            },
+            {
+                errorMessage: 'Failed to get connectors',
+                showToast: false,
+                logErrors: true
             }
-
-            const response = await pb.send('/api/workflows/connectors', {
-                method: 'GET'
-            });
-
-            NetworkService.reportSuccess();
-            return response.connectors || [];
-        } catch (error) {
-            console.error('Failed to get connectors:', error);
-            NetworkService.reportFailure();
-            return [];
-        }
+        );
     }
 
     async validateWorkflow(workflowId: string): Promise<ValidationResult | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const response = await pb.send(`/api/workflows/${workflowId}/validate`, {
+                    method: 'POST'
+                });
+
+                NetworkService.reportSuccess();
+                return response;
+            },
+            {
+                errorMessage: 'Failed to validate workflow',
+                showToast: false,
+                logErrors: true
             }
-
-            const response = await pb.send(`/api/workflows/${workflowId}/validate`, {
-                method: 'POST'
-            });
-
-            NetworkService.reportSuccess();
-            return response;
-        } catch (error) {
-            console.error('Failed to validate workflow:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+        );
     }
 
     async executeWorkflow(workflowId: string): Promise<{ id: string } | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
-            }
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
 
-            const response = await pb.send(`/api/workflows/${workflowId}/execute`, {
-                method: 'POST'
-            }) as any;
+                const response = await pb.send(`/api/workflows/${workflowId}/execute`, {
+                    method: 'POST'
+                }) as any;
 
-            NetworkService.reportSuccess();
-            
-            // Backend returns { success: true, data: { id: ..., workflow_id: ..., ... } }
-            const execution = response.data || response;
-            
-            // Return execution with id field (execution object has id from BaseModel)
-            if (execution && execution.id) {
-                return { id: execution.id };
+                NetworkService.reportSuccess();
+                
+                const execution = this.#unwrapResponse(response);
+                
+                if (execution && execution.id) {
+                    return { id: execution.id };
+                }
+                
+                throw new Error('Invalid execution response');
+            },
+            {
+                errorMessage: 'Failed to execute workflow',
+                showToast: false,
+                logErrors: true
             }
-            
-            console.error('Invalid execution response:', response);
-            return null;
-        } catch (error) {
-            console.error('Failed to execute workflow:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+        );
     }
 
     async getPocketBaseCollections(): Promise<Array<{ id: string; name: string; type: string }> | null> {
-        try {
-            const response = await pb.send('/api/workflows/pocketbase/collections', {
-                method: 'GET'
-            });
-            NetworkService.reportSuccess();
-            // Backend returns { success: true, data: { collections: [...] } }
-            return (response.data?.collections || response.collections || []) as Array<{ id: string; name: string; type: string }>;
-        } catch (error) {
-            console.error('Failed to fetch PocketBase collections:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const response = await pb.send('/api/workflows/pocketbase/collections', {
+                    method: 'GET'
+                });
+                NetworkService.reportSuccess();
+                const data = this.#unwrapResponse(response, 'collections');
+                return (data?.collections || data || []) as Array<{ id: string; name: string; type: string }>;
+            },
+            {
+                errorMessage: 'Failed to fetch PocketBase collections',
+                showToast: false,
+                logErrors: true
+            }
+        );
     }
 
     async getPocketBaseCollectionSchema(collectionName: string): Promise<{ collection: string; fields: Array<{ name: string; type: string; required: boolean; default?: any }> } | null> {
-        try {
-            const response = await pb.send(`/api/workflows/pocketbase/collections/${encodeURIComponent(collectionName)}/schema`, {
-                method: 'GET'
-            });
-            NetworkService.reportSuccess();
-            // Backend returns { success: true, data: { collection: "...", fields: [...] } }
-            return (response.data || response) as { collection: string; fields: Array<{ name: string; type: string; required: boolean; default?: any }> };
-        } catch (error) {
-            console.error('Failed to fetch PocketBase collection schema:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const response = await pb.send(`/api/workflows/pocketbase/collections/${encodeURIComponent(collectionName)}/schema`, {
+                    method: 'GET'
+                });
+                NetworkService.reportSuccess();
+                return this.#unwrapResponse(response) as { collection: string; fields: Array<{ name: string; type: string; required: boolean; default?: any }> };
+            },
+            {
+                errorMessage: 'Failed to fetch PocketBase collection schema',
+                showToast: false,
+                logErrors: true
+            }
+        );
     }
 
     async getPocketBaseCollectionCount(collectionName: string): Promise<number | null> {
-        try {
-            const response = await pb.send(`/api/workflows/pocketbase/collections/${encodeURIComponent(collectionName)}/count`, {
-                method: 'GET'
-            });
-            NetworkService.reportSuccess();
-            // Backend returns { success: true, data: { collection: "...", count: 123 } }
-            const data = response.data || response;
-            return (data as { collection: string; count: number }).count;
-        } catch (error) {
-            console.error('Failed to fetch PocketBase collection count:', error);
-            NetworkService.reportFailure();
-            return null;
-        }
+        return await withErrorHandling(
+            async () => {
+                if (!NetworkService.isOnline) {
+                    throw new Error('Network is offline');
+                }
+
+                const response = await pb.send(`/api/workflows/pocketbase/collections/${encodeURIComponent(collectionName)}/count`, {
+                    method: 'GET'
+                });
+                NetworkService.reportSuccess();
+                const data = this.#unwrapResponse(response);
+                return (data as { collection: string; count: number }).count;
+            },
+            {
+                errorMessage: 'Failed to fetch PocketBase collection count',
+                showToast: false,
+                logErrors: true
+            }
+        );
     }
 
     async getNodeOutputSchema(workflowId: string, nodeId: string): Promise<DataSchema | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
-            }
+        if (!NetworkService.isOnline) {
+            return null;
+        }
 
+        try {
             const response = await pb.send(`/api/workflows/workflow/${workflowId}/nodes/${nodeId}/schema/output`, {
                 method: 'GET'
             }) as any;
 
             NetworkService.reportSuccess();
-            const data = response.data || response;
+            const data = this.#unwrapResponse(response);
             return (data as { output_schema: DataSchema }).output_schema;
         } catch (error: any) {
-            // Don't log 400 errors for nodes without upstream connections - this is expected
-            if (error?.status !== 400) {
-                console.error('Failed to get node output schema:', error);
+            if (error?.status === 400) {
+                return null;
             }
-            NetworkService.reportFailure();
-            return null;
+            return await withErrorHandling(
+                async () => {
+                    throw error;
+                },
+                {
+                    errorMessage: 'Failed to get node output schema',
+                    showToast: false,
+                    logErrors: true
+                }
+            );
         }
     }
 
     async getNodeSampleData(workflowId: string, nodeId: string, limit: number = 20): Promise<DataEnvelope | null> {
-        try {
-            if (!NetworkService.isOnline) {
-                throw new Error('Network is offline');
-            }
+        if (!NetworkService.isOnline) {
+            return null;
+        }
 
+        try {
             const response = await pb.send(`/api/workflows/workflow/${workflowId}/nodes/${nodeId}/sample?limit=${limit}`, {
                 method: 'GET'
             }) as any;
 
             NetworkService.reportSuccess();
-            const data = response.data || response;
-            // Convert to DataEnvelope format
+            const data = this.#unwrapResponse(response);
             return data as DataEnvelope;
         } catch (error: any) {
-            // Don't log 400 errors for nodes without upstream connections - this is expected
-            if (error?.status !== 400) {
-                console.error('Failed to get node sample data:', error);
+            if (error?.status === 400) {
+                return null;
             }
-            NetworkService.reportFailure();
+            return await withErrorHandling(
+                async () => {
+                    throw error;
+                },
+                {
+                    errorMessage: 'Failed to get node sample data',
+                    showToast: false,
+                    logErrors: true
+                }
+            );
+        }
+    }
+
+    async getNodeInputSchema(workflowId: string, nodeId: string): Promise<DataSchema | null> {
+        if (!NetworkService.isOnline) {
             return null;
+        }
+
+        try {
+            const response = await pb.send(`/api/workflows/workflow/${workflowId}/nodes/${nodeId}/schema/input`, {
+                method: 'GET'
+            }) as any;
+
+            NetworkService.reportSuccess();
+            const data = this.#unwrapResponse(response);
+            return (data as { input_schema: DataSchema }).input_schema;
+        } catch (error: any) {
+            if (error?.status === 400) {
+                return null;
+            }
+            return await withErrorHandling(
+                async () => {
+                    throw error;
+                },
+                {
+                    errorMessage: 'Failed to get node input schema',
+                    showToast: false,
+                    logErrors: true
+                }
+            );
         }
     }
 }

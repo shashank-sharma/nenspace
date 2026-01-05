@@ -32,6 +32,7 @@
     import ButtonControl from "$lib/components/debug/controls/ButtonControl.svelte";
     import SwitchControl from "$lib/components/debug/controls/SwitchControl.svelte";
     import { toast } from "svelte-sonner";
+    import CredentialUsageCharts from "./CredentialUsageCharts.svelte";
 
     // State
     let tokens = $state<Token[]>([]);
@@ -308,6 +309,11 @@
                 New Token
             </Button>
         </div>
+    </div>
+
+    <!-- Usage Charts -->
+    <div class="mb-6">
+        <CredentialUsageCharts credentialType="token" days={30} />
     </div>
 
     {#if isLoading}

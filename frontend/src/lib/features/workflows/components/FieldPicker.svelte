@@ -33,6 +33,37 @@
         if (!schema || !schema.fields) return [];
         const hasMultipleSources = schema.source_nodes && schema.source_nodes.length > 1;
         
+        // Group fields by source when multiple sources
+        if (hasMultipleSources && showSource) {
+            const grouped: Record<string, typeof schema.fields> = {};
+            for (const field of schema.fields) {
+                const sourceId = field.source_node || 'unknown';
+                const sourceLabel = getNodeLabel(sourceId);
+                if (!grouped[sourceLabel]) {
+                    grouped[sourceLabel] = [];
+                }
+                grouped[sourceLabel].push(field);
+            }
+            
+            // Return grouped fields with source labels
+            const result: Array<{value: string, label: string, displayLabel: string, type: string, sourceNode: string | undefined, description: string | undefined, group?: string}> = [];
+            for (const [sourceLabel, fields] of Object.entries(grouped)) {
+                for (const f of fields) {
+                    result.push({
+                        value: f.name,
+                        label: `${f.name} (${f.type})`,
+                        displayLabel: `${f.name} (${f.type}) - from ${sourceLabel}`,
+                        type: f.type,
+                        sourceNode: f.source_node,
+                        description: f.description,
+                        group: sourceLabel
+                    });
+                }
+            }
+            return result;
+        }
+        
+        // Single source or no grouping
         return schema.fields.map(f => {
             let label = `${f.name} (${f.type})`;
             let sourceInfo = '';
@@ -40,9 +71,6 @@
             if (showSource && f.source_node) {
                 const sourceLabel = getNodeLabel(f.source_node);
                 sourceInfo = `from ${sourceLabel}`;
-            } else if (showSource && hasMultipleSources) {
-                // Field might be from merged sources
-                sourceInfo = 'merged';
             }
             
             return {
@@ -84,10 +112,23 @@
         <SelectContent>
             {#if hasMultipleSources()}
                 <div class="px-2 py-1.5 text-xs text-muted-foreground border-b">
-                    Fields from multiple sources
+                    Fields from {schema?.source_nodes?.length || 0} sources
                 </div>
             {/if}
-            {#each availableFields() as field}
+            {@const fields = availableFields()}
+            {@const groupedFields = fields.reduce((acc, f) => {
+                const group = (f as any).group || 'default';
+                if (!acc[group]) acc[group] = [];
+                acc[group].push(f);
+                return acc;
+            }, {} as Record<string, typeof fields>)}
+            {#each Object.entries(groupedFields) as [groupName, groupFields]}
+                {#if hasMultipleSources() && groupName !== 'default'}
+                    <div class="px-2 py-1 text-xs font-medium text-muted-foreground bg-muted/50">
+                        {groupName}
+                    </div>
+                {/if}
+                {#each groupFields as field}
                 <SelectItem value={field.value}>
                     <div class="flex items-center justify-between w-full">
                         <span>{field.label}</span>
@@ -101,6 +142,7 @@
                         <div class="text-xs text-muted-foreground mt-0.5">{field.description}</div>
                     {/if}
                 </SelectItem>
+                {/each}
             {/each}
         </SelectContent>
     </SelectRoot>
@@ -121,10 +163,23 @@
             <SelectContent>
                 {#if hasMultipleSources()}
                     <div class="px-2 py-1.5 text-xs text-muted-foreground border-b">
-                        Fields from multiple sources
+                        Fields from {schema?.source_nodes?.length || 0} sources
                     </div>
                 {/if}
-                {#each availableFields() as field}
+                {@const fields = availableFields()}
+                {@const groupedFields = fields.reduce((acc, f) => {
+                    const group = (f as any).group || 'default';
+                    if (!acc[group]) acc[group] = [];
+                    acc[group].push(f);
+                    return acc;
+                }, {} as Record<string, typeof fields>)}
+                {#each Object.entries(groupedFields) as [groupName, groupFields]}
+                    {#if hasMultipleSources() && groupName !== 'default'}
+                        <div class="px-2 py-1 text-xs font-medium text-muted-foreground bg-muted/50">
+                            {groupName}
+                        </div>
+                    {/if}
+                    {#each groupFields as field}
                     <SelectItem value={field.value}>
                         <div class="flex items-center justify-between w-full">
                             <span>{field.label}</span>
@@ -138,6 +193,7 @@
                             <div class="text-xs text-muted-foreground mt-0.5">{field.description}</div>
                         {/if}
                     </SelectItem>
+                    {/each}
                 {/each}
                 {#if isCustomValue && value}
                     <SelectItem value={value}>{value} (custom)</SelectItem>

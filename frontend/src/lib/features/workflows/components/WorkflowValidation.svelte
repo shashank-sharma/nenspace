@@ -3,10 +3,33 @@
     import { Badge } from '$lib/components/ui/badge';
     import * as Alert from '$lib/components/ui/alert';
     import { Button } from '$lib/components/ui/button';
-    import { CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-svelte';
+    import { CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-svelte';
     import type { ValidationResult } from '../types';
+    import { workflowEditorStore } from '../stores';
+    import { toast } from 'svelte-sonner';
 
     let { validationResult = null, collapsed = $bindable(false) } = $props<{ validationResult?: ValidationResult | null; collapsed?: boolean }>();
+
+    let isValidating = $state(false);
+
+    async function handleValidate() {
+        if (!workflowEditorStore.workflowId || isValidating) return;
+        
+        isValidating = true;
+        try {
+            const result = await workflowEditorStore.validate();
+            if (result.valid) {
+                toast.success('Workflow validation passed');
+            } else {
+                toast.error(`Validation failed: ${result.errors.length} error(s)`);
+            }
+        } catch (error) {
+            console.error('Validation failed:', error);
+            toast.error('Failed to validate workflow');
+        } finally {
+            isValidating = false;
+        }
+    }
 </script>
 
 {#if validationResult}
@@ -21,19 +44,46 @@
                     <span>Validation Failed</span>
                 {/if}
             </Card.Title>
-            <Button
-                variant="ghost"
-                size="icon"
-                class="h-6 w-6"
-                on:click={() => collapsed = !collapsed}
-                title={collapsed ? 'Expand' : 'Collapse'}
-            >
-                {#if collapsed}
-                    <ChevronDown class="h-4 w-4" />
+            <div class="flex items-center gap-2">
+                {#if validationResult.valid}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onclick={handleValidate}
+                        disabled={isValidating}
+                        class="hover:bg-green-50 hover:text-green-700 hover:border-green-300 dark:hover:bg-green-950 dark:hover:text-green-400 transition-colors"
+                        title="Revalidate workflow"
+                    >
+                        <RefreshCw class="h-3 w-3 mr-1.5 {isValidating ? 'animate-spin' : ''}" />
+                        Revalidate
+                    </Button>
                 {:else}
-                    <ChevronUp class="h-4 w-4" />
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onclick={handleValidate}
+                        disabled={isValidating}
+                        class="hover:bg-red-50 hover:text-red-700 hover:border-red-300 dark:hover:bg-red-950 dark:hover:text-red-400 transition-colors"
+                        title="Validate workflow"
+                    >
+                        <RefreshCw class="h-3 w-3 mr-1.5 {isValidating ? 'animate-spin' : ''}" />
+                        {isValidating ? 'Validating...' : 'Validate'}
+                    </Button>
                 {/if}
-            </Button>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-6 w-6"
+                    onclick={() => collapsed = !collapsed}
+                    title={collapsed ? 'Expand' : 'Collapse'}
+                >
+                    {#if collapsed}
+                        <ChevronDown class="h-4 w-4" />
+                    {:else}
+                        <ChevronUp class="h-4 w-4" />
+                    {/if}
+                </Button>
+            </div>
         </Card.Header>
         {#if !collapsed}
             <Card.Content class="space-y-3 px-4 pb-4">

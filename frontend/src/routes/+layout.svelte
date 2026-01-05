@@ -1,9 +1,11 @@
 <script lang="ts">
     import type { Snippet } from "svelte";
     import { onMount } from "svelte";
-    import { navigating } from "$app/stores";
+    import { navigating, page } from "$app/stores";
     import { fade } from "svelte/transition";
+    import { onNavigate } from "$app/navigation";
     import Loading from "$lib/components/Loading.svelte";
+    import PageTransition from "$lib/components/PageTransition.svelte";
     import { ThemeService } from "$lib/services/theme.service.svelte";
     import { FontService } from "$lib/services/font.service.svelte";
     import { SettingsService } from "$lib/services/settings.service.svelte";
@@ -35,6 +37,17 @@
     // Dynamically loaded PWA components (null until loaded)
     let UpdateDetector: any = $state(null);
     let OfflineIndicator: any = $state(null);
+
+    // Check if current route is dashboard to determine transition type
+    let isDashboardRoute = $derived($page.url.pathname.startsWith("/dashboard"));
+
+    // Handle navigation for transitions
+    onNavigate((navigation) => {
+        // Navigation state is handled by PageTransition component
+        if (navigation?.to) {
+            // Navigation will be handled by the transition system
+        }
+    });
 
     // One-time initialization on mount
     onMount(() => {
@@ -153,7 +166,15 @@
 <LimitedFunctionalityBanner />
 
 <main class="">
-    {@render children()}
+    {#if isDashboardRoute}
+        <!-- Dashboard routes handle their own transitions -->
+        {@render children()}
+    {:else}
+        <!-- Non-dashboard routes use page transitions -->
+        <PageTransition type="page" duration={350}>
+            {@render children()}
+        </PageTransition>
+    {/if}
 </main>
 
 <style>

@@ -1,8 +1,7 @@
 <script lang="ts">
-    import * as Card from '$lib/components/ui/card';
     import { Input } from '$lib/components/ui/input';
     import { ScrollArea } from '$lib/components/ui/scroll-area';
-    import { Search } from 'lucide-svelte';
+    import { Search, GripVertical } from 'lucide-svelte';
     import { workflowStore } from '../stores';
     import { NODE_TYPES, NODE_COLORS } from '../constants';
 
@@ -30,167 +29,167 @@
     }
 </script>
 
-<Card.Root class="node-palette">
-    <Card.Header>
-        <Card.Title class="text-sm font-medium">Node Palette</Card.Title>
-        <div class="relative mt-2">
-            <Search class="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+<div class="node-palette flex flex-col h-full">
+    <div class="px-4 pt-4 pb-3 space-y-3 border-b">
+        <div class="relative">
+            <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
                 type="text"
                 placeholder="Search connectors..."
                 bind:value={searchQuery}
-                class="pl-8"
+                class="pl-8 h-9 text-sm"
             />
         </div>
-        <div class="flex gap-1 mt-2">
+        <div class="flex gap-1 flex-wrap w-full">
             <button
-                class="text-xs px-2 py-1 rounded {selectedCategory === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted'}"
+                class="text-xs px-2 py-1 rounded-sm font-medium transition-colors flex-shrink-0 {selectedCategory === 'all' ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}"
                 onclick={() => selectedCategory = 'all'}
             >
                 All
             </button>
             <button
-                class="text-xs px-2 py-1 rounded {selectedCategory === 'source' ? 'bg-primary text-primary-foreground' : 'bg-muted'}"
+                class="text-xs px-2 py-1 rounded-sm font-medium transition-colors flex-shrink-0 {selectedCategory === 'source' ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}"
                 onclick={() => selectedCategory = 'source'}
             >
                 Source
             </button>
             <button
-                class="text-xs px-2 py-1 rounded {selectedCategory === 'processor' ? 'bg-primary text-primary-foreground' : 'bg-muted'}"
+                class="text-xs px-2 py-1 rounded-sm font-medium transition-colors flex-shrink-0 {selectedCategory === 'processor' ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}"
                 onclick={() => selectedCategory = 'processor'}
             >
                 Processor
             </button>
             <button
-                class="text-xs px-2 py-1 rounded {selectedCategory === 'destination' ? 'bg-primary text-primary-foreground' : 'bg-muted'}"
+                class="text-xs px-2 py-1 rounded-sm font-medium transition-colors flex-shrink-0 {selectedCategory === 'destination' ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted hover:bg-muted/80 text-muted-foreground'}"
                 onclick={() => selectedCategory = 'destination'}
             >
                 Destination
             </button>
         </div>
-    </Card.Header>
-    <Card.Content class="p-0">
-        <ScrollArea class="h-[600px]">
-            <div class="p-2 space-y-4">
-                {#if connectorsByType.source.length > 0}
-                    <div>
-                        <div class="text-xs font-medium text-muted-foreground mb-2 px-2">Source Nodes</div>
-                        <div class="space-y-1">
-                            {#each connectorsByType.source as connector}
-                                <div
-                                    class="p-2 rounded border cursor-move hover:bg-accent transition-colors"
-                                    draggable="true"
-                                    role="button"
-                                    tabindex="0"
-                                    data-connector-id={connector.id}
-                                    data-connector-type={connector.type}
-                                    data-connector-name={connector.name}
-                                    ondragstart={(e) => {
-                                        if (e.dataTransfer) {
-                                            e.dataTransfer.setData('application/json', JSON.stringify({
-                                                connectorId: connector.id,
-                                                connectorType: connector.type,
-                                                connectorName: connector.name
-                                            }));
-                                            e.dataTransfer.effectAllowed = 'copy';
-                                        }
-                                    }}
-                                >
-                                    <div class="flex items-center gap-2">
-                                        <div
-                                            class="w-3 h-3 rounded-full"
-                                            style="background-color: {getNodeColor(connector.type)}"
-                                        ></div>
-                                        <span class="text-xs font-medium">{connector.name}</span>
+    </div>
+    <ScrollArea class="flex-1">
+        <div class="p-3 space-y-3">
+            {#if connectorsByType.source.length > 0}
+                <div>
+                    <div class="text-xs font-semibold text-muted-foreground mb-2 px-1 uppercase tracking-wide">Source Nodes</div>
+                    <div class="space-y-1.5">
+                        {#each connectorsByType.source as connector}
+                            <div
+                                class="group p-2.5 rounded-lg border bg-card hover:bg-accent hover:border-accent-foreground/20 cursor-move transition-all shadow-sm hover:shadow flex items-center gap-2 border-l-4"
+                                style="border-left-color: {getNodeColor(connector.type)}"
+                                draggable="true"
+                                role="button"
+                                tabindex="0"
+                                data-connector-id={connector.id}
+                                data-connector-type={connector.type}
+                                data-connector-name={connector.name}
+                                ondragstart={(e) => {
+                                    if (e.dataTransfer) {
+                                        e.dataTransfer.setData('application/json', JSON.stringify({
+                                            connectorId: connector.id,
+                                            connectorType: connector.type,
+                                            connectorName: connector.name
+                                        }));
+                                        e.dataTransfer.effectAllowed = 'copy';
+                                    }
+                                }}
+                            >
+                                <GripVertical class="h-4 w-4 text-muted-foreground/60 group-hover:text-muted-foreground flex-shrink-0" />
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center">
+                                        <span class="text-xs font-medium text-foreground">{connector.name}</span>
                                     </div>
-                                    <div class="text-xs text-muted-foreground mt-1">{connector.id}</div>
+                                    <div class="text-[10px] text-muted-foreground mt-1.5 truncate">{connector.id}</div>
                                 </div>
-                            {/each}
-                        </div>
+                            </div>
+                        {/each}
                     </div>
-                {/if}
+                </div>
+            {/if}
 
-                {#if connectorsByType.processor.length > 0}
-                    <div>
-                        <div class="text-xs font-medium text-muted-foreground mb-2 px-2">Processor Nodes</div>
-                        <div class="space-y-1">
-                            {#each connectorsByType.processor as connector}
-                                <div
-                                    class="p-2 rounded border cursor-move hover:bg-accent transition-colors"
-                                    draggable="true"
-                                    role="button"
-                                    tabindex="0"
-                                    data-connector-id={connector.id}
-                                    data-connector-type={connector.type}
-                                    data-connector-name={connector.name}
-                                    ondragstart={(e) => {
-                                        if (e.dataTransfer) {
-                                            e.dataTransfer.setData('application/json', JSON.stringify({
-                                                connectorId: connector.id,
-                                                connectorType: connector.type,
-                                                connectorName: connector.name
-                                            }));
-                                            e.dataTransfer.effectAllowed = 'copy';
-                                        }
-                                    }}
-                                >
-                                    <div class="flex items-center gap-2">
-                                        <div
-                                            class="w-3 h-3 rounded-full"
-                                            style="background-color: {getNodeColor(connector.type)}"
-                                        ></div>
-                                        <span class="text-xs font-medium">{connector.name}</span>
+            {#if connectorsByType.processor.length > 0}
+                <div>
+                    <div class="text-xs font-semibold text-muted-foreground mb-2 px-1 uppercase tracking-wide">Processor Nodes</div>
+                    <div class="space-y-1.5">
+                        {#each connectorsByType.processor as connector}
+                            <div
+                                class="group p-2.5 rounded-lg border bg-card hover:bg-accent hover:border-accent-foreground/20 cursor-move transition-all shadow-sm hover:shadow flex items-center gap-2 border-l-4"
+                                style="border-left-color: {getNodeColor(connector.type)}"
+                                draggable="true"
+                                role="button"
+                                tabindex="0"
+                                data-connector-id={connector.id}
+                                data-connector-type={connector.type}
+                                data-connector-name={connector.name}
+                                ondragstart={(e) => {
+                                    if (e.dataTransfer) {
+                                        e.dataTransfer.setData('application/json', JSON.stringify({
+                                            connectorId: connector.id,
+                                            connectorType: connector.type,
+                                            connectorName: connector.name
+                                        }));
+                                        e.dataTransfer.effectAllowed = 'copy';
+                                    }
+                                }}
+                            >
+                                <GripVertical class="h-4 w-4 text-muted-foreground/60 group-hover:text-muted-foreground flex-shrink-0" />
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center">
+                                        <span class="text-xs font-medium text-foreground">{connector.name}</span>
                                     </div>
-                                    <div class="text-xs text-muted-foreground mt-1">{connector.id}</div>
+                                    <div class="text-[10px] text-muted-foreground mt-1.5 truncate">{connector.id}</div>
                                 </div>
-                            {/each}
-                        </div>
+                            </div>
+                        {/each}
                     </div>
-                {/if}
+                </div>
+            {/if}
 
-                {#if connectorsByType.destination.length > 0}
-                    <div>
-                        <div class="text-xs font-medium text-muted-foreground mb-2 px-2">Destination Nodes</div>
-                        <div class="space-y-1">
-                            {#each connectorsByType.destination as connector}
-                                <div
-                                    class="p-2 rounded border cursor-move hover:bg-accent transition-colors"
-                                    draggable="true"
-                                    role="button"
-                                    tabindex="0"
-                                    data-connector-id={connector.id}
-                                    data-connector-type={connector.type}
-                                    data-connector-name={connector.name}
-                                    ondragstart={(e) => {
-                                        if (e.dataTransfer) {
-                                            e.dataTransfer.setData('application/json', JSON.stringify({
-                                                connectorId: connector.id,
-                                                connectorType: connector.type,
-                                                connectorName: connector.name
-                                            }));
-                                            e.dataTransfer.effectAllowed = 'copy';
-                                        }
-                                    }}
-                                >
-                                    <div class="flex items-center gap-2">
-                                        <div
-                                            class="w-3 h-3 rounded-full"
-                                            style="background-color: {getNodeColor(connector.type)}"
-                                        ></div>
-                                        <span class="text-xs font-medium">{connector.name}</span>
+            {#if connectorsByType.destination.length > 0}
+                <div>
+                    <div class="text-xs font-semibold text-muted-foreground mb-2 px-1 uppercase tracking-wide">Destination Nodes</div>
+                    <div class="space-y-1.5">
+                        {#each connectorsByType.destination as connector}
+                            <div
+                                class="group p-2.5 rounded-lg border bg-card hover:bg-accent hover:border-accent-foreground/20 cursor-move transition-all shadow-sm hover:shadow flex items-center gap-2 border-l-4"
+                                style="border-left-color: {getNodeColor(connector.type)}"
+                                draggable="true"
+                                role="button"
+                                tabindex="0"
+                                data-connector-id={connector.id}
+                                data-connector-type={connector.type}
+                                data-connector-name={connector.name}
+                                ondragstart={(e) => {
+                                    if (e.dataTransfer) {
+                                        e.dataTransfer.setData('application/json', JSON.stringify({
+                                            connectorId: connector.id,
+                                            connectorType: connector.type,
+                                            connectorName: connector.name
+                                        }));
+                                        e.dataTransfer.effectAllowed = 'copy';
+                                    }
+                                }}
+                            >
+                                <GripVertical class="h-4 w-4 text-muted-foreground/60 group-hover:text-muted-foreground flex-shrink-0" />
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center">
+                                        <span class="text-xs font-medium text-foreground">{connector.name}</span>
                                     </div>
-                                    <div class="text-xs text-muted-foreground mt-1">{connector.id}</div>
+                                    <div class="text-[10px] text-muted-foreground mt-1.5 truncate">{connector.id}</div>
                                 </div>
-                            {/each}
-                        </div>
+                            </div>
+                        {/each}
                     </div>
-                {/if}
+                </div>
+            {/if}
 
-                {#if filteredConnectors.length === 0}
-                    <div class="text-xs text-muted-foreground text-center py-4">No connectors found</div>
-                {/if}
-            </div>
-        </ScrollArea>
-    </Card.Content>
-</Card.Root>
+            {#if filteredConnectors.length === 0}
+                <div class="text-xs text-muted-foreground text-center py-8">
+                    <div class="mb-1">No connectors found</div>
+                    <div class="text-[10px] opacity-75">Try adjusting your search or filter</div>
+                </div>
+            {/if}
+        </div>
+    </ScrollArea>
+</div>
 

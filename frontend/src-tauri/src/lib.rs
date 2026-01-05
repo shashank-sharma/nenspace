@@ -4,10 +4,24 @@ use tauri::{
 };
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 
+mod markdown;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::default().build())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_sql::Builder::default().build())
+        .invoke_handler(tauri::generate_handler![
+            markdown::notes::markdown_get_file_tree,
+            markdown::search::markdown_init_index,
+            markdown::search::markdown_index_note,
+            markdown::search::markdown_remove_from_index,
+            markdown::search::markdown_list_notes,
+            markdown::search::markdown_search_notes,
+            markdown::watcher::markdown_watch_vault,
+        ])
         .setup(setup_app)
         .on_window_event(handle_window_event)
         .run(tauri::generate_context!())
