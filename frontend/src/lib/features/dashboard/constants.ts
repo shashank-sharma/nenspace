@@ -25,7 +25,10 @@ import {
     Waves,
     GitBranch,
     StickyNote,
-    Folder
+    Folder,
+    Music,
+    Play,
+    ScrollText
 } from "lucide-svelte";
 
 export const DASHBOARD_SECTIONS: DashboardSection[] = [
@@ -46,8 +49,20 @@ export const DASHBOARD_SECTIONS: DashboardSection[] = [
     { id: "food-log", label: "Food Log", icon: Utensils, path: "/dashboard/food-log" },
     { id: "whiteboard", label: "Whiteboard", icon: PenTool, path: "/dashboard/whiteboard" },
     { id: "journal", label: "Stream", icon: Waves, path: "/dashboard/journal" },
+    { id: "logging", label: "Logs", icon: ScrollText, path: "/dashboard/logging" },
     { id: "workflows", label: "Workflows", icon: GitBranch, path: "/dashboard/workflows" },
     { id: "file-manager", label: "Files", icon: Folder, path: "/dashboard/file-manager" },
+    { 
+        id: "music", 
+        label: "Music", 
+        icon: Music, 
+        path: "/dashboard/music",
+        collapsible: true,
+        children: [
+            { id: "player", label: "Player", icon: Play, path: "/dashboard/music" },
+            { id: "library", label: "Library", icon: Music, path: "/dashboard/music/library" }
+        ]
+    },
     { 
         id: "credentials", 
         label: "Credentials", 
@@ -61,6 +76,11 @@ export const DASHBOARD_SECTIONS: DashboardSection[] = [
             { id: "security-keys", label: "Security Keys", icon: KeyRound, path: "/dashboard/credentials/security-keys" }
         ]
     }
+];
+
+export const MUSIC_SECTIONS: DashboardSection[] = [
+    { id: "", label: "Player", icon: Play, path: "/dashboard/music" },
+    { id: "library", label: "Library", icon: Music, path: "/dashboard/music/library" },
 ];
 
 export const CREDENTIALS_SECTIONS: DashboardSection[] = [

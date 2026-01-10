@@ -35,6 +35,8 @@ export type WithElementRef<T extends HTMLAttributes<HTMLElement>> = T & {
 
 export type WithoutChildren<T> = Omit<T, "children">;
 
+export type WithoutChildrenOrChild<T> = Omit<T, "children" | "child">;
+
 type FlyAndScaleParams = {
     y?: number;
     x?: number;

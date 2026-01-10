@@ -1,4 +1,4 @@
-export { cn, flyAndScale, formatDate, getPriorityColor, type WithElementRef, type WithoutChildren } from './ui.util';
+export { cn, flyAndScale, formatDate, getPriorityColor, type WithElementRef, type WithoutChildren, type WithoutChildrenOrChild } from './ui.util';
 
 export { DateUtil } from './date.util';
 

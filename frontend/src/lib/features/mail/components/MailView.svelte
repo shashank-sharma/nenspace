@@ -88,10 +88,12 @@
                             height: 100%;
                         }
                         
-                        /* Responsive images - minimal interference */
+                        /* Responsive images - limited width for better layout */
                         img {
-                            max-width: 100%;
+                            max-width: 350px;
                             height: auto;
+                            border-radius: 8px;
+                            margin: 1rem 0;
                         }
                         
                         /* Email-specific table styles for compatibility */

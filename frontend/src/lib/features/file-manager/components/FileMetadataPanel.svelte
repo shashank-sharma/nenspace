@@ -84,7 +84,7 @@
                         <img
                             src={fileUrl}
                             alt={file.filename}
-                            class="max-w-full max-h-48 rounded-lg object-contain border"
+                            class="w-32 h-32 rounded-lg object-cover border"
                         />
                     </div>
                 {:else if FileIcon}

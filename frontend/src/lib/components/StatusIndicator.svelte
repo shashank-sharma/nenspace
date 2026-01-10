@@ -1,19 +1,4 @@
 <script lang="ts">
-    /**
-     * Dynamic Island Status Indicator
-     *
-     * iPhone-inspired Dynamic Island notification system.
-     * Shows time by default, expands for notifications, then rolls back.
-     *
-     * Features:
-     * - Always visible island at top center
-     * - Shows current time in compact state
-     * - Expands smoothly for notifications
-     * - Status indicators (offline, connecting, backend status)
-     * - Smooth spring-based animations
-     * - Draggable with position persistence
-     * - Click to see detailed status
-     */
     import { blur, scale } from "svelte/transition";
     import { spring } from "svelte/motion";
     import { onMount, onDestroy } from "svelte";
@@ -29,7 +14,8 @@
     import { ApiLoadingService } from "$lib/services/api-loading.service.svelte";
     import { RealtimeService } from "$lib/services/realtime.service.svelte";
     import { HealthService } from "$lib/services/health.service.svelte";
-    import { Clock } from "lucide-svelte";
+    import { MusicPlayerService, MusicService } from "$lib/features/music";
+    import { Clock, Music, Play, Pause, SkipBack, SkipForward } from "lucide-svelte";
     import {
         loadPosition,
         savePosition,
@@ -37,9 +23,13 @@
         type Position,
     } from "$lib/utils/draggable.util";
 
-    // Reactive state from services
     let currentNotification = $derived(IslandNotificationService.current);
     let backendStatus = $derived(HealthService.status);
+    
+    let musicTrack = $derived(MusicPlayerService.currentTrack);
+    let musicPlaying = $derived(MusicPlayerService.isPlaying);
+    let musicProgress = $derived(MusicPlayerService.progress);
+    let isExpanded = $state(false);
 
     // Compute system status
     let systemStatus = $derived<SystemStatus>({
@@ -216,14 +206,22 @@
         dragCleanup = stopDragging;
     }
 
-    // Update width based on notification (height stays constant)
     $effect(() => {
-        if (currentNotification) {
+        if (currentNotification || isExpanded) {
             width.set(STATUS_INDICATOR_CONFIG.DIMENSIONS.EXPANDED_WIDTH);
+        } else if (musicTrack && !isExpanded) {
+            width.set(180);
         } else {
             width.set(STATUS_INDICATOR_CONFIG.DIMENSIONS.COMPACT_WIDTH);
         }
     });
+
+    function handleMusicClick(e: MouseEvent) {
+        e.stopPropagation();
+        if (musicTrack) {
+            isExpanded = !isExpanded;
+        }
+    }
 
     // Load position from localStorage
     $effect(() => {
@@ -335,14 +333,70 @@
                     </div>
                 {/key}
             </div>
+        {:else if musicTrack && isExpanded}
+            <div
+                class="px-3 flex items-center gap-2 h-full"
+                in:scale={{ duration: 300, start: 0.9 }}
+                role="button"
+                tabindex="0"
+                onclick={handleMusicClick}
+                onkeydown={(e) => e.key === 'Enter' && handleMusicClick(e as unknown as MouseEvent)}
+            >
+                <div class="flex-shrink-0 text-white">
+                    <Music size={14} />
+                </div>
+                <div class="flex-1 min-w-0 text-left">
+                    <div class="text-xs font-medium text-white truncate">{musicTrack.title}</div>
+                    <div class="text-[10px] text-white/70 truncate">{musicTrack.artist}</div>
+                </div>
+                <div class="flex items-center gap-1">
+                    <button class="p-1 hover:bg-white/10 rounded" onclick={(e) => { e.stopPropagation(); MusicPlayerService.previous(); }}>
+                        <SkipBack size={12} class="text-white" />
+                    </button>
+                    <button class="p-1 hover:bg-white/10 rounded" onclick={(e) => { e.stopPropagation(); MusicPlayerService.togglePlayPause(); }}>
+                        {#if musicPlaying}
+                            <Pause size={14} class="text-white" />
+                        {:else}
+                            <Play size={14} class="text-white" />
+                        {/if}
+                    </button>
+                    <button class="p-1 hover:bg-white/10 rounded" onclick={(e) => { e.stopPropagation(); MusicPlayerService.next(); }}>
+                        <SkipForward size={12} class="text-white" />
+                    </button>
+                </div>
+            </div>
+            <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-white/20">
+                <div class="h-full bg-white/60 transition-all" style="width: {musicProgress}%"></div>
+            </div>
+        {:else if musicTrack}
+            <div
+                class="px-3 flex items-center gap-2 h-full cursor-pointer"
+                in:scale={{ duration: 300, start: 1.1 }}
+                role="button"
+                tabindex="0"
+                onclick={handleMusicClick}
+                onkeydown={(e) => e.key === 'Enter' && handleMusicClick(e as unknown as MouseEvent)}
+            >
+                <div class="flex-shrink-0 text-white">
+                    {#if musicPlaying}
+                        <Music size={14} class="animate-pulse" />
+                    {:else}
+                        <Music size={14} />
+                    {/if}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-xs font-medium text-white truncate">{musicTrack.title}</div>
+                </div>
+            </div>
+            <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-white/20">
+                <div class="h-full bg-white/60 transition-all" style="width: {musicProgress}%"></div>
+            </div>
         {:else}
-            <!-- Default State: Time + Status -->
             {@const StatusIcon = (systemStatus.isApiLoading && !currentNotification) ? Clock : statusState.icon}
             <div
                 class="px-3 flex items-center justify-center gap-2 h-full"
                 in:scale={{ duration: 300, start: 1.1 }}
             >
-                <!-- Status Icon -->
                 {#if StatusIcon}
                     <div class="{statusState.iconColor} flex-shrink-0">
                         <StatusIcon
@@ -357,8 +411,6 @@
                         <Clock size={14} />
                     </div>
                 {/if}
-
-                <!-- Time -->
                 <div class="text-xs font-semibold text-white tracking-tight">
                     {currentTime}
                 </div>

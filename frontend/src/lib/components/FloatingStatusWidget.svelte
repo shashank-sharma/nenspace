@@ -20,7 +20,7 @@
     import { blur } from "svelte/transition";
     import { onMount, onDestroy } from "svelte";
     import { browser } from "$app/environment";
-    import { Clock } from "lucide-svelte";
+    import { Clock, Music, Play, Pause, SkipBack, SkipForward } from "lucide-svelte";
     import {
         STATUS_INDICATOR_CONFIG,
         getStatusIndicatorState,
@@ -30,6 +30,12 @@
         getNotificationTextRgb,
     } from "$lib/features/status-indicator";
     import { isTauriEnvironment } from "$lib/utils/tauri.util";
+
+    interface MusicState {
+        isPlaying: boolean;
+        track: { title: string; artist: string } | null;
+        progress: number;
+    }
 
     // ============================================================================
     // CONSTANTS
@@ -81,6 +87,8 @@
     let timeInterval: NodeJS.Timeout | null = null;
     let expansionMode = $state<ExpansionMode>("edge");
     let currentWidthState = $state<number>(WIDGET_DIMENSIONS.COMPACT_WIDTH);
+    let musicState = $state<MusicState>({ isPlaying: false, track: null, progress: 0 });
+    let isExpanded = $state(false);
 
     // Cached API imports for performance
     let windowApi: typeof import("@tauri-apps/api/window") | null = null;
@@ -92,6 +100,17 @@
     // ============================================================================
 
     let statusState = $derived(getStatusIndicatorState(systemStatus));
+
+    async function emitMusicCommand(command: 'previous' | 'toggle' | 'next') {
+        if (!eventApi) return;
+        try {
+            await eventApi.emit('music-controls', { command });
+        } catch (err) {
+            if (import.meta.env.DEV) {
+                console.error('[FloatingWidget] Failed to emit music command:', err);
+            }
+        }
+    }
 
     // ============================================================================
     // HELPER FUNCTIONS
@@ -623,12 +642,20 @@
                     },
                 );
 
+            const unlistenMusic = await eventApi.listen<MusicState>(
+                "music-playback-update",
+                (event) => {
+                    musicState = event.payload;
+                },
+            );
+
             cleanupFuncs.push(
                 unlistenHealth,
                 unlistenNetwork,
                 unlistenRealtime,
                 unlistenApiLoading,
                 unlistenNotification,
+                unlistenMusic,
             );
         } catch (err) {
             if (import.meta.env.DEV) {
@@ -651,9 +678,14 @@
      * Handles both edge and center expansion modes with smooth animations
      */
     $effect(() => {
-        const targetWidth = currentNotification
-            ? WIDGET_DIMENSIONS.EXPANDED_WIDTH
-            : WIDGET_DIMENSIONS.COMPACT_WIDTH;
+        let targetWidth: number;
+        if (currentNotification || isExpanded) {
+            targetWidth = WIDGET_DIMENSIONS.EXPANDED_WIDTH;
+        } else if (musicState.track) {
+            targetWidth = 180;
+        } else {
+            targetWidth = WIDGET_DIMENSIONS.COMPACT_WIDTH;
+        }
 
         const previousWidth = currentWidthState;
 
@@ -827,23 +859,59 @@
         {/if}
     </div>
 
-    <!-- Content -->
     <div class="content">
         {#if currentNotification}
-            <!-- Expanded: Show notification message -->
             <div
                 class="notification-message"
                 transition:blur={{ duration: 200 }}
             >
                 {currentNotification.message}
             </div>
+        {:else if musicState.track && isExpanded}
+            <div class="music-expanded" transition:blur={{ duration: 200 }}>
+                <div class="music-info">
+                    <span class="music-title">{musicState.track.title}</span>
+                    <span class="music-artist">{musicState.track.artist}</span>
+                </div>
+                <div class="music-controls">
+                    <button class="music-btn" onclick={() => emitMusicCommand('previous')}>
+                        <SkipBack size={12} />
+                    </button>
+                    <button class="music-btn" onclick={() => emitMusicCommand('toggle')}>
+                        {#if musicState.isPlaying}
+                            <Pause size={14} />
+                        {:else}
+                            <Play size={14} />
+                        {/if}
+                    </button>
+                    <button class="music-btn" onclick={() => emitMusicCommand('next')}>
+                        <SkipForward size={12} />
+                    </button>
+                </div>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: {musicState.progress}%"></div>
+            </div>
+        {:else if musicState.track}
+            <div 
+                class="music-compact" 
+                transition:blur={{ duration: 200 }}
+                onclick={() => isExpanded = !isExpanded}
+                role="button"
+                tabindex="0"
+                onkeydown={(e) => e.key === 'Enter' && (isExpanded = !isExpanded)}
+            >
+                <Music size={14} class={musicState.isPlaying ? 'animate-pulse' : ''} />
+                <span class="music-title">{musicState.track.title}</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: {musicState.progress}%"></div>
+            </div>
         {:else if currentTime}
-            <!-- Compact: Show time -->
             <div class="time-display" transition:blur={{ duration: 200 }}>
                 {currentTime}
             </div>
         {:else}
-            <!-- Loading state -->
             <div class="time-display">Loading...</div>
         {/if}
     </div>
@@ -961,5 +1029,94 @@
         100% {
             background-position: 200% 0;
         }
+    }
+
+    .music-compact {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+    }
+
+    .music-compact .music-title {
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 120px;
+    }
+
+    .music-expanded {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .music-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        text-align: left;
+    }
+
+    .music-info .music-title {
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .music-info .music-artist {
+        font-size: 10px;
+        opacity: 0.7;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .music-controls {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .music-btn {
+        padding: 4px;
+        border-radius: 4px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: currentColor;
+        transition: background-color 0.2s;
+    }
+
+    .music-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .progress-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .progress-fill {
+        height: 100%;
+        background: rgba(255, 255, 255, 0.6);
+        transition: width 0.1s linear;
+    }
+
+    :global(.animate-pulse) {
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
 </style>

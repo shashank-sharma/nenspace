@@ -132,6 +132,51 @@ export class DateUtil {
     }
 
     /**
+     * Generic date formatting with flexible options
+     */
+    static format(input: DateInput, options?: {
+        includeTime?: boolean;
+        seconds?: boolean;
+        use24Hour?: boolean;
+        dateStyle?: 'short' | 'medium' | 'long';
+        locale?: string;
+    }): string {
+        try {
+            const date = toDate(input);
+            const formatOptions: Intl.DateTimeFormatOptions = {};
+
+            if (options?.dateStyle === 'short') {
+                formatOptions.year = '2-digit';
+                formatOptions.month = 'numeric';
+                formatOptions.day = 'numeric';
+            } else if (options?.dateStyle === 'long') {
+                formatOptions.year = 'numeric';
+                formatOptions.month = 'long';
+                formatOptions.day = 'numeric';
+            } else {
+                // Default to medium style
+                formatOptions.year = 'numeric';
+                formatOptions.month = 'short';
+                formatOptions.day = 'numeric';
+            }
+
+            if (options?.includeTime) {
+                formatOptions.hour = '2-digit';
+                formatOptions.minute = '2-digit';
+                if (options?.seconds) {
+                    formatOptions.second = '2-digit';
+                }
+                formatOptions.hour12 = !options?.use24Hour;
+            }
+
+            const formatter = getFormatter(formatOptions, options?.locale);
+            return formatter.format(date);
+        } catch {
+            return 'Invalid Date';
+        }
+    }
+
+    /**
      * Format date as relative (Today, Yesterday, or full date)
      * 
      * @example

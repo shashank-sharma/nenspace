@@ -126,6 +126,7 @@ export function createDraggable(options: DraggableOptions) {
 
         let isDragging = true;
         let hasMoved = false;
+        let lastPosition = currentPosition;
         const startPosX = currentPosition.x;
         const startPosY = currentPosition.y;
 
@@ -146,12 +147,12 @@ export function createDraggable(options: DraggableOptions) {
             const newX = startPosX + (clientX - startX);
             const newY = startPosY + (clientY - startY);
 
-            const validatedPosition = validatePosition(
+            lastPosition = validatePosition(
                 { x: newX, y: newY },
                 elementSize
             );
 
-            onDrag?.(validatedPosition);
+            onDrag?.(lastPosition);
         };
 
         const stopDrag = () => {
@@ -166,9 +167,8 @@ export function createDraggable(options: DraggableOptions) {
                 onClick?.();
             } else {
                 // Save position only if actually dragged
-                const currentPos = currentPosition;
-                savePosition(storageKey, currentPos);
-                onDragEnd?.(currentPos);
+                savePosition(storageKey, lastPosition);
+                onDragEnd?.(lastPosition);
             }
 
             cleanup = null;
