@@ -1,6 +1,7 @@
 package memorysystem
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -312,7 +313,7 @@ func (ers *EntityRecognitionSystem) GetOrCreateEntity(userId, entityType, name, 
 	
 	// Generate embedding for entity
 	if ers.embeddingSystem != nil {
-		embedding, err := ers.embeddingSystem.GenerateEmbedding(name + " " + description)
+		embedding, err := ers.embeddingSystem.GenerateEmbedding(context.Background(), name + " " + description)
 		if err == nil {
 			embeddingJSON, err := json.Marshal(embedding)
 			if err == nil {

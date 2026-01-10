@@ -84,20 +84,19 @@ func (c *PBToCsvConverter) Execute(ctx context.Context, input map[string]interfa
 		return nil, fmt.Errorf("no valid records found in input data")
 	}
 
-	// Preserve or infer schema
 	outputSchema := envelope.Metadata.Schema
 	if len(outputSchema.Fields) == 0 {
-		// Infer schema from data if not provided
-		outputSchema = inferSchemaFromRecords(records)
+		outputSchema = InferSchemaFromData(records, c.ID())
 	}
 
-	// Build output envelope
+	nodeID := c.ID()
 	outputEnvelope := &types.DataEnvelope{
 		Data: records,
 		Metadata: types.Metadata{
+			NodeID:          nodeID,
 			NodeType:        c.ConnID,
 			RecordCount:     len(records),
-			ExecutionTimeMs: 0, // Will be set by engine
+			ExecutionTimeMs: 0,
 			Schema:          outputSchema,
 			Sources:         envelope.Metadata.Sources,
 			Custom: map[string]interface{}{
@@ -127,72 +126,6 @@ func (c *PBToCsvConverter) GetOutputSchema(inputSchema *types.DataSchema) (*type
 }
 
 // ValidateInputSchema validates if input schema is compatible
-// CSV converter accepts any schema (it's a pass-through transformer)
 func (c *PBToCsvConverter) ValidateInputSchema(schema *types.DataSchema) error {
-	// CSV converter accepts any input schema
-	// No validation needed - it just passes data through
 	return nil
-}
-
-// inferSchemaFromRecords infers a schema from record data
-func inferSchemaFromRecords(records []map[string]interface{}) types.DataSchema {
-	schema := types.DataSchema{
-		Fields:      make([]types.FieldDefinition, 0),
-		SourceNodes: make([]string, 0),
-	}
-
-	if len(records) == 0 {
-		return schema
-	}
-
-	// Collect all field names and infer types from first record
-	fieldMap := make(map[string]types.FieldDefinition)
-	for _, record := range records {
-		for fieldName, value := range record {
-			if _, exists := fieldMap[fieldName]; !exists {
-				fieldType := inferFieldType(value)
-				fieldMap[fieldName] = types.FieldDefinition{
-					Name:     fieldName,
-					Type:     fieldType,
-					Nullable: value == nil,
-				}
-			} else {
-				// Update nullable if we find a nil value
-				if value == nil {
-					field := fieldMap[fieldName]
-					field.Nullable = true
-					fieldMap[fieldName] = field
-				}
-			}
-		}
-	}
-
-	// Convert map to slice
-	for _, field := range fieldMap {
-		schema.Fields = append(schema.Fields, field)
-	}
-
-	return schema
-}
-
-// inferFieldType attempts to infer the type of a value
-func inferFieldType(value interface{}) string {
-	if value == nil {
-		return "string" // Default to string for null values
-	}
-
-	switch value.(type) {
-	case bool:
-		return "boolean"
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return "number"
-	case float32, float64:
-		return "number"
-	case string:
-		return "string"
-	case []interface{}, map[string]interface{}:
-		return "json"
-	default:
-		return "string" // Default fallback
-	}
 }

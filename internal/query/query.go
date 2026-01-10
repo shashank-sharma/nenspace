@@ -1,7 +1,11 @@
 package query
 
 import (
+	"fmt"
+	"reflect"
+
 	"github.com/pocketbase/dbx"
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/shashank-sharma/backend/internal/models"
 	"github.com/shashank-sharma/backend/internal/store"
 	"github.com/shashank-sharma/backend/internal/util"
@@ -59,19 +63,63 @@ func FindByFilter[T models.Model](filterStruct map[string]interface{}) (T, error
 	return m, nil
 }
 
+func RunInTransaction(fn func(txApp core.App) error) error {
+	return store.GetDao().RunInTransaction(fn)
+}
+
+// copyModelToRecord copies fields from a model struct to a core.Record using reflection
+func copyModelToRecord(model models.Model, record *core.Record) {
+	v := reflect.ValueOf(model)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	t := v.Type()
+
+	for i := 0; i < v.NumField(); i++ {
+		field := t.Field(i)
+		if field.Anonymous {
+			continue // Skip embedded BaseModel
+		}
+		dbTag := field.Tag.Get("db")
+		if dbTag == "" || dbTag == "id" {
+			continue
+		}
+		record.Set(dbTag, v.Field(i).Interface())
+	}
+}
+
 func SaveRecord(model models.Model) error {
+	return SaveRecordWithApp(store.GetDao(), model)
+}
+
+func SaveRecordWithApp(app core.App, model models.Model) error {
+	collection, err := app.FindCollectionByNameOrId(model.TableName())
+	if err != nil {
+		return fmt.Errorf("collection %s not found: %w", model.TableName(), err)
+	}
+
+	var record *core.Record
 	if model.IsNew() {
+		record = core.NewRecord(collection)
 		if !model.HasId() {
 			model.SetId(util.GenerateRandomId())
 		}
-		model.RefreshCreated()
+		record.Id = model.GetId()
+	} else {
+		record, err = app.FindRecordById(collection, model.GetId())
+		if err != nil {
+			return fmt.Errorf("record not found: %w", err)
+		}
 	}
 
-	model.RefreshUpdated()
+	copyModelToRecord(model, record)
 
-	if err := store.GetDao().Save(model); err != nil {
+	if err := app.Save(record); err != nil {
 		return err
 	}
+
+	model.SetId(record.Id)
+	model.MarkAsNotNew()
 	return nil
 }
 
@@ -207,4 +255,43 @@ func CountRecords[T models.Model](filterStruct map[string]interface{}) (int64, e
 func BaseQuery[T models.Model]() *dbx.SelectQuery {
 	var m T
 	return BaseModelQuery(m)
+}
+
+func DeleteBatch[T models.Model](filter map[string]interface{}, batchSize int) (int64, error) {
+	var m T
+	tableName := m.TableName()
+
+	var mock T
+	query := BaseModelQuery(mock).Select("id").Limit(int64(batchSize))
+
+	params := dbx.Params{}
+	for field, value := range filter {
+		switch v := value.(type) {
+		case map[string]interface{}:
+			for op, actualVal := range v {
+				if op == "gte" {
+					paramName := field + "_batch_gte"
+					query = query.AndWhere(dbx.NewExp(field+" >= {:"+paramName+"}", dbx.Params{paramName: actualVal}))
+					params[paramName] = actualVal
+				} else if op == "lte" {
+					paramName := field + "_batch_lte"
+					query = query.AndWhere(dbx.NewExp(field+" <= {:"+paramName+"}", dbx.Params{paramName: actualVal}))
+					params[paramName] = actualVal
+				}
+			}
+		default:
+			query = query.AndWhere(dbx.HashExp{field: value})
+		}
+	}
+
+	subQuerySql := query.Build().SQL()
+	subQueryParams := query.Build().Params()
+
+	finalSql := fmt.Sprintf("DELETE FROM %s WHERE id IN (%s)", tableName, subQuerySql)
+	res, err := store.GetDao().DB().NewQuery(finalSql).Bind(subQueryParams).Execute()
+	if err != nil {
+		return 0, err
+	}
+
+	return res.RowsAffected()
 }

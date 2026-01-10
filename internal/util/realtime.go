@@ -2,6 +2,7 @@ package util
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/subscriptions"
@@ -31,6 +32,34 @@ type NotificationMessage struct {
 //	    logger.LogError("Failed to send notification", "error", err)
 //	}
 func NotifyClients(app core.App, topic string, message string, variant string, duration int) error {
+	return notifyClientsInternal(app, topic, message, variant, duration)
+}
+
+// NotifyClientsWithDelay sends a realtime message to all clients subscribed to a topic with optional delay
+//
+// Parameters:
+//   - app: The PocketBase app instance
+//   - topic: The subscription topic (e.g., "notifications", "calendar-sync", "system")
+//   - message: The notification message
+//   - variant: The type of notification (success, error, info, warning, loading)
+//   - duration: Auto-dismiss duration in milliseconds (0 = no auto-dismiss)
+//   - delay: Delay before sending notification in seconds (0 = send immediately)
+//
+// The delay is handled on the backend - the notification is sent after the delay period.
+// This ensures the frontend receives the notification at the right time and can display it immediately.
+func NotifyClientsWithDelay(app core.App, topic string, message string, variant string, duration int, delay int) error {
+	if delay > 0 {
+		go func() {
+			time.Sleep(time.Duration(delay) * time.Second)
+			notifyClientsInternal(app, topic, message, variant, duration)
+		}()
+		return nil
+	}
+	return notifyClientsInternal(app, topic, message, variant, duration)
+}
+
+// notifyClientsInternal is the internal implementation that actually sends the notification
+func notifyClientsInternal(app core.App, topic string, message string, variant string, duration int) error {
 	notification := NotificationMessage{
 		Message:  message,
 		Variant:  variant,
@@ -51,16 +80,12 @@ func NotifyClients(app core.App, topic string, message string, variant string, d
 	chunks := app.SubscriptionsBroker().ChunkedClients(RealtimeClientChunkSize)
 
 	for _, chunk := range chunks {
-		// Capture chunk in closure
 		currentChunk := chunk
 		group.Go(func() error {
 			for _, client := range currentChunk {
-				// Only send to clients subscribed to this topic
 				if !client.HasSubscription(topic) {
 					continue
 				}
-				// Send message (fire-and-forget - Send doesn't return errors)
-				// Errors are handled internally by the subscription broker
 				client.Send(msg)
 			}
 			return nil

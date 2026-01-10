@@ -14,6 +14,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/models"
 	"github.com/shashank-sharma/backend/internal/query"
+	"github.com/shashank-sharma/backend/internal/services/credentials"
 	"github.com/shashank-sharma/backend/internal/util"
 	"golang.org/x/crypto/ssh"
 )
@@ -84,7 +85,7 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 	// Register route to connect to a server
 	sshRouter.POST("/connect", func(c *core.RequestEvent) error {
 		token := c.Request.Header.Get("Authorization")
-		
+
 		tokenPrefix := ""
 		if len(token) > 10 {
 			tokenPrefix = token[:10] + "..."
@@ -93,9 +94,9 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 		} else {
 			tokenPrefix = "(empty)"
 		}
-		
+
 		logger.LogInfo("Server connect request received", "tokenPrefix", tokenPrefix)
-		
+
 		userID, err := getUserIDFromToken(token)
 		if err != nil {
 			logger.LogError("Server connect authentication failed", "error", err)
@@ -103,7 +104,7 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 				"message": "Not authenticated",
 			})
 		}
-		
+
 		logger.LogInfo("Server connect authentication successful", "userID", userID)
 
 		var requestData struct {
@@ -115,7 +116,7 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 				"message": "Invalid request body",
 			})
 		}
-		
+
 		logger.LogInfo("Server connect request parsed", "serverID", requestData.ServerID)
 
 		server, key, err := getServerAndKey(c, requestData.ServerID)
@@ -125,10 +126,10 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 				"message": err.Error(),
 			})
 		}
-		
-		logger.LogInfo("Server and key retrieved successfully", 
-			"serverID", requestData.ServerID, 
-			"serverName", server["name"], 
+
+		logger.LogInfo("Server and key retrieved successfully",
+			"serverID", requestData.ServerID,
+			"serverName", server["name"],
 			"keyID", key["id"],
 			"keyName", key["name"])
 
@@ -143,7 +144,7 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 		}
 
 		logger.LogInfo("Private key parsed successfully", "keyName", key["name"])
-		
+
 		config := &ssh.ClientConfig{
 			User: server["username"].(string),
 			Auth: []ssh.AuthMethod{
@@ -155,19 +156,45 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 
 		addr := fmt.Sprintf("%s:%d", server["ip"].(string), server["port"])
 		logger.LogInfo("Connecting to server", "address", addr, "username", server["username"])
-		
+
+		startTime := time.Now()
 		client, err := ssh.Dial("tcp", addr, config)
+		responseTime := time.Since(startTime)
+
+		securityKeyID := key["id"].(string)
+		event := &credentials.UsageEvent{
+			CredentialType: "security_key",
+			CredentialID:   securityKeyID,
+			UserID:         userID,
+			Service:        "ssh",
+			Endpoint:       addr,
+			Method:         "SSH_CONNECT",
+			StatusCode:     200,
+			ResponseTimeMs: responseTime.Milliseconds(),
+			Timestamp:      startTime,
+			Metadata: map[string]interface{}{
+				"server_id":   requestData.ServerID,
+				"server_name": server["name"],
+				"username":    server["username"],
+			},
+		}
+
 		if err != nil {
+			event.StatusCode = 0
+			event.ErrorType = "connection_error"
+			event.ErrorMessage = err.Error()
 			logger.LogError("Failed to connect to server", "error", err, "address", addr)
+			_ = credentials.TrackUsageDirect(c.Request.Context(), event)
 			return c.JSON(http.StatusBadRequest, map[string]interface{}{
 				"message": fmt.Sprintf("Failed to connect to %s: %v", addr, err),
 			})
 		}
-		
+
+		_ = credentials.TrackUsageDirect(c.Request.Context(), event)
 		logger.LogInfo("SSH connection established successfully", "address", addr)
 
 		connID := generateConnectionID()
-		
+
 		logger.LogInfo("Creating SSH connection object", "connectionID", connID)
 		conn := &SSHConnection{
 			ID:            connID,
@@ -180,11 +207,11 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 			CommandBuf:    "",
 			Interactive:   true,
 		}
-		
+
 		connectionManager.mu.Lock()
 		connectionManager.connections[connID] = conn
 		connectionManager.mu.Unlock()
-		
+
 		logger.LogInfo("SSH connection stored successfully", "connectionID", connID)
 
 		return c.JSON(http.StatusOK, map[string]interface{}{
@@ -229,27 +256,27 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 		}
 
 		conn.LastUsed = time.Now()
-		
+
 		if conn.Interactive && conn.StdinPipe != nil && conn.Session != nil {
 			_, err := conn.StdinPipe.Write([]byte(requestData.Command))
 			connectionManager.mu.Unlock()
-			
+
 			if err != nil {
 				logger.LogError("Failed to write to shell stdin", "error", err)
 				return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 					"message": "Failed to send command to shell: " + err.Error(),
 				})
 			}
-			
+
 			return c.JSON(http.StatusOK, map[string]interface{}{
 				"status": "sent",
 			})
 		}
-		
+
 		connectionManager.mu.Unlock()
-		
+
 		logger.LogInfo("No interactive shell for connection, using fallback method", "connectionID", requestData.ConnectionID)
-		
+
 		SendOutputToListeners(requestData.ConnectionID, []byte(requestData.Command))
 
 		session, err := conn.Client.NewSession()
@@ -288,7 +315,42 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 			})
 		}
 
-		err = session.Start(requestData.Command)
+		// Track command execution
+		_, key, _ := getServerAndKey(c, conn.ServerID)
+		if key != nil {
+			securityKeyID := key["id"].(string)
+			startTime := time.Now()
+
+			err = session.Start(requestData.Command)
+			responseTime := time.Since(startTime)
+
+			event := &credentials.UsageEvent{
+				CredentialType: "security_key",
+				CredentialID:   securityKeyID,
+				UserID:         userID,
+				Service:        "ssh",
+				Endpoint:       conn.ServerID,
+				Method:         "SSH_EXECUTE",
+				StatusCode:     200,
+				ResponseTimeMs: responseTime.Milliseconds(),
+				Timestamp:      startTime,
+				Metadata: map[string]interface{}{
+					"server_id": conn.ServerID,
+					"command":   requestData.Command,
+				},
+			}
+
+			if err != nil {
+				event.StatusCode = 0
+				event.ErrorType = "execution_error"
+				event.ErrorMessage = err.Error()
+			}
+
+			_ = credentials.TrackUsageDirect(c.Request.Context(), event)
+		} else {
+			err = session.Start(requestData.Command)
+		}
+
 		if err != nil {
 			SendOutputToListeners(requestData.ConnectionID, []byte("\r\n\x1B[31mFailed to start command: "+err.Error()+"\x1B[0m\r\n"))
 			return c.JSON(http.StatusInternalServerError, map[string]interface{}{
@@ -332,7 +394,7 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 			// Wait for command to finish
 			err := session.Wait()
 			outputReceived.Wait()
-			
+
 			if err != nil {
 				exitErr, ok := err.(*ssh.ExitError)
 				if ok {
@@ -345,7 +407,7 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 					SendOutputToListeners(requestData.ConnectionID, []byte(fmt.Sprintf("\r\n\x1B[31mCommand failed: %s\x1B[0m\r\n", err.Error())))
 				}
 			}
-			
+
 			// Send a new prompt
 			// Create a new session to get the prompt
 			promptSession, err := conn.Client.NewSession()
@@ -354,13 +416,13 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 				return
 			}
 			defer promptSession.Close()
-			
+
 			promptOutput, err := promptSession.CombinedOutput("echo -n \"$(whoami)@$(hostname):$(pwd)$ \"")
 			if err != nil {
 				SendOutputToListeners(requestData.ConnectionID, []byte("\r\n$ "))
 				return
 			}
-			
+
 			SendOutputToListeners(requestData.ConnectionID, []byte("\r\n"+string(promptOutput)))
 		}()
 
@@ -410,7 +472,7 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 		if conn.Client != nil {
 			conn.Client.Close()
 		}
-		
+
 		delete(connectionManager.connections, requestData.ConnectionID)
 		connectionManager.mu.Unlock()
 
@@ -420,7 +482,7 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 	})
 
 	// Register route for keep-alive pings
-	// This endpoint handles both HTTP pings from the frontend and serves as a fallback 
+	// This endpoint handles both HTTP pings from the frontend and serves as a fallback
 	// for WebSocket ping messages when WebSockets aren't available
 	sshRouter.POST("/ping", func(c *core.RequestEvent) error {
 		token := c.Request.Header.Get("Authorization")
@@ -461,7 +523,7 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 
 		return c.JSON(http.StatusOK, map[string]interface{}{
 			"status": "ok",
-			"time": time.Now().UnixMilli(),
+			"time":   time.Now().UnixMilli(),
 		})
 	})
 
@@ -511,29 +573,29 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 		}
 
 		conn.LastUsed = time.Now()
-		
+
 		resizeError := ""
 		if conn.Session != nil {
 			err = conn.Session.WindowChange(requestData.Rows, requestData.Cols)
 			if err != nil {
 				resizeError = err.Error()
-				logger.LogInfo("Failed to resize terminal window", 
-					"error", err, 
+				logger.LogInfo("Failed to resize terminal window",
+					"error", err,
 					"connectionID", requestData.ConnectionID,
 					"cols", requestData.Cols,
 					"rows", requestData.Rows)
 			} else {
-				logger.LogInfo("Terminal resized successfully", 
+				logger.LogInfo("Terminal resized successfully",
 					"connectionID", requestData.ConnectionID,
 					"cols", requestData.Cols,
 					"rows", requestData.Rows)
 			}
 		} else {
 			resizeError = "No active session for this connection"
-			logger.LogInfo("Cannot resize terminal - no active session", 
+			logger.LogInfo("Cannot resize terminal - no active session",
 				"connectionID", requestData.ConnectionID)
 		}
-		
+
 		connectionManager.mu.Unlock()
 
 		response := map[string]interface{}{
@@ -541,11 +603,11 @@ func RegisterSSHRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path s
 			"cols":   requestData.Cols,
 			"rows":   requestData.Rows,
 		}
-		
+
 		if resizeError != "" {
 			response["warning"] = resizeError
 		}
-		
+
 		return c.JSON(http.StatusOK, response)
 	})
 }
@@ -595,4 +657,4 @@ func getServerAndKey(c *core.RequestEvent, serverID string) (map[string]interfac
 	}
 
 	return serverMap, securityKeyMap, nil
-} 
+}

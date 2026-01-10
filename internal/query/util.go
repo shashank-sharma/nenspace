@@ -3,7 +3,6 @@ package query
 import (
 	"errors"
 	"strings"
-	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/tools/security"
@@ -43,13 +42,13 @@ func ValidateDevToken(tokenString string) (*models.DevToken, error) {
 	// 1. Query tokens by user and is_active (can't query by encrypted value)
 	// 2. Decrypt each stored token
 	// 3. Compare plaintext values
-	
+
 	// Query all active tokens for the user (usually just a few)
 	tokens, err := FindAllByFilter[*models.DevToken](map[string]interface{}{
 		"user":      userID,
 		"is_active": true,
 	})
-	
+
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +63,7 @@ func ValidateDevToken(tokenString string) (*models.DevToken, error) {
 			// Skip tokens that can't be decrypted
 			continue
 		}
-		
+
 		// Compare plaintext values (decrypt returns []byte, convert to string)
 		if string(decryptedStoredToken) == decryptedToken {
 			matchingToken = token
@@ -75,15 +74,8 @@ func ValidateDevToken(tokenString string) (*models.DevToken, error) {
 	if matchingToken == nil {
 		return nil, errors.New("token not found")
 	}
-	
-	token := matchingToken
 
-	// Check if token is expired (if expiry is set)
-	if !token.ExpiresAt.IsZero() {
-		if token.ExpiresAt.Time().Before(time.Now()) {
-			return nil, errors.New("token has expired")
-		}
-	}
+	token := matchingToken
 
 	// Update last used timestamp using query utilities
 	token.LastUsedAt = types.NowDateTime()
@@ -103,4 +95,32 @@ func ValidateDevTokenUserID(tokenString string) (string, error) {
 		return "", err
 	}
 	return token.User, nil
+}
+
+func ValidateLoggingToken(key string) (*models.DevToken, error) {
+	encryptionKey := store.GetDao().Store().Get("ENCRYPTION_KEY").(string)
+
+	tokens, err := FindAllByFilter[*models.DevToken](map[string]interface{}{
+		"is_active": true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range tokens {
+		token := tokens[i]
+		decryptedStoredToken, err := security.Decrypt(token.Token, encryptionKey)
+		if err != nil {
+			continue
+		}
+
+		if string(decryptedStoredToken) == key {
+			token.LastUsedAt = types.NowDateTime()
+			_ = SaveRecord(token)
+
+			return token, nil
+		}
+	}
+
+	return nil, errors.New("invalid API key")
 }

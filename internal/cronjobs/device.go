@@ -3,13 +3,12 @@ package cronjobs
 import (
 	"time"
 
-	"github.com/pocketbase/pocketbase"
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/models"
 	"github.com/shashank-sharma/backend/internal/query"
 )
 
-func TrackDevices(app *pocketbase.PocketBase) error {
+func TrackDevices() error {
 	activeDevices, err := query.FindAllByFilter[*models.TrackDevice](map[string]interface{}{
 		"is_active": true,
 		"is_online": true,

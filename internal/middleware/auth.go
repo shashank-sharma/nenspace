@@ -12,6 +12,14 @@ func AuthMiddleware() func(*core.RequestEvent) error {
 	return func(e *core.RequestEvent) error {
 		token := e.Request.Header.Get("Authorization")
 		if token == "" {
+			token = e.Request.URL.Query().Get("token")
+		} else {
+			if len(token) > 7 && token[:7] == "Bearer " {
+				token = token[7:]
+			}
+		}
+
+		if token == "" {
 			return util.RespondError(e, util.ErrUnauthorized)
 		}
 

@@ -166,21 +166,21 @@ func (c *HTTPConnector) Execute(ctx context.Context, input map[string]interface{
 		}
 	}
 
-	// Infer schema from response data
-	schema := inferSchemaFromHTTPResponse(records)
+	nodeID := c.ID()
+	schema := inferSchemaFromHTTPResponse(records, nodeID)
 
-	// Build envelope
 	envelope := &types.DataEnvelope{
 		Data: records,
 		Metadata: types.Metadata{
+			NodeID:          nodeID,
 			NodeType:        c.ConnID,
 			RecordCount:     len(records),
-			ExecutionTimeMs: 0, // Will be set by engine
+			ExecutionTimeMs: 0,
 			Schema:          schema,
-			Sources:         make([]string, 0),
+			Sources:         []string{nodeID},
 			Custom: map[string]interface{}{
-				"url":        url,
-				"method":     method,
+				"url":         url,
+				"method":      method,
 				"status_code": resp.StatusCode,
 			},
 		},
@@ -215,29 +215,28 @@ func (c *HTTPConnector) ValidateInputSchema(schema *types.DataSchema) error {
 }
 
 // inferSchemaFromHTTPResponse infers schema from HTTP response data
-func inferSchemaFromHTTPResponse(records []map[string]interface{}) types.DataSchema {
+func inferSchemaFromHTTPResponse(records []map[string]interface{}, nodeID string) types.DataSchema {
 	schema := types.DataSchema{
 		Fields:      make([]types.FieldDefinition, 0),
-		SourceNodes: make([]string, 0),
+		SourceNodes: []string{nodeID},
 	}
 
 	if len(records) == 0 {
 		return schema
 	}
 
-	// Collect all field names and infer types from first record
 	fieldMap := make(map[string]types.FieldDefinition)
 	for _, record := range records {
 		for fieldName, value := range record {
 			if _, exists := fieldMap[fieldName]; !exists {
-				fieldType := inferFieldTypeFromValue(value)
+				fieldType := InferFieldType(value)
 				fieldMap[fieldName] = types.FieldDefinition{
-					Name:     fieldName,
-					Type:     fieldType,
-					Nullable: value == nil,
+					Name:       fieldName,
+					Type:       fieldType,
+					SourceNode: nodeID,
+					Nullable:   value == nil,
 				}
 			} else {
-				// Update nullable if we find a nil value
 				if value == nil {
 					field := fieldMap[fieldName]
 					field.Nullable = true
@@ -247,32 +246,9 @@ func inferSchemaFromHTTPResponse(records []map[string]interface{}) types.DataSch
 		}
 	}
 
-	// Convert map to slice
 	for _, field := range fieldMap {
 		schema.Fields = append(schema.Fields, field)
 	}
 
 	return schema
-}
-
-// inferFieldTypeFromValue attempts to infer the type of a value
-func inferFieldTypeFromValue(value interface{}) string {
-	if value == nil {
-		return "string" // Default to string for null values
-	}
-
-	switch value.(type) {
-	case bool:
-		return "boolean"
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return "number"
-	case float32, float64:
-		return "number"
-	case string:
-		return "string"
-	case []interface{}, map[string]interface{}:
-		return "json"
-	default:
-		return "string" // Default fallback
-	}
 }

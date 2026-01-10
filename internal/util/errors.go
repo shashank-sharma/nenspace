@@ -81,6 +81,24 @@ func NewBadRequestError(message string) *APIError {
 	}
 }
 
+// NewNotFoundError creates a not found error with a custom message
+func NewNotFoundError(message string) *APIError {
+	return &APIError{
+		Code:    "NOT_FOUND",
+		Message: message,
+		Status:  http.StatusNotFound,
+	}
+}
+
+// NewInternalError creates an internal error with a custom message
+func NewInternalError(message string) *APIError {
+	return &APIError{
+		Code:    "INTERNAL_ERROR",
+		Message: message,
+		Status:  http.StatusInternalServerError,
+	}
+}
+
 // NewValidationError creates a validation error
 func NewValidationError(field, reason string) *APIError {
 	return &APIError{

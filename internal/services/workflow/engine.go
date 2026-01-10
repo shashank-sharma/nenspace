@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pocketbase/pocketbase"
@@ -366,6 +367,7 @@ func (e *WorkflowEngine) executeGraph(ctx context.Context, graph *Graph, workflo
 	readyNodes := make(chan *Node, len(graph.Nodes))
 	errorChan := make(chan error, 1)
 	var wg sync.WaitGroup
+	var channelClosed int32
 
 	for _, sourceNode := range sourceNodes {
 		readyNodes <- sourceNode
@@ -483,7 +485,17 @@ func (e *WorkflowEngine) executeGraph(ctx context.Context, graph *Graph, workflo
 						}
 
 						for _, targetID := range n.Outputs {
+							select {
+							case <-ctx.Done():
+								return
+							default:
+							}
+
 							targetNode := graph.Nodes[targetID]
+							if targetNode == nil {
+								continue
+							}
+
 							visitedMutex.Lock()
 							allInputsReady := true
 							readyInputs := 0
@@ -499,10 +511,19 @@ func (e *WorkflowEngine) executeGraph(ctx context.Context, graph *Graph, workflo
 							if allInputsReady {
 								e.addLog(state, "info", fmt.Sprintf("All inputs ready for node %s (%s), queuing for execution", targetNode.Name, targetID), map[string]interface{}{"node_id": targetID, "node_name": targetNode.Name})
 								e.flushLogs(executionID, state)
-								select {
-								case <-ctx.Done():
-									return
-								case readyNodes <- targetNode:
+
+								if atomic.LoadInt32(&channelClosed) == 0 {
+									select {
+									case <-ctx.Done():
+										return
+									case readyNodes <- targetNode:
+									default:
+										e.addLog(state, "warn", fmt.Sprintf("Could not queue node %s (%s) - channel may be full", targetNode.Name, targetID), map[string]interface{}{"node_id": targetID})
+										e.flushLogs(executionID, state)
+									}
+								} else {
+									e.addLog(state, "warn", fmt.Sprintf("Could not queue node %s (%s) - channel is closed", targetNode.Name, targetID), map[string]interface{}{"node_id": targetID})
+									e.flushLogs(executionID, state)
 								}
 							} else {
 								e.addLog(state, "info", fmt.Sprintf("Node %s (%s) waiting for inputs: %d/%d ready", targetNode.Name, targetID, readyInputs, len(targetNode.Inputs)), map[string]interface{}{"node_id": targetID, "ready_inputs": readyInputs, "total_inputs": len(targetNode.Inputs)})
@@ -517,19 +538,60 @@ func (e *WorkflowEngine) executeGraph(ctx context.Context, graph *Graph, workflo
 
 	done := make(chan struct{})
 	go func() {
-		// Wait for all worker goroutines to complete
-		wg.Wait()
+		for {
+			// Wait for all currently active worker goroutines to complete
+			wg.Wait()
 
-		// Give a small delay to ensure all visited flags are set
-		time.Sleep(10 * time.Millisecond)
+			// Give a small delay to ensure all visited flags are set and any pending sends complete
+			time.Sleep(100 * time.Millisecond)
 
-		// Now close readyNodes to signal processor to exit
-		close(readyNodes)
+			// Check if all nodes have been visited
+			visitedMutex.Lock()
+			visitedCount := len(visited)
+			totalNodes := len(graph.Nodes)
+			allVisited := visitedCount >= totalNodes
 
-		// Wait for processor to finish
-		<-processorDone
+			// Check if there are any unvisited nodes that can still be executed
+			canMakeProgress := false
+			if !allVisited {
+				for id, node := range graph.Nodes {
+					if !visited[id] {
+						// Check if all inputs for this node are ready
+						allInputsReady := true
+						for _, inputID := range node.Inputs {
+							if !visited[inputID] {
+								allInputsReady = false
+								break
+							}
+						}
+						if allInputsReady {
+							canMakeProgress = true
+							break
+						}
+					}
+				}
+			}
+			visitedMutex.Unlock()
 
-		close(done)
+			// If all nodes are visited or no progress can be made, we're done
+			if allVisited || !canMakeProgress {
+				// Mark channel as closed before actually closing it
+				atomic.StoreInt32(&channelClosed, 1)
+
+				// Now close readyNodes to signal processor to exit
+				close(readyNodes)
+
+				// Wait for processor to finish
+				<-processorDone
+
+				close(done)
+				return
+			}
+
+			// If we can still make progress, wait a bit more and check again
+			// This handles the case where a slow node is still executing
+			time.Sleep(200 * time.Millisecond)
+		}
 	}()
 
 	select {
@@ -571,6 +633,27 @@ func (e *WorkflowEngine) executeGraph(ctx context.Context, graph *Graph, workflo
 
 	e.addLog(state, "info", fmt.Sprintf("Graph execution completed: %d/%d nodes executed, %d destination node(s) completed", visitedCount, len(graph.Nodes), destinationCount), map[string]interface{}{"visited_count": visitedCount, "total_nodes": len(graph.Nodes), "destination_count": destinationCount})
 	e.flushLogs(executionID, state)
+
+	if visitedCount < len(graph.Nodes) {
+		missingNodes := make([]string, 0)
+		for id, node := range graph.Nodes {
+			if !visited[id] {
+				missingNodes = append(missingNodes, fmt.Sprintf("%s (%s)", node.Name, id))
+			}
+		}
+		return finalResults, nodeResults, fmt.Errorf("incomplete execution: only %d/%d nodes executed. Missing nodes: %v", visitedCount, len(graph.Nodes), missingNodes)
+	}
+
+	destinationNodes := make([]string, 0)
+	for id, node := range graph.Nodes {
+		if node.Type == "destination" {
+			destinationNodes = append(destinationNodes, id)
+		}
+	}
+
+	if len(destinationNodes) > 0 && destinationCount == 0 {
+		return finalResults, nodeResults, fmt.Errorf("execution incomplete: no destination nodes completed (expected %d destination node(s))", len(destinationNodes))
+	}
 
 	return finalResults, nodeResults, nil
 }
@@ -925,7 +1008,7 @@ func (e *WorkflowEngine) SaveWorkflowGraph(workflowId string, nodes []*Node, edg
 
 	// Create a map from temporary node IDs to new backend IDs
 	nodeIDMap := make(map[string]string)
-	
+
 	savedNodes := make([]*wfModels.WorkflowNode, 0, len(nodes))
 	for _, node := range nodes {
 		var workflowNode *wfModels.WorkflowNode
@@ -966,7 +1049,7 @@ func (e *WorkflowEngine) SaveWorkflowGraph(workflowId string, nodes []*Node, edg
 			// Only use the provided ID if it's a valid backend ID (not a temporary frontend ID)
 			// Temporary IDs follow the pattern: node_<timestamp>_<random>
 			isTemporaryID := node.ID != "" && len(node.ID) > 10 && node.ID[:5] == "node_"
-			
+
 			if node.ID != "" && !isTemporaryID {
 				// Use provided ID only if it looks like a valid backend ID
 				newNode.SetId(node.ID)
@@ -979,7 +1062,7 @@ func (e *WorkflowEngine) SaveWorkflowGraph(workflowId string, nodes []*Node, edg
 				return nil, nil, nil, fmt.Errorf("failed to create node %s: %w", node.ID, err)
 			}
 			workflowNode = newNode
-			
+
 			// Map temporary ID to new backend ID
 			if isTemporaryID {
 				nodeIDMap[node.ID] = workflowNode.Id
@@ -1002,7 +1085,7 @@ func (e *WorkflowEngine) SaveWorkflowGraph(workflowId string, nodes []*Node, edg
 		if mappedID, exists := nodeIDMap[edge.Source]; exists {
 			sourceID = mappedID
 		}
-		
+
 		targetID := edge.Target
 		if mappedID, exists := nodeIDMap[edge.Target]; exists {
 			targetID = mappedID
@@ -1017,7 +1100,7 @@ func (e *WorkflowEngine) SaveWorkflowGraph(workflowId string, nodes []*Node, edg
 		// Only use the provided ID if it's a valid backend ID (not a temporary frontend ID)
 		// Temporary IDs follow the pattern: edge_<timestamp>_<random>
 		isTemporaryID := edge.ID != "" && len(edge.ID) > 10 && edge.ID[:5] == "edge_"
-		
+
 		if edge.ID != "" && !isTemporaryID {
 			// Use provided ID only if it looks like a valid backend ID
 			newConnection.SetId(edge.ID)
@@ -1141,7 +1224,7 @@ func (e *WorkflowEngine) GetNodeOutputSchema(workflowID string, nodeID string) (
 							for nodeID, node := range graph.Nodes {
 								nodeLabels[nodeID] = node.Name
 							}
-							
+
 							// Compute input schemas from all upstream nodes
 							inputSchemas := make([]types.DataSchema, 0, len(graphNode.Inputs))
 							for _, inputNodeID := range graphNode.Inputs {
@@ -1149,7 +1232,7 @@ func (e *WorkflowEngine) GetNodeOutputSchema(workflowID string, nodeID string) (
 									inputSchemas = append(inputSchemas, *upstreamSchema)
 								}
 							}
-							
+
 							// Merge input schemas if multiple inputs
 							if len(inputSchemas) > 0 {
 								if len(inputSchemas) == 1 {
@@ -1164,15 +1247,15 @@ func (e *WorkflowEngine) GetNodeOutputSchema(workflowID string, nodeID string) (
 				}
 			}
 		}
-		
+
 		outputSchema, err := schemaAware.GetOutputSchema(inputSchema)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get output schema: %w", err)
 		}
-		
+
 		// Cache the result
 		e.schemaCache.Set(nodeID, outputSchema, configHash, inputHashes)
-		
+
 		return outputSchema, nil
 	}
 
@@ -1182,10 +1265,10 @@ func (e *WorkflowEngine) GetNodeOutputSchema(workflowID string, nodeID string) (
 		Fields:      make([]types.FieldDefinition, 0),
 		SourceNodes: make([]string, 0),
 	}
-	
+
 	// Cache empty schema too
 	e.schemaCache.Set(nodeID, emptySchema, configHash, inputHashes)
-	
+
 	return emptySchema, nil
 }
 
@@ -1246,7 +1329,11 @@ func (e *WorkflowEngine) getNodeSampleDataRecursive(workflowID string, nodeID st
 
 	// Create a context for preview execution
 	ctx := context.Background()
-	ctx = util.WithUserID(ctx, workflow.User)
+	if workflow.User != "" {
+		ctx = util.WithUserID(ctx, workflow.User)
+	} else {
+		return nil, fmt.Errorf("workflow has no user associated")
+	}
 
 	// Execute upstream nodes to get input data
 	nodeResults := make(map[string]interface{})
@@ -1279,6 +1366,9 @@ func (e *WorkflowEngine) getNodeSampleDataRecursive(workflowID string, nodeID st
 	// Aggregate inputs if multiple
 	var input map[string]interface{}
 	if len(targetNode.Inputs) > 0 {
+		if len(nodeResults) == 0 {
+			return nil, fmt.Errorf("no input data available from upstream nodes")
+		}
 		nodeLabels := make(map[string]string)
 		for nodeID, node := range graph.Nodes {
 			nodeLabels[nodeID] = node.Name
@@ -1288,6 +1378,8 @@ func (e *WorkflowEngine) getNodeSampleDataRecursive(workflowID string, nodeID st
 		if err != nil {
 			return nil, fmt.Errorf("failed to aggregate inputs: %w", err)
 		}
+	} else {
+		input = make(map[string]interface{})
 	}
 
 	// Parse node config
@@ -1314,7 +1406,7 @@ func (e *WorkflowEngine) getNodeSampleDataRecursive(workflowID string, nodeID st
 	duration := time.Since(startTime)
 
 	if err != nil {
-		return nil, fmt.Errorf("connector execution failed: %w", err)
+		return nil, fmt.Errorf("connector execution failed for node %s (%s): %w", targetNode.ID, targetNode.NodeType, err)
 	}
 
 	// Ensure result is in envelope format
@@ -1378,9 +1470,9 @@ func (e *WorkflowEngine) GetWorkflowSchema(workflowID string) (map[string]interf
 		}
 
 		nodeSchemas[nodeID] = map[string]interface{}{
-			"node_id":      nodeID,
-			"node_name":    node.Name,
-			"node_type":    node.NodeType,
+			"node_id":       nodeID,
+			"node_name":     node.Name,
+			"node_type":     node.NodeType,
 			"output_schema": schema,
 		}
 	}

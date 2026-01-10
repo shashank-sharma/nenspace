@@ -13,6 +13,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/config"
 	"github.com/shashank-sharma/backend/internal/cronjobs"
 	"github.com/shashank-sharma/backend/internal/gui"
+	"github.com/shashank-sharma/backend/internal/hooks"
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/metrics"
 	"github.com/shashank-sharma/backend/internal/middleware"
@@ -21,11 +22,14 @@ import (
 	"github.com/shashank-sharma/backend/internal/services/ai"
 	"github.com/shashank-sharma/backend/internal/services/calendar"
 	"github.com/shashank-sharma/backend/internal/services/container"
+	"github.com/shashank-sharma/backend/internal/services/credentials"
 	"github.com/shashank-sharma/backend/internal/services/feed"
 	"github.com/shashank-sharma/backend/internal/services/fold"
 	"github.com/shashank-sharma/backend/internal/services/journal"
+	"github.com/shashank-sharma/backend/internal/services/logging"
 	"github.com/shashank-sharma/backend/internal/services/mail"
 	"github.com/shashank-sharma/backend/internal/services/memorysystem"
+	"github.com/shashank-sharma/backend/internal/services/music"
 	"github.com/shashank-sharma/backend/internal/services/providers"
 	"github.com/shashank-sharma/backend/internal/services/search"
 	"github.com/shashank-sharma/backend/internal/services/weather"
@@ -46,6 +50,8 @@ type Application struct {
 	SearchService    *search.FullTextSearchService
 	WeatherService   *weather.WeatherService
 	JournalService   *journal.JournalService
+	MusicService     *music.MusicService
+	LoggingService   *logging.LoggingService
 	postInitHooks    []func()
 }
 
@@ -90,7 +96,14 @@ func New(configFlags config.ConfigFlags) (*Application, error) {
 
 		logger.LogInfo("All application services initialized")
 
-		app.registerHooks()
+		hooks.RegisterAll(&hooks.HookConfig{
+			Pb:               app.Pb,
+			EncryptionKey:    app.Pb.Store().Get("ENCRYPTION_KEY").(string),
+			WeatherService:   app.WeatherService,
+			SearchService:    app.SearchService,
+			ContainerService: app.ContainerService,
+			LoggingService:   app.LoggingService,
+		})
 		logger.LogInfo("Hooks registered")
 		app.RunPostInitHooks()
 
@@ -102,6 +115,13 @@ func New(configFlags config.ConfigFlags) (*Application, error) {
 
 // initializeServices creates and initializes all application services
 func (app *Application) initializeServices() {
+	// Initialize credential usage tracker first (needed by other services)
+	credentials.InitTracker(credentials.DefaultConfig())
+	logger.LogInfo("Credential usage tracker initialized")
+
+	app.LoggingService = logging.NewLoggingService(app.Pb)
+	logger.LogInfo("Logging service initialized")
+
 	app.initializeBaseServices()
 	// TODO: WIP
 	// app.initializeSearchService()
@@ -123,6 +143,17 @@ func (app *Application) initializeBaseServices() {
 	app.MailService = mail.NewMailService()
 	app.WorkflowEngine = workflow.NewWorkflowEngine(app.Pb)
 	app.WeatherService = weather.NewWeatherService()
+
+	musicStoragePath, _ := app.Pb.Store().Get("MUSIC_STORAGE_PATH").(string)
+	if musicStoragePath == "" {
+		musicStoragePath = "./music_data"
+	}
+	musicMaxUpload, _ := app.Pb.Store().Get("MUSIC_MAX_UPLOAD_SIZE").(int64)
+	if musicMaxUpload <= 0 {
+		musicMaxUpload = 100 * 1024 * 1024
+	}
+	app.MusicService = music.NewMusicService(musicStoragePath, musicMaxUpload)
+	logger.LogInfo("Music service initialized with storage path: " + musicStoragePath)
 }
 
 // initializeSearchService initializes the full-text search service
@@ -196,7 +227,13 @@ func (app *Application) configureRoutes(e *core.ServeEvent) {
 	routes.RegisterFeedRoutes(apiRouter, "/feeds", *app.FeedService)
 	routes.RegisterCredentialRoutes(e)
 	routes.RegisterDevTokenRoutes(e)
+	routes.RegisterLoggingProjectRoutes(e)
 	routes.RegisterTrackRoutes(apiRouter, "/track")
+
+	// Register credential usage routes with authentication
+	credentialUsageRouter := apiRouter.Group("/credential-usage")
+	credentialUsageRouter.BindFunc(middleware.AuthMiddleware())
+	routes.RegisterCredentialUsageRoutes(credentialUsageRouter, "")
 
 	// Register sync routes with dev token middleware
 	syncRouter := apiRouter.Group("/sync")
@@ -227,9 +264,17 @@ func (app *Application) configureRoutes(e *core.ServeEvent) {
 	journalRouter.BindFunc(middleware.AuthMiddleware())
 	routes.RegisterJournalRoutes(journalRouter, "", app.JournalService)
 
-	routes.RegisterTestRoutes(apiRouter, "/test")
+	musicRouter := apiRouter.Group("/music")
+	musicRouter.BindFunc(middleware.AuthMiddleware())
+	routes.RegisterMusicRoutes(musicRouter, "", app.MusicService)
 
-	// Register optional service routes
+	routes.RegisterTestRoutes(apiRouter, "/test")
+	routes.RegisterFileManagerRoutes(apiRouter)
+
+	loggingRouter := apiRouter.Group("/logs")
+	loggingRouter.BindFunc(middleware.LoggingAuthMiddleware())
+	routes.RegisterLoggingRoutes(loggingRouter, "", app.LoggingService)
+
 	if app.ContainerService != nil {
 		containerRouter := apiRouter.Group("/containers")
 		containerRouter.BindFunc(middleware.AuthMiddleware())
@@ -298,7 +343,23 @@ func (app *Application) InitCronjobs() error {
 			Name:     "track-device",
 			Interval: "*/1 * * * *",
 			JobFunc: func() {
-				cronjobs.TrackDevices(app.Pb)
+				cronjobs.TrackDevices()
+			},
+			IsActive: true,
+		},
+		{
+			Name:     "aggregate-credential-stats",
+			Interval: "*/15 * * * *", // Every 15 minutes
+			JobFunc: func() {
+				cronjobs.AggregateCredentialStats()
+			},
+			IsActive: true,
+		},
+		{
+			Name:     "logging-retention-cleanup",
+			Interval: "0 2 * * *", // Every day at 2 AM
+			JobFunc: func() {
+				cronjobs.CleanupLogs()
 			},
 			IsActive: true,
 		},

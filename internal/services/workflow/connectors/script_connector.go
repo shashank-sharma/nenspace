@@ -2,9 +2,11 @@ package connectors
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/dop251/goja"
 	"github.com/shashank-sharma/backend/internal/services/workflow/types"
 )
 
@@ -90,22 +92,22 @@ func (c *ScriptConnector) Execute(ctx context.Context, input map[string]interfac
 
 	// Infer output schema from transformed data
 	outputSchema := c.inferSchemaFromData(transformedData)
-	
-	// Preserve source nodes from input
+
 	outputSchema.SourceNodes = envelope.Metadata.Schema.SourceNodes
 
-	// Build output envelope
+	nodeID := c.ID()
 	outputEnvelope := &types.DataEnvelope{
 		Data: transformedData,
 		Metadata: types.Metadata{
+			NodeID:          nodeID,
 			NodeType:        c.ConnID,
 			RecordCount:     len(transformedData),
-			ExecutionTimeMs: 0, // Will be set by engine
+			ExecutionTimeMs: 0,
 			Schema:          outputSchema,
 			Sources:         envelope.Metadata.Sources,
 			Custom: map[string]interface{}{
 				"mode":   mode,
-				"script": script[:minInt(100, len(script))], // Store first 100 chars
+				"script": script[:minInt(100, len(script))],
 			},
 		},
 	}
@@ -150,49 +152,44 @@ func (c *ScriptConnector) executeBatchScript(records []map[string]interface{}, s
 	return nil, fmt.Errorf("script must return an array of records or a single record")
 }
 
-// executeScriptOnRecord executes script on a single record
-// This is a simplified implementation - in production, use a proper JS engine like goja
+// executeScriptOnRecord executes script on a single record using goja JavaScript engine
 func (c *ScriptConnector) executeScriptOnRecord(record map[string]interface{}, script string) (map[string]interface{}, error) {
-	// For now, we'll do basic expression evaluation
-	// In production, integrate with goja (https://github.com/dop251/goja) for full JS support
-	
-	// Simple field access and basic operations
-	result := make(map[string]interface{})
-	
-	// Copy original record
-	for k, v := range record {
-		result[k] = v
+	vm := goja.New()
+
+	consoleObj := vm.NewObject()
+	consoleObj.Set("log", func(args ...interface{}) {
+		_ = args
+	})
+	vm.Set("console", consoleObj)
+
+	if err := vm.Set("record", record); err != nil {
+		return nil, fmt.Errorf("failed to set record variable: %w", err)
 	}
 
-	// Basic script execution - replace field references
-	// This is a placeholder - full implementation would use goja
-	processedScript := script
-	
-	// Replace ${fieldName} with actual values
-	for field, value := range record {
-		placeholder := fmt.Sprintf("${%s}", field)
-		if strings.Contains(processedScript, placeholder) {
-			processedScript = strings.ReplaceAll(processedScript, placeholder, fmt.Sprintf("%v", value))
+	wrappedScript := fmt.Sprintf(`
+		(function() {
+			%s
+			// If script doesn't return anything, return the record
+			if (typeof result !== 'undefined') {
+				return result;
+			}
+			return record;
+		})()
+	`, script)
+
+	value, err := vm.RunString(wrappedScript)
+	if err != nil {
+		// Try to extract line number from error if available
+		errStr := err.Error()
+		if strings.Contains(errStr, "SyntaxError") || strings.Contains(errStr, "ReferenceError") {
+			return nil, fmt.Errorf("script execution error: %w", err)
 		}
+		return nil, fmt.Errorf("script execution failed: %w", err)
 	}
 
-	// For now, if script looks like an assignment, try to parse it
-	// Example: "result.newField = record.oldField + 10"
-	if strings.Contains(processedScript, "=") {
-		// Simple assignment parsing
-		parts := strings.Split(processedScript, "=")
-		if len(parts) == 2 {
-			left := strings.TrimSpace(parts[0])
-			right := strings.TrimSpace(parts[1])
-			
-			// Remove "result." prefix if present
-			fieldName := strings.TrimPrefix(left, "result.")
-			fieldName = strings.TrimPrefix(fieldName, "record.")
-			
-			// Try to evaluate right side as expression
-			// This is very basic - full implementation needs proper expression parser
-			result[fieldName] = right
-		}
+	result, err := c.gojaValueToMap(value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert script result: %w", err)
 	}
 
 	return result, nil
@@ -200,9 +197,110 @@ func (c *ScriptConnector) executeScriptOnRecord(record map[string]interface{}, s
 
 // executeScriptWithRecords executes script with access to all records
 func (c *ScriptConnector) executeScriptWithRecords(records []map[string]interface{}, script string) (interface{}, error) {
-	// Placeholder for batch execution
-	// In production, use goja to execute full JavaScript
-	return records, nil
+	vm := goja.New()
+
+	consoleObj := vm.NewObject()
+	consoleObj.Set("log", func(args ...interface{}) {
+		_ = args
+	})
+	vm.Set("console", consoleObj)
+
+	if err := vm.Set("records", records); err != nil {
+		return nil, fmt.Errorf("failed to set records variable: %w", err)
+	}
+
+	wrappedScript := fmt.Sprintf(`
+		(function() {
+			%s
+			// If script doesn't return anything, return the records
+			if (typeof result !== 'undefined') {
+				return result;
+			}
+			return records;
+		})()
+	`, script)
+
+	value, err := vm.RunString(wrappedScript)
+	if err != nil {
+		return nil, fmt.Errorf("script execution failed: %w", err)
+	}
+
+	result, err := c.gojaValueToInterface(value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert script result: %w", err)
+	}
+
+	return result, nil
+}
+
+// gojaValueToMap converts a goja Value to map[string]interface{}
+func (c *ScriptConnector) gojaValueToMap(value goja.Value) (map[string]interface{}, error) {
+	if value == nil {
+		return make(map[string]interface{}), nil
+	}
+
+	// Check if it's an object
+	if obj := value.ToObject(nil); obj != nil {
+		result := make(map[string]interface{})
+		for _, key := range obj.Keys() {
+			val := obj.Get(key)
+			if val != nil {
+				converted, err := c.gojaValueToInterface(val)
+				if err != nil {
+					return nil, err
+				}
+				result[key] = converted
+			}
+		}
+		return result, nil
+	}
+
+	jsonStr := value.String()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &result); err == nil {
+		return result, nil
+	}
+
+	convertedValue, err := c.gojaValueToInterface(value)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"value": convertedValue,
+	}, nil
+}
+
+func (c *ScriptConnector) gojaValueToInterface(value goja.Value) (interface{}, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	if obj := value.ToObject(nil); obj != nil {
+		length := obj.Get("length")
+		if length != nil && !goja.IsUndefined(length) {
+			arrLen := int(length.ToInteger())
+			result := make([]interface{}, arrLen)
+			for i := 0; i < arrLen; i++ {
+				item := obj.Get(fmt.Sprintf("%d", i))
+				if item != nil && !goja.IsUndefined(item) {
+					converted, err := c.gojaValueToInterface(item)
+					if err != nil {
+						return nil, err
+					}
+					result[i] = converted
+				}
+			}
+			return result, nil
+		}
+		return c.gojaValueToMap(value)
+	}
+
+	exported := value.Export()
+	if exported != nil {
+		return exported, nil
+	}
+
+	return value.String(), nil
 }
 
 // inferSchemaFromData infers schema from transformed data
@@ -221,7 +319,7 @@ func (c *ScriptConnector) inferSchemaFromData(data []map[string]interface{}) typ
 	for _, record := range data {
 		for fieldName, value := range record {
 			if _, exists := fieldMap[fieldName]; !exists {
-				fieldType := inferFieldType(value)
+				fieldType := InferFieldType(value)
 				fieldMap[fieldName] = types.FieldDefinition{
 					Name:     fieldName,
 					Type:     fieldType,
@@ -277,4 +375,3 @@ func minInt(a, b int) int {
 	}
 	return b
 }
-

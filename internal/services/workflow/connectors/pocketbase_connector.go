@@ -248,17 +248,19 @@ func (c *PocketBaseConnector) Execute(ctx context.Context, input map[string]inte
 	}
 
 	// Get collection schema for metadata
-	schema := c.getCollectionSchema(collectionName)
+	nodeID := c.ID()
+	schema := c.getCollectionSchemaWithSource(collectionName, nodeID)
 
 	// Build envelope with schema metadata
 	envelope := &types.DataEnvelope{
 		Data: allRecords,
 		Metadata: types.Metadata{
+			NodeID:          nodeID,
 			NodeType:        c.ConnID,
-			RecordCount:      totalRecords,
-			ExecutionTimeMs: 0, // Will be set by engine
+			RecordCount:     totalRecords,
+			ExecutionTimeMs: 0,
 			Schema:          schema,
-			Sources:         []string{}, // Source nodes don't have sources
+			Sources:         []string{nodeID},
 			Custom: map[string]interface{}{
 				"collection":  collectionName,
 				"filter":      filter,
@@ -274,9 +276,7 @@ func (c *PocketBaseConnector) Execute(ctx context.Context, input map[string]inte
 }
 
 // GetOutputSchema returns the schema for the PocketBase collection
-// Implements SchemaAwareConnector interface
 func (c *PocketBaseConnector) GetOutputSchema(inputSchema *types.DataSchema) (*types.DataSchema, error) {
-	// Source connectors don't have input schemas
 	if inputSchema != nil {
 		return nil, fmt.Errorf("source connector does not accept input schema")
 	}
@@ -286,42 +286,36 @@ func (c *PocketBaseConnector) GetOutputSchema(inputSchema *types.DataSchema) (*t
 		return nil, fmt.Errorf("collection name is required")
 	}
 
-	schema := c.getCollectionSchema(collectionName)
+	nodeID := c.ID()
+	schema := c.getCollectionSchemaWithSource(collectionName, nodeID)
 	return &schema, nil
 }
 
-// ValidateInputSchema validates input schema (source connectors don't accept input)
+// ValidateInputSchema validates input schema
 func (c *PocketBaseConnector) ValidateInputSchema(schema *types.DataSchema) error {
-	// Source connectors don't accept input
 	if schema != nil {
 		return fmt.Errorf("source connector does not accept input schema")
 	}
 	return nil
 }
 
-// getCollectionSchema introspects the PocketBase collection to get its schema
-func (c *PocketBaseConnector) getCollectionSchema(collectionName string) types.DataSchema {
+func (c *PocketBaseConnector) getCollectionSchemaWithSource(collectionName string, nodeID string) types.DataSchema {
 	schema := types.DataSchema{
 		Fields:      make([]types.FieldDefinition, 0),
-		SourceNodes: make([]string, 0),
+		SourceNodes: []string{nodeID},
 	}
 
-	// Get PocketBase DAO
 	dao := store.GetDao()
 	if dao == nil {
-		// Fallback: infer schema from data if we can't get collection
 		return schema
 	}
 
-	// Get collection from PocketBase
 	collection, err := dao.FindCollectionByNameOrId(collectionName)
 	if err != nil {
 		logger.Info.Printf("Could not find collection %s for schema introspection: %v", collectionName, err)
-		// Return empty schema - will be inferred from data
 		return schema
 	}
 
-	// Extract field definitions from collection
 	for _, field := range collection.Fields {
 		fieldJSON, _ := json.Marshal(field)
 		var fieldMap map[string]interface{}
@@ -330,16 +324,15 @@ func (c *PocketBaseConnector) getCollectionSchema(collectionName string) types.D
 			fieldType, _ := fieldMap["type"].(string)
 			required, _ := fieldMap["required"].(bool)
 
-			// Map PocketBase field types to our types
 			normalizedType := normalizePocketBaseFieldType(fieldType)
 
 			fieldDef := types.FieldDefinition{
-				Name:     fieldName,
-				Type:     normalizedType,
-				Nullable: !required,
+				Name:       fieldName,
+				Type:       normalizedType,
+				SourceNode: nodeID,
+				Nullable:   !required,
 			}
 
-			// Add description if available
 			if options, ok := fieldMap["options"].(map[string]interface{}); ok {
 				if desc, ok := options["description"].(string); ok {
 					fieldDef.Description = desc
@@ -370,4 +363,3 @@ func normalizePocketBaseFieldType(pbType string) string {
 		return "string" // Default fallback
 	}
 }
-

@@ -10,6 +10,7 @@ import (
 
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/models"
+	"github.com/shashank-sharma/backend/internal/services/credentials"
 )
 
 type APIClient struct {
@@ -31,11 +32,15 @@ func NewFoldService(baseUrl string) *FoldService {
 }
 
 func newAPIClient(baseUrl string, timeout time.Duration) *APIClient {
+	baseClient := &http.Client{
+		Timeout: timeout,
+	}
+
+	trackedClient := credentials.NewTrackedClientWithContext(baseClient)
+
 	return &APIClient{
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		baseUrl: baseUrl,
+		httpClient: trackedClient,
+		baseUrl:    baseUrl,
 	}
 }
 

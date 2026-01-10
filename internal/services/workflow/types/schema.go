@@ -2,11 +2,11 @@ package types
 
 // FieldDefinition represents a single field in a data schema
 type FieldDefinition struct {
-	Name        string `json:"name"`         // Field name
-	Type        string `json:"type"`         // Field type: string, number, boolean, date, json
-	SourceNode  string `json:"source_node"`  // Which node produced this field (for lineage tracking)
-	Nullable    bool   `json:"nullable"`     // Whether the field can be null
-	Description string `json:"description"`  // Optional description of the field
+	Name        string `json:"name"`        // Field name
+	Type        string `json:"type"`        // Field type: string, number, boolean, date, json
+	SourceNode  string `json:"source_node"` // Which node produced this field (for lineage tracking)
+	Nullable    bool   `json:"nullable"`    // Whether the field can be null
+	Description string `json:"description"` // Optional description of the field
 }
 
 // DataSchema represents the schema of data flowing through a node
@@ -19,10 +19,10 @@ type DataSchema struct {
 type Metadata struct {
 	NodeID          string                 `json:"node_id"`           // ID of the node that produced this data
 	NodeType        string                 `json:"node_type"`         // Type of the connector (e.g., "pocketbase_source")
-	Schema          DataSchema             `json:"schema"`           // Schema of the data
-	RecordCount     int                    `json:"record_count"`     // Number of records
+	Schema          DataSchema             `json:"schema"`            // Schema of the data
+	RecordCount     int                    `json:"record_count"`      // Number of records
 	ExecutionTimeMs int64                  `json:"execution_time_ms"` // Execution time in milliseconds
-	Sources         []string                `json:"sources"`          // For aggregated data, track all source node IDs
+	Sources         []string               `json:"sources"`           // For aggregated data, track all source node IDs
 	Custom          map[string]interface{} `json:"custom"`            // Node-specific metadata
 }
 
@@ -56,20 +56,23 @@ func FromMap(data map[string]interface{}) *DataEnvelope {
 		},
 	}
 
-	// Try to extract data array
 	if dataArray, ok := data["data"].([]interface{}); ok {
 		for _, item := range dataArray {
 			if record, ok := item.(map[string]interface{}); ok {
 				envelope.Data = append(envelope.Data, record)
 			}
 		}
+	} else if dataArray, ok := data["data"].([]map[string]interface{}); ok {
+		envelope.Data = dataArray
 	} else if recordsArray, ok := data["records"].([]interface{}); ok {
-		// Legacy format: {records: [...]}
+		// Legacy ormat: {records: [...]}
 		for _, item := range recordsArray {
 			if record, ok := item.(map[string]interface{}); ok {
 				envelope.Data = append(envelope.Data, record)
 			}
 		}
+	} else if recordsArray, ok := data["records"].([]map[string]interface{}); ok {
+		envelope.Data = recordsArray
 	}
 
 	// Try to extract metadata
@@ -145,5 +148,3 @@ func parseSchemaFromMap(schemaMap map[string]interface{}) DataSchema {
 
 	return schema
 }
-
-

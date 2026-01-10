@@ -153,16 +153,16 @@ func (c *TransformConnector) Execute(ctx context.Context, input map[string]inter
 		transformedData = append(transformedData, transformedRecord)
 	}
 
-	// Compute output schema
 	outputSchema := c.computeOutputSchema(envelope.Metadata.Schema, transformations)
 
-	// Build output envelope
+	nodeID := c.ID()
 	outputEnvelope := &types.DataEnvelope{
 		Data: transformedData,
 		Metadata: types.Metadata{
+			NodeID:          nodeID,
 			NodeType:        c.ConnID,
 			RecordCount:     len(transformedData),
-			ExecutionTimeMs: 0, // Will be set by engine
+			ExecutionTimeMs: 0,
 			Schema:          outputSchema,
 			Sources:         envelope.Metadata.Sources,
 			Custom: map[string]interface{}{
@@ -794,4 +794,3 @@ func (c *TransformConnector) ValidateInputSchema(schema *types.DataSchema) error
 	// Transform processor accepts any input schema
 	return nil
 }
-

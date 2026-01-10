@@ -16,6 +16,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/models"
 	"github.com/shashank-sharma/backend/internal/query"
+	"github.com/shashank-sharma/backend/internal/services/credentials"
 )
 
 const (
@@ -182,8 +183,11 @@ func (ms *MailService) FetchClient(ctx context.Context, tokenId string) (*http.C
 		baseTokenSrc: baseTokenSrc,
 	}
 
-	// Create client with custom token source
-	return oauth2.NewClient(ctx, customTokenSrc), nil
+	oauthClient := oauth2.NewClient(ctx, customTokenSrc)
+
+	trackedClient := credentials.WrapOAuthClient(oauthClient, "token", tokenId, "gmail")
+
+	return trackedClient, nil
 }
 
 // GetGmailService creates a Gmail API service client using the provided HTTP client

@@ -13,13 +13,13 @@ import (
 // RegisterTestRoutes registers test API endpoints
 func RegisterTestRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], path string) {
 	testRouter := apiRouter.Group(path)
-	
+
 	// Basic test endpoint
 	testRouter.GET("", TestHandler)
-	
+
 	// Test realtime notification endpoint
 	testRouter.GET("/notify/{userId}", TestNotificationHandler)
-	
+
 	logger.LogInfo("Test routes registered")
 }
 
@@ -28,7 +28,7 @@ func TestHandler(e *core.RequestEvent) error {
 }
 
 // TestNotificationHandler sends a test notification to a specific user
-// Usage: GET /api/test/notify/{userId}?message=Hello&variant=info&duration=3000&profileId=abc123
+// Usage: GET /api/test/notify/{userId}?message=Hello&variant=info&duration=3000&delay=2&profileId=abc123
 func TestNotificationHandler(e *core.RequestEvent) error {
 	userId := e.Request.PathValue("userId")
 	if userId == "" {
@@ -56,9 +56,17 @@ func TestNotificationHandler(e *core.RequestEvent) error {
 		}
 	}
 
+	delayStr := e.Request.URL.Query().Get("delay")
+	delay := 0 // default 0 seconds (show immediately)
+	if delayStr != "" {
+		if d, err := strconv.Atoi(delayStr); err == nil && d >= 0 {
+			delay = d
+		}
+	}
+
 	// Get profile ID from query (optional) - this is the browser profile ID
 	profileId := e.Request.URL.Query().Get("profileId")
-	
+
 	// Construct topic based on profile ID
 	var topic string
 	if profileId != "" {
@@ -68,7 +76,7 @@ func TestNotificationHandler(e *core.RequestEvent) error {
 	}
 
 	// Send the notification
-	err := util.NotifyClients(e.App, topic, message, variant, duration)
+	err := util.NotifyClientsWithDelay(e.App, topic, message, variant, duration, delay)
 	if err != nil {
 		logger.LogError("Failed to send test notification: %v", err)
 		return e.JSON(http.StatusInternalServerError, map[string]interface{}{
@@ -76,7 +84,7 @@ func TestNotificationHandler(e *core.RequestEvent) error {
 		})
 	}
 
-	logger.LogInfo("Test notification sent to user %s on topic %s", userId, topic)
+	logger.LogInfo("Test notification sent to user %s on topic %s (delay: %ds)", userId, topic, delay)
 
 	return e.JSON(http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -87,6 +95,7 @@ func TestNotificationHandler(e *core.RequestEvent) error {
 			"message":   message,
 			"variant":   variant,
 			"duration":  duration,
+			"delay":     delay,
 			"profileId": profileId,
 		},
 	})

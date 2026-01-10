@@ -11,6 +11,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/models"
 	"github.com/shashank-sharma/backend/internal/query"
+	"github.com/shashank-sharma/backend/internal/services/credentials"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
@@ -144,5 +145,9 @@ func (cs *CalendarService) FetchClient(ctx context.Context, calTokenId string) (
 	}
 
 	// Create client with custom token source
-	return oauth2.NewClient(ctx, customTokenSrc), nil
+	oauthClient := oauth2.NewClient(ctx, customTokenSrc)
+
+	trackedClient := credentials.WrapOAuthClient(oauthClient, "token", calTokenId, "calendar")
+
+	return trackedClient, nil
 }

@@ -2,6 +2,7 @@ package memorysystem
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,26 +16,27 @@ import (
 	"github.com/pocketbase/pocketbase/tools/types"
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/models"
+	"github.com/shashank-sharma/backend/internal/services/credentials"
 )
 
 // EmbeddingSystem manages the generation and storage of embeddings
 type EmbeddingSystem struct {
-	mutex sync.Mutex
-	cache map[string][]float64
-	config EmbeddingConfig
+	mutex      sync.Mutex
+	cache      map[string][]float64
+	config     EmbeddingConfig
 	tokenCount int
-	client *http.Client
+	client     *http.Client
 }
 
 // EmbeddingConfig holds configuration for the embedding system
 type EmbeddingConfig struct {
-	UseExternalAPI bool
-	APIKey string
-	APIEndpoint string
-	CacheTTL int
+	UseExternalAPI  bool
+	APIKey          string
+	APIEndpoint     string
+	CacheTTL        int
 	TokensPerMinute int
-	Dimensions int
-	UseFallback bool
+	Dimensions      int
+	UseFallback     bool
 }
 
 // NewEmbeddingSystem creates a new embedding system with the given configuration
@@ -59,13 +61,17 @@ func NewEmbeddingSystem(config EmbeddingConfig) *EmbeddingSystem {
 		}
 	}
 
+	baseClient := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	trackedClient := credentials.NewTrackedClientWithContext(baseClient)
+
 	return &EmbeddingSystem{
 		cache:      make(map[string][]float64),
 		config:     config,
 		tokenCount: 0,
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		client:     trackedClient,
 	}
 }
 
@@ -91,12 +97,12 @@ type OpenAIEmbeddingResponse struct {
 }
 
 // GenerateEmbedding generates a vector embedding for the given text
-func (es *EmbeddingSystem) GenerateEmbedding(text string) ([]float64, error) {
+func (es *EmbeddingSystem) GenerateEmbedding(ctx context.Context, text string) ([]float64, error) {
 	es.mutex.Lock()
 	defer es.mutex.Unlock()
 
 	normalizedText := normalizeText(text)
-	
+
 	if embedding, ok := es.cache[normalizedText]; ok {
 		return embedding, nil
 	}
@@ -105,7 +111,7 @@ func (es *EmbeddingSystem) GenerateEmbedding(text string) ([]float64, error) {
 	var err error
 
 	if es.config.UseExternalAPI {
-		embedding, err = es.generateOpenAIEmbedding(normalizedText)
+		embedding, err = es.generateOpenAIEmbedding(ctx, normalizedText)
 		if err != nil {
 			logger.LogError("OpenAI embedding failed", err)
 			if !es.config.UseFallback {
@@ -127,7 +133,7 @@ func (es *EmbeddingSystem) GenerateEmbedding(text string) ([]float64, error) {
 }
 
 // generateOpenAIEmbedding generates embeddings using OpenAI's API
-func (es *EmbeddingSystem) generateOpenAIEmbedding(text string) ([]float64, error) {
+func (es *EmbeddingSystem) generateOpenAIEmbedding(ctx context.Context, text string) ([]float64, error) {
 	if es.config.APIKey == "" {
 		return nil, fmt.Errorf("OpenAI API key not provided")
 	}
@@ -142,11 +148,11 @@ func (es *EmbeddingSystem) generateOpenAIEmbedding(text string) ([]float64, erro
 		return nil, fmt.Errorf("error marshaling request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", es.config.APIEndpoint, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", es.config.APIEndpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+es.config.APIKey)
 
@@ -180,7 +186,7 @@ func (es *EmbeddingSystem) generateTFIDFEmbedding(text string) ([]float64, error
 	// This is a simplified TF-IDF implementation
 	// Need to use Flask API for this
 	words := strings.Fields(strings.ToLower(text))
-	
+
 	termFreq := make(map[string]int)
 	for _, word := range words {
 		word = strings.Trim(word, ".,!?():;\"'")
@@ -188,19 +194,19 @@ func (es *EmbeddingSystem) generateTFIDFEmbedding(text string) ([]float64, error
 			termFreq[word]++
 		}
 	}
-	
+
 	embedding := make([]float64, es.config.Dimensions)
-	
+
 	if len(termFreq) == 0 {
 		return embedding, nil
 	}
-	
+
 	for term, freq := range termFreq {
 		hashCode := simpleHash(term) % es.config.Dimensions
-		
+
 		embedding[hashCode] += float64(freq)
 	}
-	
+
 	normalizeVector(embedding)
 	return embedding, nil
 }
@@ -211,14 +217,14 @@ func (es *EmbeddingSystem) StoreEmbedding(memory *models.Memory, embedding []flo
 	if err != nil {
 		return fmt.Errorf("failed to marshal embedding: %w", err)
 	}
-	
+
 	var embedRaw types.JSONRaw
 	if err := embedRaw.Scan(embeddingJSON); err != nil {
 		return fmt.Errorf("failed to scan embedding: %w", err)
 	}
-	
+
 	memory.Embedding = embedRaw
-	
+
 	return nil
 }
 
@@ -226,23 +232,23 @@ func (es *EmbeddingSystem) StoreEmbedding(memory *models.Memory, embedding []flo
 func (es *EmbeddingSystem) ClearCache() {
 	es.mutex.Lock()
 	defer es.mutex.Unlock()
-	
+
 	es.cache = make(map[string][]float64)
 }
 
 // normalizeText cleans and normalizes text for consistent embedding
 func normalizeText(text string) string {
 	text = strings.ToLower(text)
-	
+
 	text = strings.Join(strings.Fields(text), " ")
-	
+
 	text = strings.Map(func(r rune) rune {
 		if strings.ContainsRune(".,!?():;\"'", r) {
 			return ' '
 		}
 		return r
 	}, text)
-	
+
 	return strings.TrimSpace(text)
 }
 
@@ -253,7 +259,7 @@ func normalizeVector(vector []float64) {
 		sum += v * v
 	}
 	magnitude := math.Sqrt(sum)
-	
+
 	if magnitude > 0 {
 		for i := range vector {
 			vector[i] /= magnitude

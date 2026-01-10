@@ -1,8 +1,6 @@
 package routes
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,20 +18,6 @@ func RegisterDevTokenRoutes(e *core.ServeEvent) {
 	e.Router.POST("/api/dev-tokens/generate", GenerateDevToken)
 	e.Router.GET("/api/dev-tokens", ListDevTokens)
 	e.Router.DELETE("/api/dev-tokens/:id", RevokeDevToken)
-}
-
-// generateSecureToken creates a cryptographically secure random token
-func generateSecureToken() (string, error) {
-	// Generate 48 bytes (384 bits) of random data
-	randomBytes := make([]byte, 48)
-	_, err := rand.Read(randomBytes)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate random token: %w", err)
-	}
-
-	// Encode to base64 URL-safe format
-	token := base64.RawURLEncoding.EncodeToString(randomBytes)
-	return "dev_" + token, nil
 }
 
 // GenerateDevToken creates a new dev token for the authenticated user
@@ -78,7 +62,7 @@ func GenerateDevToken(e *core.RequestEvent) error {
 		From("dev_tokens").
 		Where(dbx.HashExp{"user": userId, "is_active": true}).
 		Row(&count)
-	
+
 	if err != nil {
 		return e.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error": "Failed to count user tokens",
@@ -92,7 +76,7 @@ func GenerateDevToken(e *core.RequestEvent) error {
 	}
 
 	// Generate secure token
-	tokenValue, err := generateSecureToken()
+	tokenValue, err := util.GenerateSecureToken("dev")
 	if err != nil {
 		return e.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error": "Failed to generate token",
@@ -101,10 +85,11 @@ func GenerateDevToken(e *core.RequestEvent) error {
 
 	// Create new dev token record
 	devToken := &models.DevToken{
-		User:     userId,
-		Token:    tokenValue,
-		Name:     requestData.Name,
-		IsActive: true,
+		User:        userId,
+		Token:       tokenValue,
+		Name:        requestData.Name,
+		Environment: "production",
+		IsActive:    true,
 	}
 	devToken.SetId(util.GenerateRandomId())
 	devToken.RefreshCreated()
@@ -120,11 +105,11 @@ func GenerateDevToken(e *core.RequestEvent) error {
 
 	// Return generated token (plain text, only shown once)
 	generatedToken := map[string]interface{}{
-		"id":        devToken.Id,
-		"token":     tokenValue,
-		"name":      requestData.Name,
+		"id":         devToken.Id,
+		"token":      tokenValue,
+		"name":       requestData.Name,
 		"created_at": devToken.Created,
-		"warning":   "Save this token securely. You won't be able to see it again.",
+		"warning":    "Save this token securely. You won't be able to see it again.",
 	}
 
 	return e.JSON(http.StatusCreated, generatedToken)
@@ -155,12 +140,12 @@ func ListDevTokens(e *core.RequestEvent) error {
 	metadata := make([]map[string]interface{}, len(tokens))
 	for i, token := range tokens {
 		metadata[i] = map[string]interface{}{
-			"id":          token.Id,
-			"name":        token.Name,
-			"is_active":   token.IsActive,
-			"created_at":  token.Created,
+			"id":           token.Id,
+			"name":         token.Name,
+			"environment":  token.Environment,
+			"is_active":    token.IsActive,
+			"created_at":   token.Created,
 			"last_used_at": token.LastUsedAt,
-			"expires_at":  token.ExpiresAt,
 		}
 	}
 
@@ -194,7 +179,7 @@ func RevokeDevToken(e *core.RequestEvent) error {
 		"id":   tokenId,
 		"user": userId,
 	})
-	
+
 	if err != nil {
 		return e.JSON(http.StatusNotFound, map[string]interface{}{
 			"error": "Token not found or access denied",
@@ -217,4 +202,3 @@ func RevokeDevToken(e *core.RequestEvent) error {
 		"message": "Token revoked successfully",
 	})
 }
-

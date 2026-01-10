@@ -13,19 +13,18 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/models"
 	"github.com/shashank-sharma/backend/internal/logger"
 	"github.com/shashank-sharma/backend/internal/util"
 )
 
 // VectorSearchService provides vector search capabilities using SQLite-Vec
 type VectorSearchService struct {
-	app               *pocketbase.PocketBase
-	embedder          EmbeddingProvider
-	vectorStore       VectorStore
-	collectionConfig  map[string]*CollectionConfig
-	initialized       bool
-	mu                sync.RWMutex
+	app              *pocketbase.PocketBase
+	embedder         EmbeddingProvider
+	vectorStore      VectorStore
+	collectionConfig map[string]*CollectionConfig
+	initialized      bool
+	mu               sync.RWMutex
 }
 
 // CollectionConfig contains settings for a collection's vector search
@@ -36,10 +35,10 @@ type CollectionConfig struct {
 
 // ServiceOptions contains configuration options for the vector search service
 type ServiceOptions struct {
-	Provider        ProviderOptions    `json:"provider"`
-	Store           VectorStoreOptions `json:"store"`
-	Collections     map[string]*CollectionConfig `json:"collections"`
-	DefaultFields   []string           `json:"defaultFields"`
+	Provider      ProviderOptions              `json:"provider"`
+	Store         VectorStoreOptions           `json:"store"`
+	Collections   map[string]*CollectionConfig `json:"collections"`
+	DefaultFields []string                     `json:"defaultFields"`
 }
 
 // NewVectorSearchService creates a new vector search service
@@ -83,9 +82,9 @@ func (s *VectorSearchService) Initialize(ctx context.Context) error {
 
 	// Create and initialize the vector store
 	storeOptions := VectorStoreOptions{
-		Dimensions:      768, // Default
-		IndexType:       "flat",
-		DistanceMetric:  "cosine",
+		Dimensions:       768, // Default
+		IndexType:        "flat",
+		DistanceMetric:   "cosine",
 		DefaultThreshold: 0.75,
 	}
 
@@ -162,9 +161,9 @@ func (s *VectorSearchService) RegisterCollection(ctx context.Context, collection
 		Dimensions: s.embedder.Dimensions(),
 	}
 
-	logger.LogInfo(fmt.Sprintf("Registered collection %s for vector search with fields: %s", 
+	logger.LogInfo(fmt.Sprintf("Registered collection %s for vector search with fields: %s",
 		collectionName, strings.Join(fields, ", ")))
-	
+
 	return nil
 }
 
@@ -381,11 +380,11 @@ func (s *VectorSearchService) DeleteRecordEmbeddings(ctx context.Context, collec
 func (s *VectorSearchService) registerHooks() {
 	// Record created
 	s.app.OnModelAfterCreate().Add(func(e *core.ModelEvent) error {
-		record, ok := e.Model.(*models.Record)
+		record, ok := e.Model.(*core.Record)
 		if !ok {
 			return nil
 		}
-		
+
 		collectionName := record.Collection().Name
 		if _, exists := s.collectionConfig[collectionName]; exists {
 			go func() {
@@ -401,11 +400,11 @@ func (s *VectorSearchService) registerHooks() {
 
 	// Record updated
 	s.app.OnModelAfterUpdate().Add(func(e *core.ModelEvent) error {
-		record, ok := e.Model.(*models.Record)
+		record, ok := e.Model.(*core.Record)
 		if !ok {
 			return nil
 		}
-		
+
 		collectionName := record.Collection().Name
 		if _, exists := s.collectionConfig[collectionName]; exists {
 			go func() {
@@ -421,11 +420,11 @@ func (s *VectorSearchService) registerHooks() {
 
 	// Record deleted
 	s.app.OnModelAfterDelete().Add(func(e *core.ModelEvent) error {
-		record, ok := e.Model.(*models.Record)
+		record, ok := e.Model.(*core.Record)
 		if !ok {
 			return nil
 		}
-		
+
 		collectionName := record.Collection().Name
 		if _, exists := s.collectionConfig[collectionName]; exists {
 			go func() {
@@ -445,7 +444,7 @@ func (s *VectorSearchService) registerHooks() {
 		if !ok {
 			return nil
 		}
-		
+
 		collectionName := collection.Name
 		if _, exists := s.collectionConfig[collectionName]; exists {
 			go func() {
@@ -469,7 +468,7 @@ func (s *VectorSearchService) registerRoutes() {
 			Path:   "/api/collections/:collection/vector-search",
 			Handler: func(c echo.Context) error {
 				collection := c.PathParam("collection")
-				
+
 				// Parse request body
 				var options VectorSearchOptions
 				if err := c.Bind(&options); err != nil {
@@ -649,4 +648,4 @@ func getDBConn(app *pocketbase.PocketBase) *sql.DB {
 	}
 
 	return db
-} 
+}

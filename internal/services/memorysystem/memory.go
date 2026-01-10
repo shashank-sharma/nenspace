@@ -1,6 +1,7 @@
 package memorysystem
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -1384,7 +1385,7 @@ func (ms *MemorySystem) CreateMemory(input MemoryInput) (*models.Memory, error) 
 	}
 
 	// Generate embedding
-	embedding, err := ms.embeddingSystem.GenerateEmbedding(input.Title + " " + input.Content)
+	embedding, err := ms.embeddingSystem.GenerateEmbedding(context.Background(), input.Title + " " + input.Content)
 	if err != nil {
 		logger.LogError("Failed to generate embedding: %s", err)
 	} else {
@@ -1428,7 +1429,7 @@ func (ms *MemorySystem) CreateOrUpdateSemanticMemory(input MemoryInput) (*models
 				memory.Content = memory.Content + " " + input.Content
 
 				// If the memory content changed, update the embedding
-				embedding, err := ms.embeddingSystem.GenerateEmbedding(memory.Title + " " + memory.Content)
+				embedding, err := ms.embeddingSystem.GenerateEmbedding(context.Background(), memory.Title + " " + memory.Content)
 				if err == nil {
 					if err := ms.embeddingSystem.StoreEmbedding(memory, embedding); err != nil {
 						logger.LogError("Failed to store updated embedding: %s", err)
@@ -1803,7 +1804,7 @@ func (ms *MemorySystem) ConsolidateMemories(userId string) error {
 					}
 					
 					// Generate embedding
-					embedding, err := ms.embeddingSystem.GenerateEmbedding(semanticTitle + " " + semanticContent)
+					embedding, err := ms.embeddingSystem.GenerateEmbedding(context.Background(), semanticTitle + " " + semanticContent)
 					if err == nil {
 						if err := ms.embeddingSystem.StoreEmbedding(semanticMemory, embedding); err != nil {
 							logger.LogError("Failed to store embedding: %s", err)
@@ -1873,7 +1874,7 @@ func (ms *MemorySystem) RetrieveMemories(userId string, queryString string, limi
 	}
 
 	// Generate query embedding
-	queryEmbedding, err := ms.embeddingSystem.GenerateEmbedding(queryString)
+	queryEmbedding, err := ms.embeddingSystem.GenerateEmbedding(context.Background(), queryString)
 	
 	// Score memories using multi-factor ranking
 	type scoredMemory struct {

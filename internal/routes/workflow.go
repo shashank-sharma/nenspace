@@ -15,6 +15,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/models"
 	"github.com/shashank-sharma/backend/internal/query"
 	"github.com/shashank-sharma/backend/internal/services/workflow"
+	"github.com/shashank-sharma/backend/internal/services/workflow/types"
 	"github.com/shashank-sharma/backend/internal/util"
 )
 
@@ -585,6 +586,156 @@ func RegisterWorkflowRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], p
 		})
 	})
 
+	workflowRouter.GET("/workflow/{id}/nodes/{nodeId}/schema/input", func(e *core.RequestEvent) error {
+		workflowId := e.Request.PathValue("id")
+		nodeId := e.Request.PathValue("nodeId")
+		if workflowId == "" || nodeId == "" {
+			return util.RespondError(e, util.NewBadRequestError("Missing workflow ID or node ID"))
+		}
+
+		token := e.Request.Header.Get("Authorization")
+		userId, err := util.GetUserId(token)
+		if err != nil {
+			return util.RespondError(e, util.ErrUnauthorized)
+		}
+
+		workflowFilter := &query.WorkflowFilter{
+			BaseFilter: query.BaseFilter{
+				ID:   workflowId,
+				User: userId,
+			},
+		}
+		_, err = query.FindByFilter[*models.Workflow](workflowFilter.ToMap())
+		if err != nil {
+			return util.RespondError(e, util.ErrNotFound)
+		}
+
+		nodes, err := query.FindAllByFilter[*models.WorkflowNode](map[string]interface{}{
+			"workflow_id": workflowId,
+		})
+		if err != nil {
+			return util.RespondWithError(e, util.NewBadRequestError("Failed to load workflow nodes"), err)
+		}
+
+		targetNode, err := query.FindById[*models.WorkflowNode](nodeId)
+		if err != nil {
+			return util.RespondError(e, util.NewBadRequestError("Node not found"))
+		}
+
+		if targetNode.Type == "source" {
+			return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{
+				"node_id":      nodeId,
+				"workflow_id":  workflowId,
+				"input_schema": nil,
+			})
+		}
+
+		upstreamConnections, err := query.FindAllByFilter[*models.WorkflowConnection](map[string]interface{}{
+			"workflow_id": workflowId,
+			"target_id":   nodeId,
+		})
+		if err != nil {
+			return util.RespondWithError(e, util.NewBadRequestError("Failed to load connections"), err)
+		}
+
+		inputSchemas := make([]types.DataSchema, 0, len(upstreamConnections))
+		nodeLabels := make(map[string]string)
+
+		for _, node := range nodes {
+			nodeLabels[node.Id] = node.Label
+		}
+
+		for _, conn := range upstreamConnections {
+			upstreamSchema, err := engine.GetNodeOutputSchema(workflowId, conn.SourceID)
+			if err != nil {
+				logger.LogError("Failed to get upstream schema", "error", err, "upstreamNodeId", conn.SourceID)
+				continue // Skip this upstream node
+			}
+			inputSchemas = append(inputSchemas, *upstreamSchema)
+		}
+
+		var inputSchema *types.DataSchema
+		if len(inputSchemas) == 0 {
+			inputSchema = &types.DataSchema{
+				Fields:      make([]types.FieldDefinition, 0),
+				SourceNodes: make([]string, 0),
+			}
+		} else if len(inputSchemas) == 1 {
+			inputSchema = &inputSchemas[0]
+		} else {
+			// Use the mergeSchemas function from workflow package
+			// Since it's not exported, we'll merge manually here
+			merged := types.DataSchema{
+				Fields:      make([]types.FieldDefinition, 0),
+				SourceNodes: make([]string, 0),
+			}
+
+			// Collect all source nodes
+			sourceNodeSet := make(map[string]bool)
+			for _, schema := range inputSchemas {
+				for _, nodeID := range schema.SourceNodes {
+					sourceNodeSet[nodeID] = true
+				}
+			}
+			for nodeID := range sourceNodeSet {
+				merged.SourceNodes = append(merged.SourceNodes, nodeID)
+			}
+
+			// Count field occurrences
+			fieldCounts := make(map[string]int)
+			for _, schema := range inputSchemas {
+				for _, field := range schema.Fields {
+					fieldCounts[field.Name]++
+				}
+			}
+
+			// Identify conflicts
+			conflictFields := make(map[string]bool)
+			for fieldName, count := range fieldCounts {
+				if count > 1 {
+					conflictFields[fieldName] = true
+				}
+			}
+
+			// Merge fields with conflict resolution
+			addedFields := make(map[string]bool)
+			for _, schema := range inputSchemas {
+				for _, field := range schema.Fields {
+					mergedField := field
+
+					// Prefix conflicting fields
+					if conflictFields[field.Name] && field.SourceNode != "" {
+						prefix := nodeLabels[field.SourceNode]
+						if prefix == "" {
+							prefix = field.SourceNode
+							if len(prefix) > 8 {
+								prefix = prefix[:8]
+							}
+						}
+						mergedField.Name = fmt.Sprintf("%s_%s", prefix, field.Name)
+						if mergedField.Description == "" {
+							mergedField.Description = fmt.Sprintf("%s (from %s)", field.Name, prefix)
+						}
+					}
+
+					// Avoid duplicates
+					if !addedFields[mergedField.Name] {
+						merged.Fields = append(merged.Fields, mergedField)
+						addedFields[mergedField.Name] = true
+					}
+				}
+			}
+
+			inputSchema = &merged
+		}
+
+		return util.RespondSuccess(e, http.StatusOK, map[string]interface{}{
+			"node_id":      nodeId,
+			"workflow_id":  workflowId,
+			"input_schema": inputSchema,
+		})
+	})
+
 	workflowRouter.GET("/workflow/{id}/nodes/{nodeId}/sample", func(e *core.RequestEvent) error {
 		workflowId := e.Request.PathValue("id")
 		nodeId := e.Request.PathValue("nodeId")
@@ -623,8 +774,8 @@ func RegisterWorkflowRoutes(apiRouter *router.RouterGroup[*core.RequestEvent], p
 
 		sampleData, err := engine.GetNodeSampleData(workflowId, nodeId, limit)
 		if err != nil {
-			logger.LogError("Failed to get node sample data", "error", err, "workflowId", workflowId, "nodeId", nodeId)
-			return util.RespondWithError(e, util.NewBadRequestError("Failed to get node sample data"), err)
+			logger.LogError("Failed to get node sample data", "error", err, "workflowId", workflowId, "nodeId", nodeId, "userId", userId)
+			return util.RespondWithError(e, util.NewBadRequestError("Failed to get node sample data: "+err.Error()), err)
 		}
 
 		return util.RespondSuccess(e, http.StatusOK, sampleData)

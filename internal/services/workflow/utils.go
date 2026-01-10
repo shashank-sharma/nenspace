@@ -342,6 +342,14 @@ func getNodeLabel(nodeID string, nodeLabels map[string]string) string {
 
 // inferSchemaFromData attempts to infer a schema from raw data
 // This is useful for connectors that receive unstructured data
+func InferSchemaFromData(data []map[string]interface{}) types.DataSchema {
+	return inferSchemaFromData(data)
+}
+
+func InferFieldType(value interface{}) string {
+	return inferFieldType(value)
+}
+
 func inferSchemaFromData(data []map[string]interface{}) types.DataSchema {
 	schema := types.DataSchema{
 		Fields:      make([]types.FieldDefinition, 0),

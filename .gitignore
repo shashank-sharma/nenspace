@@ -1,14 +1,55 @@
-sk
-.idea
-node_modules
-pb_data
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing and Coverage
+/coverage
+
+# Build and Outputs
+dist/
+build/
+out/
+bin/
+.tsbuildinfo
+
+# IDE and Tools
+.idea/
+.cursor/
+.claude/
+.DS_Store
+.history/
+*.pem
+
+# Debug Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+bun-debug.log*
+logs/
+
+# Configuration and Secrets
 .env
-exports
-test_gui
-logs
+.env*.local
+
+# Lock Files
+# package-lock.json
+# yarn.lock
+# bun.lockb
+
+# Project Specific
+.claude/
+pb_data/
+exports/
+test_gui/
 nenspace
-container_data
-.cursor
-.claude
+container_data/
 *.db
-portfolio
+
+# Plasmo
+.plasmo/
+
+# Other folders
+portfolio/
+sk

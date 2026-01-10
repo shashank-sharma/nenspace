@@ -1,6 +1,8 @@
 package util
 
 import (
+	"strconv"
+
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -12,6 +14,21 @@ func GetUserIDFromRequest(e *core.RequestEvent) (string, bool) {
 		return "", false
 	}
 	return userID, true
+}
+
+// GetQueryInt extracts an integer from a query parameter with a default value
+func GetQueryInt(e *core.RequestEvent, key string, defaultValue int) int {
+	val := e.Request.URL.Query().Get(key)
+	if val == "" {
+		return defaultValue
+	}
+
+	importVal, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultValue
+	}
+
+	return importVal
 }
 
 // RequireUserID extracts user ID from request and returns an error if not found
