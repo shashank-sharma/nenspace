@@ -4,22 +4,25 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/shashank-sharma/backend/internal/hooks/filemanager"
 	"github.com/shashank-sharma/backend/internal/hooks/location"
+	newsletterhook "github.com/shashank-sharma/backend/internal/hooks/newsletter"
 	"github.com/shashank-sharma/backend/internal/hooks/search"
 	"github.com/shashank-sharma/backend/internal/hooks/system"
 	"github.com/shashank-sharma/backend/internal/hooks/token"
 	"github.com/shashank-sharma/backend/internal/services/container"
 	"github.com/shashank-sharma/backend/internal/services/logging"
+	"github.com/shashank-sharma/backend/internal/services/newsletter"
 	searchsvc "github.com/shashank-sharma/backend/internal/services/search"
 	"github.com/shashank-sharma/backend/internal/services/weather"
 )
 
 type HookConfig struct {
-	Pb               *pocketbase.PocketBase
-	EncryptionKey    string
-	WeatherService   *weather.WeatherService
-	SearchService    *searchsvc.FullTextSearchService
-	ContainerService *container.ContainerService
-	LoggingService   *logging.LoggingService
+	Pb                *pocketbase.PocketBase
+	EncryptionKey     string
+	WeatherService    *weather.WeatherService
+	SearchService     *searchsvc.FullTextSearchService
+	ContainerService  *container.ContainerService
+	LoggingService    *logging.LoggingService
+	NewsletterService *newsletter.Service
 }
 
 func RegisterAll(cfg *HookConfig) {
@@ -36,6 +39,10 @@ func RegisterAll(cfg *HookConfig) {
 
 	if cfg.SearchService != nil {
 		search.RegisterSearchHooks(cfg.Pb, cfg.SearchService)
+	}
+
+	if cfg.NewsletterService != nil {
+		newsletterhook.RegisterNewsletterHooks(cfg.Pb, cfg.NewsletterService)
 	}
 }
 

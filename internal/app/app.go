@@ -30,6 +30,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/services/mail"
 	"github.com/shashank-sharma/backend/internal/services/memorysystem"
 	"github.com/shashank-sharma/backend/internal/services/music"
+	"github.com/shashank-sharma/backend/internal/services/newsletter"
 	"github.com/shashank-sharma/backend/internal/services/providers"
 	"github.com/shashank-sharma/backend/internal/services/search"
 	"github.com/shashank-sharma/backend/internal/services/weather"
@@ -39,20 +40,21 @@ import (
 
 // Application encapsulates all application components and services
 type Application struct {
-	Server           *http.Server
-	Pb               *pocketbase.PocketBase
-	FoldService      *fold.FoldService
-	CalendarService  *calendar.CalendarService
-	MailService      *mail.MailService
-	WorkflowEngine   *workflow.WorkflowEngine
-	FeedService      *services.FeedService
-	ContainerService *container.ContainerService
-	SearchService    *search.FullTextSearchService
-	WeatherService   *weather.WeatherService
-	JournalService   *journal.JournalService
-	MusicService     *music.MusicService
-	LoggingService   *logging.LoggingService
-	postInitHooks    []func()
+	Server            *http.Server
+	Pb                *pocketbase.PocketBase
+	FoldService       *fold.FoldService
+	CalendarService   *calendar.CalendarService
+	MailService       *mail.MailService
+	WorkflowEngine    *workflow.WorkflowEngine
+	FeedService       *services.FeedService
+	ContainerService  *container.ContainerService
+	SearchService     *search.FullTextSearchService
+	WeatherService    *weather.WeatherService
+	JournalService    *journal.JournalService
+	MusicService      *music.MusicService
+	LoggingService    *logging.LoggingService
+	NewsletterService *newsletter.Service
+	postInitHooks     []func()
 }
 
 // New creates and initializes a new Application instance
@@ -97,12 +99,13 @@ func New(configFlags config.ConfigFlags) (*Application, error) {
 		logger.LogInfo("All application services initialized")
 
 		hooks.RegisterAll(&hooks.HookConfig{
-			Pb:               app.Pb,
-			EncryptionKey:    app.Pb.Store().Get("ENCRYPTION_KEY").(string),
-			WeatherService:   app.WeatherService,
-			SearchService:    app.SearchService,
-			ContainerService: app.ContainerService,
-			LoggingService:   app.LoggingService,
+			Pb:                app.Pb,
+			EncryptionKey:     app.Pb.Store().Get("ENCRYPTION_KEY").(string),
+			WeatherService:    app.WeatherService,
+			SearchService:     app.SearchService,
+			ContainerService:  app.ContainerService,
+			LoggingService:    app.LoggingService,
+			NewsletterService: app.NewsletterService,
 		})
 		logger.LogInfo("Hooks registered")
 		app.RunPostInitHooks()
@@ -141,6 +144,7 @@ func (app *Application) initializeBaseServices() {
 	app.FoldService = fold.NewFoldService(foldAPIURL)
 	app.CalendarService = calendar.NewCalendarService()
 	app.MailService = mail.NewMailService()
+	app.NewsletterService = newsletter.NewService()
 	app.WorkflowEngine = workflow.NewWorkflowEngine(app.Pb)
 	app.WeatherService = weather.NewWeatherService()
 
@@ -249,6 +253,10 @@ func (app *Application) configureRoutes(e *core.ServeEvent) {
 	mailRouter := apiRouter.Group("/mail")
 	mailRouter.BindFunc(middleware.AuthMiddleware())
 	routes.RegisterMailRoutes(mailRouter, "", app.MailService)
+
+	newsletterRouter := apiRouter.Group("/newsletter")
+	newsletterRouter.BindFunc(middleware.AuthMiddleware())
+	routes.RegisterNewsletterRoutes(newsletterRouter, app.NewsletterService)
 
 	foldRouter := apiRouter.Group("/fold")
 	foldRouter.BindFunc(middleware.AuthMiddleware())
@@ -360,6 +368,14 @@ func (app *Application) InitCronjobs() error {
 			Interval: "0 2 * * *", // Every day at 2 AM
 			JobFunc: func() {
 				cronjobs.CleanupLogs()
+			},
+			IsActive: true,
+		},
+		{
+			Name:     "newsletter-inactivity-check",
+			Interval: "0 3 * * *", // Every day at 3 AM
+			JobFunc: func() {
+				newsletter.MarkInactiveNewsletters()
 			},
 			IsActive: true,
 		},
@@ -494,6 +510,12 @@ func (app *Application) runStartupChecks() {
 			name: "Resume stale calendar sync statuses",
 			fn: func() error {
 				return routes.ResetStaleCalendarSyncStatuses(app.CalendarService)
+			},
+		},
+		{
+			name: "Resume stale newsletter scans",
+			fn: func() error {
+				return routes.ResetStaleNewsletterScans(app.NewsletterService)
 			},
 		},
 	}

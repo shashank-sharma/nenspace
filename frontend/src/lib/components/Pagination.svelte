@@ -9,10 +9,10 @@
     } from "lucide-svelte";
 
     let {
-        currentPage = $bindable(),
-        totalPages,
-        totalItems,
-        pageSize = $bindable(),
+        currentPage = $bindable(1),
+        totalPages = 1,
+        totalItems = 0,
+        pageSize = $bindable(20),
         pageSizeOptions = [10, 20, 30, 50, 100],
         onpagechange,
         onpagesizechange,
@@ -48,8 +48,8 @@
         <span class="text-sm text-muted-foreground">Rows per page</span>
         <Select.Root
             selected={{
-                value: pageSize.toString(),
-                label: pageSize.toString(),
+                value: (pageSize ?? 20).toString(),
+                label: (pageSize ?? 20).toString(),
             }}
             onSelectedChange={(selected) => {
                 if (selected?.value) {
