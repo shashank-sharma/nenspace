@@ -65,4 +65,3 @@ export interface SelectionState {
     selectedFiles: Set<string>;
     isSelectionMode: boolean;
 }
-

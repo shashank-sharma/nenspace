@@ -12,6 +12,7 @@
     import { onMount } from "svelte";
     import { onNavigate } from "$app/navigation";
     import type { Snippet } from "svelte";
+    import { usePlatform } from "$lib/hooks/usePlatform.svelte";
 
     // Register feature sync services (DASHBOARD-ONLY - not loaded on homepage/auth)
     import "$lib/features/food-log/services/food-log-sync-adapter";
@@ -24,11 +25,26 @@
     const sections = DASHBOARD_SECTIONS;
     let showShortcuts = $state(false);
     
+    // Platform detection
+    const platform = usePlatform();
+    
     // Reactive settings access
     let debugSettings = $derived(SettingsService.debug);
     let appearanceSettings = $derived(SettingsService.appearance);
     let shouldShowDebugButton = $derived(debugSettings.showDebugButton);
-    let shouldShowStatusIndicator = $derived(appearanceSettings.showStatusIndicator);
+    // Hide StatusIndicator in Tauri since there's already a separate floating status indicator window
+    let shouldShowStatusIndicator = $derived(
+        appearanceSettings.showStatusIndicator && !platform.isTauri
+    );
+
+    // Debug: log status indicator visibility
+    $effect(() => {
+        console.log('[Dashboard] StatusIndicator visibility:', {
+            isTauri: platform.isTauri,
+            showStatusIndicatorSetting: appearanceSettings.showStatusIndicator,
+            shouldShowStatusIndicator
+        });
+    });
 
     $effect(() => {
         if (!authService.isAuthenticated) {

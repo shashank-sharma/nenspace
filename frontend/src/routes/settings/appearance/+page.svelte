@@ -437,6 +437,68 @@
                     disabled={isLoading}
                 />
             </div>
+
+            {#if settings.showStatusIndicator}
+                <div class="space-y-3">
+                    <Label>Status Indicator Expansion</Label>
+                    <p class="text-sm text-muted-foreground">
+                        How the status indicator expands when showing notifications
+                    </p>
+                    <RadioGroup.Root
+                        value={settings.statusIndicatorExpansionMode}
+                        onValueChange={(v: string | null) => {
+                            if (v) updateSetting('statusIndicatorExpansionMode', v as 'edge' | 'center');
+                        }}
+                        class="grid grid-cols-2 gap-3"
+                        disabled={isLoading}
+                    >
+                        <label
+                            for="expansion-center"
+                            class="relative rounded-lg border-2 p-4 cursor-pointer transition-all hover:border-accent {settings.statusIndicatorExpansionMode === 'center' ? 'border-primary' : 'border-muted'}"
+                        >
+                            <RadioGroup.Item
+                                id="expansion-center"
+                                value="center"
+                                class="sr-only"
+                                aria-label="Center expansion"
+                            />
+                            {#if settings.statusIndicatorExpansionMode === 'center'}
+                                <div class="absolute top-2 right-2">
+                                    <Check class="h-4 w-4 text-primary" />
+                                </div>
+                            {/if}
+                            <div class="space-y-2">
+                                <span class="font-medium">Center</span>
+                                <p class="text-xs text-muted-foreground">
+                                    Expands equally from both sides
+                                </p>
+                            </div>
+                        </label>
+                        <label
+                            for="expansion-edge"
+                            class="relative rounded-lg border-2 p-4 cursor-pointer transition-all hover:border-accent {settings.statusIndicatorExpansionMode === 'edge' ? 'border-primary' : 'border-muted'}"
+                        >
+                            <RadioGroup.Item
+                                id="expansion-edge"
+                                value="edge"
+                                class="sr-only"
+                                aria-label="Edge expansion"
+                            />
+                            {#if settings.statusIndicatorExpansionMode === 'edge'}
+                                <div class="absolute top-2 right-2">
+                                    <Check class="h-4 w-4 text-primary" />
+                                </div>
+                            {/if}
+                            <div class="space-y-2">
+                                <span class="font-medium">Edge</span>
+                                <p class="text-xs text-muted-foreground">
+                                    Expands from the right side
+                                </p>
+                            </div>
+                        </label>
+                    </RadioGroup.Root>
+                </div>
+            {/if}
         </div>
     </div>
 

@@ -18,6 +18,11 @@
  * // Broadcast notifications
  * NotificationBroadcaster.success('Task completed!');
  * NotificationBroadcaster.error('Failed to save');
+ * 
+ * // New notification types
+ * NotificationBroadcaster.system('System update available', 'update');
+ * NotificationBroadcaster.calendar('event_1', 'Meeting', new Date());
+ * NotificationBroadcaster.task('task_1', 'Complete project', 'due');
  * ```
  */
 
@@ -27,3 +32,11 @@ export * from './services';
 // Utils
 export * from './utils';
 
+// Types
+export * from './types';
+
+// Registry
+export * from './registry';
+
+// Factories
+export * from './factories';

@@ -3,84 +3,97 @@
     import { onMount } from "svelte";
     import { navigating, page } from "$app/stores";
     import { fade } from "svelte/transition";
-    import { onNavigate } from "$app/navigation";
     import Loading from "$lib/components/Loading.svelte";
     import PageTransition from "$lib/components/PageTransition.svelte";
-    import { ThemeService } from "$lib/services/theme.service.svelte";
     import { FontService } from "$lib/services/font.service.svelte";
-    import { SettingsService } from "$lib/services/settings.service.svelte";
     import { NotificationSyncService } from "$lib/features/status-indicator";
     import "../app.css";
     import { browser } from "$app/environment";
     import { usePlatform } from "$lib/hooks/usePlatform.svelte";
     import LimitedFunctionalityBanner from "$lib/components/platform/LimitedFunctionalityBanner.svelte";
-
-    // PWA-only imports (dynamically loaded - excluded from Tauri builds)
-    // These are imported at runtime ONLY in PWA/Web mode
     import { Button } from "$lib/components/ui/button";
     import { RefreshCw } from "lucide-svelte";
 
-    // NOTE: RealtimeService and Sync Adapters moved to dashboard/+layout.svelte
-    // They only load when authenticated and viewing dashboard, not on homepage/auth pages
-
     let { children } = $props<{ children: Snippet }>();
     let isLoading = $state(true);
-    let showShortcuts = $state(false);
+    let isFadingOut = $state(false);
+    let showLoadingIndicator = $state(true);
+    let loadingTime = $state(0.0);
+    let revealProgress = $state(0.0);
+    let revealAnimationFrame: number | null = $state(null);
+    let revealStartTime: number | null = $state(null);
 
-    // Platform detection
     const platform = usePlatform();
-
-    // PWA-specific state (only used in PWA/Web, not Tauri)
     let pwaInitFinished = $state(false);
     let pwaUpdateAvailable = $state(false);
-
-    // Dynamically loaded PWA components (null until loaded)
     let UpdateDetector: any = $state(null);
     let OfflineIndicator: any = $state(null);
 
-    // Check if current route is dashboard to determine transition type
     let isDashboardRoute = $derived($page.url.pathname.startsWith("/dashboard"));
-
-    // Handle navigation for transitions
-    onNavigate((navigation) => {
-        // Navigation state is handled by PageTransition component
-        if (navigation?.to) {
-            // Navigation will be handled by the transition system
+    let isHomepage = $derived($page.url.pathname === "/");
+    
+    if (browser) {
+        function updateReveal() {
+            if (isFadingOut && showLoadingIndicator) {
+                if (revealStartTime === null) {
+                    revealStartTime = performance.now();
+                }
+                const elapsed = (performance.now() - revealStartTime!) * 0.001;
+                const progress = Math.min(1.0, elapsed / 5.0);
+                revealProgress = 1 - Math.pow(1 - progress, 3);
+                revealAnimationFrame = requestAnimationFrame(updateReveal);
+            } else {
+                revealProgress = 0.0;
+                revealStartTime = null;
+                if (revealAnimationFrame !== null) {
+                    cancelAnimationFrame(revealAnimationFrame);
+                    revealAnimationFrame = null;
+                }
+            }
         }
-    });
+        
+        $effect(() => {
+            if (isFadingOut && showLoadingIndicator && revealAnimationFrame === null) {
+                updateReveal();
+            } else if (!isFadingOut && revealAnimationFrame !== null) {
+                cancelAnimationFrame(revealAnimationFrame);
+                revealAnimationFrame = null;
+                revealProgress = 0.0;
+                revealStartTime = null;
+            }
+        });
+    }
 
-    // One-time initialization on mount
     onMount(() => {
-        // Initialize notification sync for Tauri (works across all routes)
         NotificationSyncService.initialize().catch((err) => {
             console.error('[RootLayout] Failed to initialize notification sync:', err);
         });
+        
         if (browser) {
-            // Initialize font service with default font
-            // Font will be updated when settings load
+            const startTime = performance.now();
+            function updateLoadingColor() {
+                if (isLoading) {
+                    const elapsed = (performance.now() - startTime) * 0.001;
+                    loadingTime = elapsed;
+                    requestAnimationFrame(updateLoadingColor);
+                }
+            }
+            updateLoadingColor();
+
             FontService.initialize();
-            // Log platform info for debugging
             console.log(`[App] Platform: ${platform.summary}`);
             console.log(
                 `[App] Tauri: ${platform.isTauri}, PWA: ${platform.isPWA}, Mobile: ${platform.isMobile}`,
             );
 
-            // PWA initialization (ONLY in PWA/Web, NOT in Tauri)
-            // Dynamic imports ensure PWA code is completely excluded from Tauri builds
             if (!platform.isTauri) {
-                // Dynamically import PWA modules (tree-shaken out of Tauri builds)
                 Promise.all([
                     import("$lib/features/pwa/services/pwa.service.svelte"),
-                    import(
-                        "$lib/features/pwa/components/UpdateDetector.svelte"
-                    ),
-                    import(
-                        "$lib/features/pwa/components/OfflineIndicator.svelte"
-                    ),
+                    import("$lib/features/pwa/components/UpdateDetector.svelte"),
+                    import("$lib/features/pwa/components/OfflineIndicator.svelte"),
                 ])
                     .then(
-                        ([pwaModule, updateDetectorModule, offlineModule]) => {
-                            // PwaService auto-initializes on import
+                        ([, updateDetectorModule, offlineModule]) => {
                             UpdateDetector = updateDetectorModule.default;
                             OfflineIndicator = offlineModule.default;
                             pwaInitFinished = true;
@@ -91,12 +104,14 @@
                     });
             }
 
-            // NOTE: RealtimeService initialization moved to dashboard/+layout.svelte
-            // It only initializes when user is authenticated and viewing dashboard
-
             setTimeout(() => {
                 isLoading = false;
-            }, 300);
+                isFadingOut = true;
+            }, 2000);
+            
+            setTimeout(() => {
+                showLoadingIndicator = false;
+            }, 7000);
         }
     });
 
@@ -109,28 +124,17 @@
             window.location.reload();
         }
     }
-
-    function handleShowShortcuts() {
-        showShortcuts = true;
-    }
-
-    function handleCloseShortcuts() {
-        showShortcuts = false;
-    }
 </script>
 
-<!-- PWA-ONLY Components (dynamically loaded - zero bundle impact on Tauri) -->
 {#if !platform.isTauri && pwaInitFinished}
     {#if UpdateDetector}
         <UpdateDetector on:update-available={handlePwaUpdateAvailable} />
     {/if}
 
-    <!-- Offline indicator (bottom banner) -->
     {#if OfflineIndicator}
         <OfflineIndicator />
     {/if}
 
-    <!-- PWA update notification -->
     {#if pwaUpdateAvailable}
         <div
             transition:fade={{ duration: 200 }}
@@ -153,7 +157,7 @@
     </div>
 {/if}
 
-{#if isLoading}
+{#if isLoading && !isHomepage}
     <div
         class="fixed inset-0 bg-background flex items-center justify-center z-50"
         transition:fade={{ duration: 300 }}
@@ -162,15 +166,46 @@
     </div>
 {/if}
 
-<!-- Platform-aware Limited Functionality Banner (all platforms) -->
+{#if showLoadingIndicator && isHomepage}
+    {@const flowPhase = loadingTime * 0.15}
+    {@const spectralR = Math.floor((0.5 + 0.5 * Math.cos(flowPhase + 0.0)) * 255)}
+    {@const spectralG = Math.floor((0.5 + 0.5 * Math.cos(flowPhase + 2.0)) * 255)}
+    {@const spectralB = Math.floor((0.5 + 0.5 * Math.cos(flowPhase + 4.0)) * 255)}
+    {@const spectralColor = `rgb(${spectralR}, ${spectralG}, ${spectralB})`}
+    {@const gradientStops = [
+        `${spectralColor} 0%`,
+        `rgba(${spectralR}, ${spectralG}, ${spectralB}, 0.95) 0.5%`,
+        `rgba(${spectralR}, ${spectralG}, ${spectralB}, 0.85) 1%`,
+        `rgba(${spectralR}, ${spectralG}, ${spectralB}, 0.75) 2%`,
+        `rgba(${spectralR}, ${spectralG}, ${spectralB}, 0.5) 4%`,
+        `rgba(${spectralR}, ${spectralG}, ${spectralB}, 0.3) 8%`,
+        `rgba(${spectralR}, ${spectralG}, ${spectralB}, 0.15) 15%`,
+        `rgba(${spectralR}, ${spectralG}, ${spectralB}, 0.08) 25%`,
+        `rgba(${spectralR}, ${spectralG}, ${spectralB}, 0.03) 40%`,
+        `transparent 80%`
+    ].join(', ')}
+    
+    <div
+        class="fixed inset-0 bg-black z-50 pointer-events-none reveal-mask"
+        style="--reveal-progress: {revealProgress}; --reveal-opacity: {1 - revealProgress};"
+    ></div>
+    
+    <div
+        class="fixed inset-0 flex items-center justify-center z-50 pointer-events-none"
+    >
+        <div 
+            class="w-64 h-64 rounded-full {isFadingOut ? 'dot-fade-out' : 'dot-pulse'}"
+            style="background: radial-gradient(circle, {gradientStops});"
+        ></div>
+    </div>
+{/if}
+
 <LimitedFunctionalityBanner />
 
 <main class="">
     {#if isDashboardRoute}
-        <!-- Dashboard routes handle their own transitions -->
         {@render children()}
     {:else}
-        <!-- Non-dashboard routes use page transitions -->
         <PageTransition type="page" duration={350}>
             {@render children()}
         </PageTransition>
@@ -178,14 +213,10 @@
 </main>
 
 <style>
-    /* Font loading is handled by FontService */
-    /* @font-face declarations are added dynamically */
-
     :global(html) {
         height: 100%;
         margin: 0;
         padding: 0;
-        /* Font is applied via FontService, not hardcoded */
     }
 
     :global(body) {
@@ -199,5 +230,70 @@
         flex-direction: column;
         height: 100%;
         min-height: 100vh;
+    }
+
+    .dot-pulse {
+        animation: pulseGlow 3s ease-in-out infinite;
+    }
+
+    .dot-fade-out {
+        animation: fadeOutSlow 3s ease-out forwards;
+    }
+
+    .reveal-mask {
+        --max-radius: 150%;
+        --current-radius: calc(var(--reveal-progress) * var(--max-radius));
+        --blur-zone: 12%;
+        --edge-start: calc(var(--current-radius) - var(--blur-zone));
+        --edge-end: calc(var(--current-radius) + var(--blur-zone) * 0.2);
+        opacity: var(--reveal-opacity, 1);
+        mask-image: radial-gradient(
+            circle at center,
+            transparent 0%,
+            transparent var(--edge-start),
+            rgba(0, 0, 0, 0.05) calc(var(--edge-start) + var(--blur-zone) * 0.1),
+            rgba(0, 0, 0, 0.15) calc(var(--edge-start) + var(--blur-zone) * 0.25),
+            rgba(0, 0, 0, 0.3) calc(var(--edge-start) + var(--blur-zone) * 0.4),
+            rgba(0, 0, 0, 0.5) calc(var(--edge-start) + var(--blur-zone) * 0.55),
+            rgba(0, 0, 0, 0.7) calc(var(--edge-start) + var(--blur-zone) * 0.7),
+            rgba(0, 0, 0, 0.85) calc(var(--edge-start) + var(--blur-zone) * 0.85),
+            black var(--edge-end),
+            black 100%
+        );
+        -webkit-mask-image: radial-gradient(
+            circle at center,
+            transparent 0%,
+            transparent var(--edge-start),
+            rgba(0, 0, 0, 0.05) calc(var(--edge-start) + var(--blur-zone) * 0.1),
+            rgba(0, 0, 0, 0.15) calc(var(--edge-start) + var(--blur-zone) * 0.25),
+            rgba(0, 0, 0, 0.3) calc(var(--edge-start) + var(--blur-zone) * 0.4),
+            rgba(0, 0, 0, 0.5) calc(var(--edge-start) + var(--blur-zone) * 0.55),
+            rgba(0, 0, 0, 0.7) calc(var(--edge-start) + var(--blur-zone) * 0.7),
+            rgba(0, 0, 0, 0.85) calc(var(--edge-start) + var(--blur-zone) * 0.85),
+            black var(--edge-end),
+            black 100%
+        );
+    }
+
+    @keyframes pulseGlow {
+        0%, 100% {
+            transform: scale(1);
+            opacity: 1;
+            filter: brightness(1);
+        }
+        50% {
+            transform: scale(1.6);
+            opacity: 0.9;
+            filter: brightness(1.3);
+        }
+    }
+
+    @keyframes fadeOutSlow {
+        from {
+            opacity: 1;
+        }
+        to {
+            opacity: 0;
+        }
     }
 </style>

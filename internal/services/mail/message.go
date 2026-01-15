@@ -68,6 +68,7 @@ func (ms *MailService) SyncMessages(mailSync *models.MailSync) error {
 			updateData := map[string]interface{}{
 				"is_active":   false,
 				"sync_status": "inactive",
+				"last_error":  err.Error(),
 			}
 			if updateErr := query.UpdateRecord[*models.MailSync](mailSync.Id, updateData); updateErr != nil {
 				logger.LogError(fmt.Sprintf("Failed to mark mail sync %s as inactive", mailSync.Id), updateErr)

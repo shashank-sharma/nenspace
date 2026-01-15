@@ -22,6 +22,13 @@
 import { IslandNotificationService, type NotificationOptions } from './island-notification.service.svelte';
 import { browser } from '$app/environment';
 import { emit } from '@tauri-apps/api/event';
+import { notificationFactory } from '../factories/notification-factory';
+import { NotificationQueueService } from './notification-queue.service';
+import { IslandController } from './island-controller.service.svelte';
+import { notificationRegistry } from '../registry/notification-registry';
+import { NotificationSeverity } from '../types/severity.types';
+import type { NotificationInstance } from '../types/notification.types';
+import * as Views from '../components/views';
 
 class NotificationBroadcasterImpl {
     /**
@@ -109,6 +116,7 @@ class NotificationBroadcasterImpl {
      */
     clear(): void {
         IslandNotificationService.clear();
+        NotificationQueueService.clear();
     }
 
     /**
@@ -116,6 +124,179 @@ class NotificationBroadcasterImpl {
      */
     get current() {
         return IslandNotificationService.current;
+    }
+
+    /**
+     * Show system notification
+     */
+    system(
+        message: string,
+        systemType: 'update' | 'maintenance' | 'alert' | 'info' = 'info',
+        options?: {
+            severity?: NotificationSeverity;
+            duration?: number;
+            version?: string;
+            actionUrl?: string;
+        }
+    ): void {
+        const notification = notificationFactory.createSystem(message, systemType, options);
+        this.showNotification(notification);
+    }
+
+    /**
+     * Show calendar notification
+     */
+    calendar(
+        eventId: string,
+        title: string,
+        startTime: Date,
+        options?: {
+            severity?: NotificationSeverity;
+            duration?: number;
+            endTime?: Date;
+            location?: string;
+            description?: string;
+        }
+    ): void {
+        const notification = notificationFactory.createCalendar(eventId, title, startTime, options);
+        this.showNotification(notification);
+    }
+
+    /**
+     * Show task notification
+     */
+    task(
+        taskId: string,
+        title: string,
+        taskType: 'completed' | 'due' | 'overdue' | 'progress',
+        options?: {
+            severity?: NotificationSeverity;
+            duration?: number;
+            dueDate?: Date;
+            progress?: number;
+        }
+    ): void {
+        const notification = notificationFactory.createTask(taskId, title, taskType, options);
+        this.showNotification(notification);
+    }
+
+    /**
+     * Show big text notification
+     */
+    bigText(
+        text: string,
+        options?: {
+            severity?: NotificationSeverity;
+            duration?: number;
+            subtext?: string;
+            icon?: any;
+        }
+    ): void {
+        const notification = notificationFactory.createBigText(text, options);
+        this.showNotification(notification);
+    }
+
+    /**
+     * Batch multiple notifications
+     */
+    batch(
+        type: 'standard' | 'system' | 'calendar' | 'task' | 'email',
+        notifications: Array<{
+            message: string;
+            payload?: any;
+            severity?: NotificationSeverity;
+        }>
+    ): void {
+        // Add all notifications to queue (they will be batched automatically)
+        notifications.forEach(notif => {
+            let notification: NotificationInstance;
+            
+            switch (type) {
+                case 'standard':
+                    notification = notificationFactory.createStandard('info', notif.message, {
+                        severity: notif.severity,
+                    });
+                    break;
+                case 'system':
+                    notification = notificationFactory.createSystem(notif.message, 'info', {
+                        severity: notif.severity,
+                    });
+                    break;
+                case 'calendar':
+                    // Requires more specific data, skip for now
+                    return;
+                case 'task':
+                    // Requires more specific data, skip for now
+                    return;
+                case 'email':
+                    // Requires more specific data, skip for now
+                    return;
+                default:
+                    return;
+            }
+            
+            NotificationQueueService.enqueue(notification);
+        });
+        
+        // Process queue
+        this.processQueue();
+    }
+
+    /**
+     * Internal: Show notification instance
+     */
+    private showNotification(notification: NotificationInstance): void {
+        // Add to queue
+        NotificationQueueService.enqueue(notification);
+        
+        // Process queue
+        this.processQueue();
+    }
+
+    /**
+     * Process notification queue
+     */
+    private processQueue(): void {
+        const next = NotificationQueueService.peek();
+        if (!next) return;
+
+        // Check if it's a batched notification
+        if ('count' in next && next.count > 1) {
+            // Show batched notification
+            const batch = next as any;
+            const typeConfig = notificationRegistry.get(batch.type);
+            if (!typeConfig) return;
+
+            IslandController.show({
+                id: `batch_${batch.key}`,
+                priority: batch.priority,
+                dimensions: typeConfig.dimensions,
+                component: typeConfig.viewComponent,
+                props: {
+                    ...batch.latest.payload,
+                    batchCount: batch.count,
+                    severity: batch.latest.severity,
+                },
+                duration: batch.latest.duration,
+            });
+        } else {
+            // Show single notification
+            const notification = next as NotificationInstance;
+            const typeConfig = notificationRegistry.get(notification.type);
+            if (!typeConfig) return;
+
+            IslandController.show({
+                id: notification.id,
+                priority: typeConfig.priority,
+                dimensions: typeConfig.dimensions,
+                component: typeConfig.viewComponent,
+                props: {
+                    ...notification.payload,
+                    severity: notification.severity,
+                },
+                duration: notification.duration,
+            });
+        }
     }
 }
 

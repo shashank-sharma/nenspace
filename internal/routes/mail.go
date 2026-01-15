@@ -171,15 +171,17 @@ func ResetStaleSyncStatuses(ms *mail.MailService) error {
 
 			if err != nil {
 				logger.LogError(fmt.Sprintf("Resumed sync failed for mail sync %s", sync.Id), err)
-				// Store error message in sync_status field
+				// Store error message in last_error field
 				errorMsg := err.Error()
-				if len(errorMsg) > 200 {
-					errorMsg = errorMsg[:200] + "..."
+				if len(errorMsg) > 1000 {
+					errorMsg = errorMsg[:1000] + "..."
 				}
-				updateData["sync_status"] = "failed: " + errorMsg
+				updateData["sync_status"] = "failed"
+				updateData["last_error"] = errorMsg
 			} else {
 				// Only update last_synced on successful sync
 				updateData["sync_status"] = "completed"
+				updateData["last_error"] = ""
 				updateData["last_synced"] = types.NowDateTime()
 			}
 
@@ -283,6 +285,7 @@ func MailAuthCallback(ms *mail.MailService, e *core.RequestEvent) error {
 			"is_active":   true,
 			"token":       mailToken.Id,
 			"sync_status": "ready",
+			"last_error":  "",
 			"labels":      labelsJSON,
 		}
 		if err := query.UpdateRecord[*models.MailSync](mailAuthData.MailSyncID, updateData); err != nil {
@@ -309,6 +312,7 @@ func MailAuthCallback(ms *mail.MailService, e *core.RequestEvent) error {
 				"is_active":   true,
 				"token":       mailToken.Id,
 				"sync_status": "ready",
+				"last_error":  "",
 			}
 			if err := query.UpdateRecord[*models.MailSync](mailSync.Id, updateData); err != nil {
 				logger.LogError(fmt.Sprintf("Failed to reactivate mail sync %s", mailSync.Id), err)
@@ -390,18 +394,18 @@ func MailSyncHandler(ms *mail.MailService, e *core.RequestEvent) error {
 
 		if err != nil {
 			logger.LogError("Mail sync failed", err)
-			// Store error message in sync_status field (we'll parse it in the status handler)
-			// Format: "failed: <error message>"
-			// Don't update last_synced on error
+			// Store error message in last_error field
 			errorMsg := err.Error()
-			// Truncate if too long (sync_status field might have length limits)
-			if len(errorMsg) > 200 {
-				errorMsg = errorMsg[:200] + "..."
+			// Truncate if too long (but last_error is a text field, so we can store more)
+			if len(errorMsg) > 1000 {
+				errorMsg = errorMsg[:1000] + "..."
 			}
-			updateData["sync_status"] = "failed: " + errorMsg
+			updateData["sync_status"] = "failed"
+			updateData["last_error"] = errorMsg
 		} else {
 			// Only update last_synced on successful sync
 			updateData["sync_status"] = "completed"
+			updateData["last_error"] = ""
 			updateData["last_synced"] = types.NowDateTime()
 		}
 
@@ -449,23 +453,24 @@ func MailSyncStatusHandler(ms *mail.MailService, e *core.RequestEvent) error {
 		messageCount = 0
 	}
 
-	// Parse error message from sync_status if it starts with "failed: "
+	// Get error message from last_error field
 	status := mailSync.SyncStatus
-	errorMessage := ""
+	errorMessage := mailSync.LastError
 	needsReauth := false
 
-	if len(status) > 7 && status[:7] == "failed:" {
-		errorMessage = strings.TrimSpace(status[7:]) // Extract error message after "failed: "
-		status = "failed"                            // Set status to just "failed"
+	if status == "failed" && errorMessage != "" {
 		// Check if error indicates re-authentication is needed
 		if strings.Contains(strings.ToLower(errorMessage), "re-authenticate") ||
 			strings.Contains(strings.ToLower(errorMessage), "token expired") ||
+			strings.Contains(strings.ToLower(errorMessage), "invalid_grant") ||
 			strings.Contains(strings.ToLower(errorMessage), "inactive") {
 			needsReauth = true
 		}
 	} else if status == "inactive" {
 		// Status is already "inactive", set needs reauth
-		errorMessage = "Token expired - re-authentication required"
+		if errorMessage == "" {
+			errorMessage = "Token expired - re-authentication required"
+		}
 		needsReauth = true
 	}
 

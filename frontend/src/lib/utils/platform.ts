@@ -12,10 +12,12 @@ export type FeatureCapability = 'full' | 'limited' | 'view-only' | 'disabled';
 
 /**
  * Detect if running in Tauri desktop app
+ * Uses __TAURI_INTERNALS__ which is reliable in Tauri v2
  */
 export function isTauri(): boolean {
     if (!browser) return false;
-    return '__TAURI__' in window;
+    // Use __TAURI_INTERNALS__ which is more reliable in Tauri v2
+    return typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
 }
 
 /**

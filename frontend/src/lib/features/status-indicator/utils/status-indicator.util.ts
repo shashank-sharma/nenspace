@@ -23,6 +23,8 @@ export const STATUS_INDICATOR_CONFIG = {
     DIMENSIONS: {
         COMPACT_WIDTH: 120,
         EXPANDED_WIDTH: 280,
+        MAX_WIDTH: 1000, // Maximum width for dynamic text expansion (increase this value to allow wider notifications)
+        MAX_WIDTH_BIG_TEXT: 1200, // Maximum width for big text announcements (increase this value for wider announcements)
         HEIGHT: 40,
         MARGIN_TOP: 8,
     },

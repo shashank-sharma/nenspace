@@ -54,7 +54,7 @@ pub async fn markdown_get_file_tree(vault_path: String) -> Result<FileTreeNode, 
                 }
             }
             children.sort_by(|a, b| {
-                match (&a.node_type, &b.node_type) {
+                match (a.node_type.as_str(), b.node_type.as_str()) {
                     ("folder", "file") => std::cmp::Ordering::Less,
                     ("file", "folder") => std::cmp::Ordering::Greater,
                     _ => a.name.cmp(&b.name),

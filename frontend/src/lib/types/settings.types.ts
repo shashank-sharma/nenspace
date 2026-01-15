@@ -23,6 +23,7 @@ export interface AppearanceSettings extends BaseSettings {
     sidebarCollapsed: boolean;
     showStatusIndicator: boolean; // Control status indicator visibility
     backgroundType: 'none' | 'grid' | 'dot'; // Background pattern type
+    statusIndicatorExpansionMode: 'edge' | 'center'; // How status indicator expands: 'edge' = from right, 'center' = equally from both sides
 }
 
 // Notification Settings  
@@ -190,7 +191,7 @@ export type SettingsLoadingState = Record<SettingsCategory, CategoryState>;
 
 // Default settings
 export const defaultAppearanceSettings: AppearanceSettings = {
-    version: 3, // Incremented for backgroundType addition
+    version: 4, // Incremented for statusIndicatorExpansionMode addition
     theme: 'system',
     fontSize: 'normal',
     fontFamily: 'gilroy', // Default font
@@ -201,6 +202,7 @@ export const defaultAppearanceSettings: AppearanceSettings = {
     sidebarCollapsed: false,
     showStatusIndicator: true, // Show status indicator by default
     backgroundType: 'grid', // Grid pattern by default
+    statusIndicatorExpansionMode: 'center', // Expand equally from both sides by default
 };
 
 export const defaultNotificationSettings: NotificationSettings = {

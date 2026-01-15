@@ -18,6 +18,7 @@ type MailSync struct {
 	LastSyncState          string         `db:"last_sync_state" json:"last_sync_state"`                     // History ID for incremental sync
 	LastFullSyncCheckpoint types.DateTime `db:"last_full_sync_checkpoint" json:"last_full_sync_checkpoint"` // Oldest message date processed during full sync
 	SyncStatus             string         `db:"sync_status" json:"sync_status"`
+	LastError              string         `db:"last_error" json:"last_error"`
 	IsActive               bool           `db:"is_active" json:"is_active"`
 	LastSynced             types.DateTime `db:"last_synced" json:"last_synced"`
 }
