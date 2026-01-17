@@ -1,9 +1,13 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { readFileSync } from 'fs';
 
 const host = process.env.TAURI_DEV_HOST;
 const isProduction = process.env.NODE_ENV === 'production';
+
+// Read package.json to get version
+const packageJson = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 // PWA plugin configuration (only enabled in production builds)
 const pwaPlugin = isProduction ? VitePWA({
@@ -132,4 +136,7 @@ export default defineConfig({
     // to make use of `TAURI_DEBUG` and other env variables
     // https://tauri.studio/v1/api/config#buildconfig.beforedevcommand
     envPrefix: ['VITE_', 'TAURI_'],
+    define: {
+        __APP_VERSION__: JSON.stringify(packageJson.version),
+    },
 });

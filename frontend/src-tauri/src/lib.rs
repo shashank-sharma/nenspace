@@ -179,10 +179,10 @@ fn create_status_window(app: &AppHandle) -> Result<(), Box<dyn std::error::Error
         eprintln!("Failed to show status window after creation: {:?}", e);
     }
 
-    // Set the webview background to transparent (macOS only)
+    // Set the webview background to transparent and make visible on all Spaces (macOS only)
     #[cfg(target_os = "macos")]
     {
-        use cocoa::appkit::{NSColor, NSWindow};
+        use cocoa::appkit::{NSColor, NSWindow, NSWindowCollectionBehavior};
         use cocoa::base::{id, nil};
         
         let ns_window = status_window.ns_window().unwrap() as id;
@@ -190,6 +190,13 @@ fn create_status_window(app: &AppHandle) -> Result<(), Box<dyn std::error::Error
             let clear_color: id = NSColor::clearColor(nil);
             ns_window.setBackgroundColor_(clear_color);
             ns_window.setOpaque_(cocoa::base::NO);
+            
+            // Make window visible on all Spaces (desktops)
+            // Get current behavior and combine with CanJoinAllSpaces to preserve existing settings
+            let behavior = ns_window.collectionBehavior();
+            ns_window.setCollectionBehavior_(
+                behavior | NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
+            );
         }
     }
 

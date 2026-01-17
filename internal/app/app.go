@@ -23,6 +23,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/services/calendar"
 	"github.com/shashank-sharma/backend/internal/services/container"
 	"github.com/shashank-sharma/backend/internal/services/credentials"
+	"github.com/shashank-sharma/backend/internal/services/cron"
 	"github.com/shashank-sharma/backend/internal/services/feed"
 	"github.com/shashank-sharma/backend/internal/services/fold"
 	"github.com/shashank-sharma/backend/internal/services/journal"
@@ -54,6 +55,8 @@ type Application struct {
 	MusicService      *music.MusicService
 	LoggingService    *logging.LoggingService
 	NewsletterService *newsletter.Service
+	CronService       *cron.CronService
+	CronScheduler     *cron.Scheduler
 	postInitHooks     []func()
 }
 
@@ -90,6 +93,10 @@ func New(configFlags config.ConfigFlags) (*Application, error) {
 		app.InitCronjobs()
 		app.configureRoutes(e)
 
+		if err := app.CronScheduler.Start(); err != nil {
+			logger.LogError("Failed to start cron scheduler", "error", err)
+		}
+
 		if app.Pb.Store().Get("METRICS_ENABLED").(bool) {
 			if err := metrics.StartMetricsServer(app.Pb); err != nil {
 				logger.LogError("Failed to start metrics server", "error", err)
@@ -106,6 +113,10 @@ func New(configFlags config.ConfigFlags) (*Application, error) {
 			ContainerService:  app.ContainerService,
 			LoggingService:    app.LoggingService,
 			NewsletterService: app.NewsletterService,
+		})
+		hooks.RegisterCronHooks(app.Pb, &hooks.CronHookConfig{
+			CronService:   app.CronService,
+			CronScheduler: app.CronScheduler,
 		})
 		logger.LogInfo("Hooks registered")
 		app.RunPostInitHooks()
@@ -124,6 +135,11 @@ func (app *Application) initializeServices() {
 
 	app.LoggingService = logging.NewLoggingService(app.Pb)
 	logger.LogInfo("Logging service initialized")
+
+	cronExecutor := cron.NewExecutor()
+	app.CronScheduler = cron.NewScheduler(cronExecutor)
+	app.CronService = cron.NewCronService(app.CronScheduler, cronExecutor)
+	logger.LogInfo("Cron service initialized")
 
 	app.initializeBaseServices()
 	// TODO: WIP
@@ -275,6 +291,10 @@ func (app *Application) configureRoutes(e *core.ServeEvent) {
 	musicRouter := apiRouter.Group("/music")
 	musicRouter.BindFunc(middleware.AuthMiddleware())
 	routes.RegisterMusicRoutes(musicRouter, "", app.MusicService)
+
+	cronRouter := apiRouter.Group("/crons")
+	cronRouter.BindFunc(middleware.AuthMiddleware())
+	routes.RegisterCronRoutes(cronRouter, "", app.CronService)
 
 	routes.RegisterTestRoutes(apiRouter, "/test")
 	routes.RegisterFileManagerRoutes(apiRouter)

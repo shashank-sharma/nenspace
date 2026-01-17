@@ -11,6 +11,9 @@ declare global {
 		// interface PageData {}
 		// interface Platform {}
 	}
+	
+	// Vite define constants
+	const __APP_VERSION__: string;
 }
 
 export {};

@@ -28,7 +28,9 @@ import {
     Folder,
     Music,
     Play,
-    ScrollText
+    ScrollText,
+    Activity,
+    Clock
 } from "lucide-svelte";
 
 export const DASHBOARD_SECTIONS: DashboardSection[] = [
@@ -59,7 +61,17 @@ export const DASHBOARD_SECTIONS: DashboardSection[] = [
     { id: "whiteboard", label: "Whiteboard", icon: PenTool, path: "/dashboard/whiteboard" },
     { id: "journal", label: "Stream", icon: Waves, path: "/dashboard/journal" },
     { id: "logging", label: "Logs", icon: ScrollText, path: "/dashboard/logging" },
-    { id: "workflows", label: "Workflows", icon: GitBranch, path: "/dashboard/workflows" },
+    { 
+        id: "actions", 
+        label: "Actions", 
+        icon: Activity, 
+        path: "/dashboard/actions",
+        collapsible: true,
+        children: [
+            { id: "workflows", label: "Workflows", icon: GitBranch, path: "/dashboard/workflows" },
+            { id: "crons", label: "Crons", icon: Clock, path: "/dashboard/crons" }
+        ]
+    },
     { id: "file-manager", label: "Files", icon: Folder, path: "/dashboard/file-manager" },
     { 
         id: "music", 

@@ -1,0 +1,2 @@
+export const MAX_CRONS_PER_USER = 10;
+export const MIN_EXECUTION_INTERVAL_MINUTES = 1;

@@ -59,9 +59,7 @@ export interface FileTreeNode {
 
 export type SortOption = 'name' | 'date' | 'size' | 'type';
 export type SortOrder = 'asc' | 'desc';
-export type ViewMode = 'grid' | 'list' | 'compact';
-
-export interface SelectionState {
+export type ViewMode = 'grid' | 'list' | 'compact';export interface SelectionState {
     selectedFiles: Set<string>;
     isSelectionMode: boolean;
 }
