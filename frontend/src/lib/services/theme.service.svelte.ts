@@ -47,10 +47,10 @@ class ThemeServiceImpl {
     };
 
     private getInitialTheme(): Theme {
-        if (!browser) return "light";
+        if (!browser) return "dark";
         const savedTheme = localStorage.getItem("theme") as Theme;
         if (savedTheme) return savedTheme;
-        return "system";
+        return "dark";
     }
 
     private applyTheme = (theme: Theme) => {

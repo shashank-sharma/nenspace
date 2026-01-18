@@ -192,7 +192,7 @@ export type SettingsLoadingState = Record<SettingsCategory, CategoryState>;
 // Default settings
 export const defaultAppearanceSettings: AppearanceSettings = {
     version: 4, // Incremented for statusIndicatorExpansionMode addition
-    theme: 'system',
+    theme: 'dark',
     fontSize: 'normal',
     fontFamily: 'gilroy', // Default font
     spacing: 'comfortable',
