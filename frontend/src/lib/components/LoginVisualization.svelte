@@ -316,6 +316,10 @@
 		animateFade();
 	}
 	
+	export function setRotation(isSmallOrMedium: boolean) {
+		CONFIG.globalRotation = isSmallOrMedium ? 90 : 0;
+	}
+	
 	export function resetVisualization() {
 		interactiveSignals.forEach((sig) => {
 			if (contentGroup && sig.mesh) {

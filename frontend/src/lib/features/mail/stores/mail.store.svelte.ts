@@ -27,11 +27,8 @@ class MailStore {
     }
 
     constructor() {
-        if (browser) {
-            this.initialize().catch((error) => {
-                console.error('Failed to initialize mail store:', error);
-            });
-        }
+        // Don't auto-initialize - wait for explicit initialization
+        // This prevents API calls before user is authenticated
     }
 
     /**
@@ -79,8 +76,8 @@ class MailStore {
 
             return status;
         } catch (error) {
-            // 404 means not authenticated, which is fine
-            if (error && typeof error === 'object' && 'status' in error && error.status === 404) {
+            // 404 and 401 mean not authenticated, which is fine
+            if (error && typeof error === 'object' && 'status' in error && (error.status === 404 || error.status === 401)) {
                 this.isAuthenticated = false;
                 this.syncStatus = null;
                 return null;

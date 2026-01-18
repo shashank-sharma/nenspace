@@ -103,8 +103,8 @@ class CalendarStore {
                     return this.syncStatus;
                 }
 
-                // 404 means not authenticated, which is fine
-                if (error && typeof error === 'object' && 'status' in error && error.status === 404) {
+                // 404 and 401 mean not authenticated, which is fine
+                if (error && typeof error === 'object' && 'status' in error && (error.status === 404 || error.status === 401)) {
                     this.syncStatus = null;
                     return null;
                 }
