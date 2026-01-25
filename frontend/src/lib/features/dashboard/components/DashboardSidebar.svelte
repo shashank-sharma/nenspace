@@ -6,6 +6,7 @@
     import { authService } from "$lib/services/authService.svelte";
     import { SettingsModalService } from "$lib/services/settings-modal.service.svelte";
     import type { DashboardSection } from "../types";
+    import Logo from "$lib/components/Logo.svelte";
     import {
         ChevronLeft,
         ChevronRight,
@@ -263,7 +264,16 @@
     >
         <div class="p-4 flex items-center justify-between">
             {#if !isCollapsed}
-                <h1 class="text-xl font-bold">Nen Space</h1>
+                <div class="flex items-center gap-3">
+                    <div class="relative flex items-center justify-center opacity-70">
+                        <Logo size={32} animated={false} solid={true} />
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="font-mono text-sm tracking-[0.2em] text-foreground"
+                            >NENSPACE</span
+                        >
+                    </div>
+                </div>
             {/if}
             <Button variant="ghost" size="icon" on:click={toggleSidebar}>
                 {#if isCollapsed}

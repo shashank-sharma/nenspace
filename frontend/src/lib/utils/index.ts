@@ -67,3 +67,14 @@ export {
     formatEmailString,
     formatEmailDate,
 } from './email.util';
+
+export {
+    isAutoCancelledError,
+    extractErrorMessage,
+    shouldShowErrorToUser,
+} from './pocketbase-error.util';
+
+export {
+    RequestDeduplicator,
+    createDeduplicatedRequest,
+} from './request-deduplicator.util';

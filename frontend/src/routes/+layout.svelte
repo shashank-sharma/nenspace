@@ -13,6 +13,7 @@
     import LimitedFunctionalityBanner from "$lib/components/platform/LimitedFunctionalityBanner.svelte";
     import { Button } from "$lib/components/ui/button";
     import { RefreshCw } from "lucide-svelte";
+    import BuildInfoBadge from "$lib/components/BuildInfoBadge.svelte";
 
     let { children } = $props<{ children: Snippet }>();
     let isLoading = $state(true);
@@ -211,6 +212,10 @@
         </PageTransition>
     {/if}
 </main>
+
+{#if !isHomepage}
+    <BuildInfoBadge />
+{/if}
 
 <style>
     :global(html) {

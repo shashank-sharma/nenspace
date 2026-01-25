@@ -213,6 +213,20 @@
 												}
 											}
 										}}
+										onpaste={(e) => {
+											if (!visualizationComponent) return;
+											const clipboardData = e.clipboardData?.getData('text') || '';
+											if (clipboardData) {
+												// Process each character sequentially with a small delay
+												clipboardData.split('').forEach((char, index) => {
+													setTimeout(() => {
+														if (visualizationComponent && char) {
+															visualizationComponent.onCharacterTyped(char);
+														}
+													}, index * 5);
+												});
+											}
+										}}
 									/>
 								</div>
 								<div class="flex flex-col space-y-1">
@@ -232,6 +246,20 @@
 											if (e.key === "Enter" && !isLoading && loginState === 'idle') {
 												e.preventDefault();
 												handleLogin();
+											}
+										}}
+										onpaste={(e) => {
+											if (!visualizationComponent) return;
+											const clipboardData = e.clipboardData?.getData('text') || '';
+											if (clipboardData) {
+												// Process each character sequentially with a small delay
+												clipboardData.split('').forEach((char, index) => {
+													setTimeout(() => {
+														if (visualizationComponent && char) {
+															visualizationComponent.onCharacterTyped(char);
+														}
+													}, index * 5);
+												});
 											}
 										}}
 									/>

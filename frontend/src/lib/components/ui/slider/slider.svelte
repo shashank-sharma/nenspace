@@ -2,14 +2,18 @@
 	import { Slider as SliderPrimitive } from "bits-ui";
 	import { cn } from "$lib/utils";
 
-	type $$Props = SliderPrimitive.Props;
+	type $$Props = SliderPrimitive.Props & {
+		type?: "single" | "multiple";
+	};
 
 	let className: $$Props["class"] = undefined;
 	export let value: $$Props["value"] = [0];
+	export let type: $$Props["type"] = Array.isArray(value) && value.length > 1 ? "multiple" : "single";
 	export { className as class };
 </script>
 
 <SliderPrimitive.Root
+	{type}
 	bind:value
 	class={cn("relative flex w-full touch-none select-none items-center", className)}
 	{...$$restProps}

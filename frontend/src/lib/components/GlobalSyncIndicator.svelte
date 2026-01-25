@@ -130,9 +130,8 @@
 
 {#if totalPending > 0}
     <Popover.Root bind:open>
-        <Popover.Trigger asChild let:builder>
+        <Popover.Trigger>
             <Button
-                builders={[builder]}
                 variant="ghost"
                 size="icon"
                 class="relative"

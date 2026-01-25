@@ -55,9 +55,7 @@ export interface FileTreeNode {
     children: FileTreeNode[];
     level: number;
     expanded?: boolean;
-}
-
-export type SortOption = 'name' | 'date' | 'size' | 'type';
+}export type SortOption = 'name' | 'date' | 'size' | 'type';
 export type SortOrder = 'asc' | 'desc';
 export type ViewMode = 'grid' | 'list' | 'compact';export interface SelectionState {
     selectedFiles: Set<string>;

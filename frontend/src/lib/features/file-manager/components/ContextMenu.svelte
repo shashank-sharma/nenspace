@@ -30,7 +30,10 @@
 {#if item}
     <DropdownMenu.Root bind:open>
         <DropdownMenu.Trigger asChild let:builder>
-            <div {...builder} class="absolute inset-0" />
+            {#snippet trigger(builder)}
+                <div {...builder} class="absolute inset-0" />
+            {/snippet}
+            {@render trigger(builder)}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content>
             {#if isFolder}

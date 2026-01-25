@@ -5,25 +5,24 @@ use std::sync::Arc;
 use tauri::command;
 use tokio::sync::Mutex;
 
-// Global connection pool cache
 lazy_static::lazy_static! {
     static ref DB_POOLS: Arc<Mutex<HashMap<String, Pool<Sqlite>>>> = Arc::new(Mutex::new(HashMap::new()));
 }
 
 async fn get_or_create_pool(db_path: &str) -> Result<Pool<Sqlite>, String> {
     let mut pools = DB_POOLS.lock().await;
-    
+
     if let Some(pool) = pools.get(db_path) {
         return Ok(pool.clone());
     }
-    
+
     let db_url = format!("sqlite:{}?mode=rwc", db_path);
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect(&db_url)
         .await
         .map_err(|e| format!("Failed to connect to database: {}", e))?;
-    
+
     pools.insert(db_path.to_string(), pool.clone());
     Ok(pool)
 }

@@ -18,9 +18,7 @@
 
 <ScrollAreaPrimitive.Root {...$$restProps} class={cn("relative overflow-hidden", className)}>
 	<ScrollAreaPrimitive.Viewport class="h-full w-full rounded-[inherit]">
-		<ScrollAreaPrimitive.Content>
-			<slot />
-		</ScrollAreaPrimitive.Content>
+		<slot />
 	</ScrollAreaPrimitive.Viewport>
 	{#if orientation === "vertical" || orientation === "both"}
 		<Scrollbar orientation="vertical" class={scrollbarYClasses} />

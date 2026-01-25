@@ -39,86 +39,88 @@
     // let showCommandPalette = true;
 </script>
 
-<header class="border-b bg-card">
-    <div class="flex h-16 items-center px-4 gap-4">
-        <div class="flex-1">
-            <!-- <form class="max-w-sm">
-                <div class="relative">
-                    <Search
-                        class="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
+<Tooltip.Provider>
+    <header class="border-b bg-card">
+        <div class="flex h-16 items-center px-4 gap-4">
+            <div class="flex-1">
+                <!-- <form class="max-w-sm">
+                    <div class="relative">
+                        <Search
+                            class="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
+                        />
+                        <Input
+                            type="search"
+                            placeholder="Search..."
+                            class="pl-8"
+                            on:focus={() => (showCommandPalette = true)}
+                        />
+                    </div>
+                </form> -->
+            </div>
+
+            <div class="flex items-center gap-2">
+                <!-- <Button variant="ghost" size="icon" on:click={toggleTheme}>
+                    <svelte:component
+                        this={$theme === "dark" ? Sun : Moon}
+                        class="h-5 w-5"
                     />
-                    <Input
-                        type="search"
-                        placeholder="Search..."
-                        class="pl-8"
-                        on:focus={() => (showCommandPalette = true)}
-                    />
-                </div>
-            </form> -->
-        </div>
+                    <span class="sr-only">Toggle theme</span>
+                </Button> -->
 
-        <div class="flex items-center gap-2">
-            <!-- <Button variant="ghost" size="icon" on:click={toggleTheme}>
-                <svelte:component
-                    this={$theme === "dark" ? Sun : Moon}
-                    class="h-5 w-5"
-                />
-                <span class="sr-only">Toggle theme</span>
-            </Button> -->
-
-            <GlobalSyncIndicator />
-            <NotificationCenter />
-            
-            <!-- Keyboard shortcuts button -->
-            <Tooltip.Root>
-                <Tooltip.Trigger>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        on:click={handleShortcutsClick}
-                        aria-label="Show keyboard shortcuts"
-                    >
-                        <Keyboard class="h-5 w-5" />
-                    </Button>
-                </Tooltip.Trigger>
-                <Tooltip.Content>
-                    <p>Keyboard Shortcuts</p>
-                </Tooltip.Content>
-            </Tooltip.Root>
-
-            <!-- Debug button -->
-            {#if shouldShowDebugButton}
+                <GlobalSyncIndicator />
+                <NotificationCenter />
+                
+                <!-- Keyboard shortcuts button -->
                 <Tooltip.Root>
                     <Tooltip.Trigger>
                         <Button
                             variant="ghost"
                             size="icon"
-                            class={debugButtonClass}
-                            on:click={DebugService.toggle}
-                            title="Toggle Debug Panel"
+                            on:click={handleShortcutsClick}
+                            aria-label="Show keyboard shortcuts"
                         >
-                            {#if DebugService.isEnabled}
-                                <X class="h-5 w-5" />
-                            {:else}
-                                <Bug class="h-5 w-5" />
-                            {/if}
+                            <Keyboard class="h-5 w-5" />
                         </Button>
                     </Tooltip.Trigger>
                     <Tooltip.Content>
-                        <p>Toggle Debug Panel</p>
+                        <p>Keyboard Shortcuts</p>
                     </Tooltip.Content>
                 </Tooltip.Root>
-            {/if}
-        </div>
-    </div>
 
-    <CommandPalette />
-    
-    <!-- Debug panel (rendered outside header for positioning) -->
-    {#if shouldShowDebugButton && DebugService.isEnabled}
-        <DebugPanel
-            enabled={DebugService.isEnabled}
-            on:close={DebugService.toggle}
-        />
-    {/if}
-</header>
+                <!-- Debug button -->
+                {#if shouldShowDebugButton}
+                    <Tooltip.Root>
+                        <Tooltip.Trigger>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                class={debugButtonClass}
+                                on:click={DebugService.toggle}
+                                title="Toggle Debug Panel"
+                            >
+                                {#if DebugService.isEnabled}
+                                    <X class="h-5 w-5" />
+                                {:else}
+                                    <Bug class="h-5 w-5" />
+                                {/if}
+                            </Button>
+                        </Tooltip.Trigger>
+                        <Tooltip.Content>
+                            <p>Toggle Debug Panel</p>
+                        </Tooltip.Content>
+                    </Tooltip.Root>
+                {/if}
+            </div>
+        </div>
+
+        <CommandPalette />
+        
+        <!-- Debug panel (rendered outside header for positioning) -->
+        {#if shouldShowDebugButton && DebugService.isEnabled}
+            <DebugPanel
+                enabled={DebugService.isEnabled}
+                on:close={DebugService.toggle}
+            />
+        {/if}
+    </header>
+</Tooltip.Provider>

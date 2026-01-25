@@ -30,7 +30,8 @@ import {
     Play,
     ScrollText,
     Activity,
-    Clock
+    Clock,
+    MessageSquare
 } from "lucide-svelte";
 
 export const DASHBOARD_SECTIONS: DashboardSection[] = [
@@ -56,6 +57,7 @@ export const DASHBOARD_SECTIONS: DashboardSection[] = [
     { id: "bookmarks", label: "Bookmarks", icon: Bookmark, path: "/dashboard/bookmarks" },
     { id: "expenses", label: "Expenses", icon: DollarSign, path: "/dashboard/expenses" },
     { id: "tasks", label: "Tasks", icon: CheckSquare, path: "/dashboard/tasks" },
+    { id: "ai-chat", label: "AI Chat", icon: MessageSquare, path: "/dashboard/ai-chat" },
     { id: "calendar", label: "Calendar", icon: Calendar, path: "/dashboard/calendar" },
     { id: "food-log", label: "Food Log", icon: Utensils, path: "/dashboard/food-log" },
     { id: "whiteboard", label: "Whiteboard", icon: PenTool, path: "/dashboard/whiteboard" },

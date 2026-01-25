@@ -216,13 +216,16 @@
                         
                         <DropdownMenu.Root>
                             <DropdownMenu.Trigger asChild let:builder>
-                                <Button builders={[builder]} variant="outline" class="h-11 rounded-xl px-6 font-bold bg-background shadow-sm border-primary/5">
-                                    <TagIcon class="h-4 w-4 mr-2" />
-                                    Tags
-                                    {#if filter.tags?.length}
-                                        <Badge class="ml-2 h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px]">{filter.tags.length}</Badge>
-                                    {/if}
-                                </Button>
+                                {#snippet trigger(builder)}
+                                    <Button builders={[builder]} variant="outline" class="h-11 rounded-xl px-6 font-bold bg-background shadow-sm border-primary/5">
+                                        <TagIcon class="h-4 w-4 mr-2" />
+                                        Tags
+                                        {#if filter.tags?.length}
+                                            <Badge class="ml-2 h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px]">{filter.tags.length}</Badge>
+                                        {/if}
+                                    </Button>
+                                {/snippet}
+                                {@render trigger(builder)}
                             </DropdownMenu.Trigger>
                             <DropdownMenu.Content align="start" class="w-56 p-2">
                                 {#if allTags.length === 0}
@@ -251,10 +254,13 @@
 
                         <DropdownMenu.Root>
                             <DropdownMenu.Trigger asChild let:builder>
-                                <Button builders={[builder]} variant="outline" class="h-11 rounded-xl px-6 font-bold bg-background shadow-sm border-primary/5">
-                                    <Filter class="h-4 w-4 mr-2" />
-                                    Sort
-                                </Button>
+                                {#snippet trigger(builder)}
+                                    <Button builders={[builder]} variant="outline" class="h-11 rounded-xl px-6 font-bold bg-background shadow-sm border-primary/5">
+                                        <Filter class="h-4 w-4 mr-2" />
+                                        Sort
+                                    </Button>
+                                {/snippet}
+                                {@render trigger(builder)}
                             </DropdownMenu.Trigger>
                             <DropdownMenu.Content align="start" class="w-48">
                                 <DropdownMenu.Item onclick={() => { filter.sort = '-created'; loadTracks(true); }}>Recently Added</DropdownMenu.Item>

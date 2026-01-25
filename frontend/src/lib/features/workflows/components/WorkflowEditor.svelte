@@ -927,9 +927,12 @@
             </Button>
             <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild let:builder>
-                    <Button variant="ghost" size="icon" class="h-8 w-8 hover:bg-accent transition-colors" builders={[builder]} title="More options">
-                        <MoreVertical class="h-4 w-4" />
-                    </Button>
+                    {#snippet trigger(builder)}
+                        <Button variant="ghost" size="icon" class="h-8 w-8 hover:bg-accent transition-colors" builders={[builder]} title="More options">
+                            <MoreVertical class="h-4 w-4" />
+                        </Button>
+                    {/snippet}
+                    {@render trigger(builder)}
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Content>
                     <DropdownMenu.Item onclick={handleUndo} disabled={!workflowEditorStore.canUndo}>

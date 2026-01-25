@@ -80,9 +80,12 @@
         <div class="absolute top-2 right-2 opacity-0 group-hover/card:opacity-100 transition-opacity">
             <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild let:builder>
-                    <Button builders={[builder]} variant="secondary" size="icon" class="h-8 w-8 rounded-full bg-background/80 backdrop-blur shadow-md">
-                        <MoreVertical class="h-4 w-4" />
-                    </Button>
+                    {#snippet trigger(builder)}
+                        <Button builders={[builder]} variant="secondary" size="icon" class="h-8 w-8 rounded-full bg-background/80 backdrop-blur shadow-md">
+                            <MoreVertical class="h-4 w-4" />
+                        </Button>
+                    {/snippet}
+                    {@render trigger(builder)}
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Content align="end">
                     <DropdownMenu.Item onclick={handlePlay}>

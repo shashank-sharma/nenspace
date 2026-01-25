@@ -165,10 +165,13 @@
     <div class="flex flex-wrap items-center gap-2">
         <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild let:builder>
-                <Button variant="outline" size="sm" builders={[builder]}>
-                    <Filter class="w-4 h-4 mr-2" />
-                    Filters
-                </Button>
+                {#snippet trigger(builder)}
+                    <Button variant="outline" size="sm" builders={[builder]}>
+                        <Filter class="w-4 h-4 mr-2" />
+                        Filters
+                    </Button>
+                {/snippet}
+                {@render trigger(builder)}
             </DropdownMenu.Trigger>
             <DropdownMenu.Content>
                 <DropdownMenu.Label>Status</DropdownMenu.Label>

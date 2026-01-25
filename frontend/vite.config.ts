@@ -2,12 +2,33 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { readFileSync } from 'fs';
+import { execSync } from 'child_process';
 
 const host = process.env.TAURI_DEV_HOST;
 const isProduction = process.env.NODE_ENV === 'production';
 
 // Read package.json to get version
 const packageJson = JSON.parse(readFileSync('./package.json', 'utf-8'));
+
+function getGitCommitShort(): string {
+	// Prefer CI-provided env var if present (e.g. GitHub Actions)
+	const fromEnv =
+		process.env.VITE_GIT_COMMIT ||
+		process.env.GIT_COMMIT ||
+		process.env.COMMIT_SHA ||
+		process.env.GITHUB_SHA;
+
+	if (fromEnv) return String(fromEnv).slice(0, 8);
+
+	try {
+		return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+			.toString()
+			.trim();
+	} catch {
+		// Git may not be available in some build environments; keep it non-fatal.
+		return 'unknown';
+	}
+}
 
 // PWA plugin configuration (only enabled in production builds)
 const pwaPlugin = isProduction ? VitePWA({
@@ -138,5 +159,7 @@ export default defineConfig({
     envPrefix: ['VITE_', 'TAURI_'],
     define: {
         __APP_VERSION__: JSON.stringify(packageJson.version),
+		__GIT_COMMIT__: JSON.stringify(getGitCommitShort()),
+		__BUILD_TIME__: JSON.stringify(new Date().toISOString()),
     },
 });

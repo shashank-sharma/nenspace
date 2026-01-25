@@ -313,17 +313,12 @@
                         <!-- Actions -->
                         <TableCell>
                             <DropdownMenu.Root>
-                                <DropdownMenu.Trigger asChild let:builder>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        class="h-8 w-8"
-                                        builders={[builder]}
-                                        on:click={(e) => e.stopPropagation()}
-                                    >
-                                        <MoreHorizontal class="h-4 w-4" />
-                                        <span class="sr-only">Open menu</span>
-                                    </Button>
+                                <DropdownMenu.Trigger
+                                    class="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
+                                    onclick={(e) => e.stopPropagation()}
+                                >
+                                    <MoreHorizontal class="h-4 w-4" />
+                                    <span class="sr-only">Open menu</span>
                                 </DropdownMenu.Trigger>
                                 <DropdownMenu.Content align="end">
                                     <DropdownMenu.Label
@@ -331,7 +326,7 @@
                                     >
                                     <DropdownMenu.Separator />
                                     <DropdownMenu.Item
-                                        on:click={(e) => {
+                                        onclick={(e) => {
                                             e.stopPropagation();
                                             handleEditTask(task);
                                         }}
@@ -339,7 +334,7 @@
                                         Edit task
                                     </DropdownMenu.Item>
                                     <DropdownMenu.Item
-                                        on:click={(e) => {
+                                        onclick={(e) => {
                                             e.stopPropagation();
                                             handleToggleComplete(task);
                                         }}
@@ -351,7 +346,7 @@
                                     <DropdownMenu.Separator />
                                     <DropdownMenu.Item
                                         class="text-destructive"
-                                        on:click={(e) => {
+                                        onclick={(e) => {
                                             e.stopPropagation();
                                             handleDeleteTask(task);
                                         }}

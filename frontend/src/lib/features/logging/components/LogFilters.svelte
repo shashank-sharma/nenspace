@@ -47,13 +47,16 @@
 
             <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild let:builder>
-                    <Button builders={[builder]} variant="outline" size="sm" class="h-9 gap-2">
-                        <Filter class="h-3.5 w-3.5" />
-                        Levels
-                        {#if filter.level?.length}
-                            <Badge variant="secondary" class="ml-1 h-5 px-1.5">{filter.level.length}</Badge>
-                        {/if}
-                    </Button>
+                    {#snippet trigger(builder)}
+                        <Button builders={[builder]} variant="outline" size="sm" class="h-9 gap-2">
+                            <Filter class="h-3.5 w-3.5" />
+                            Levels
+                            {#if filter.level?.length}
+                                <Badge variant="secondary" class="ml-1 h-5 px-1.5">{filter.level.length}</Badge>
+                            {/if}
+                        </Button>
+                    {/snippet}
+                    {@render trigger(builder)}
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Content align="start" class="w-48">
                     {#each Object.entries(LOG_LEVELS) as [level, config]}
@@ -72,10 +75,13 @@
 
             <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild let:builder>
-                    <Button builders={[builder]} variant="outline" size="sm" class="h-9 gap-2">
-                        <Box class="h-3.5 w-3.5" />
-                        {selectedProject?.name || 'All Projects'}
-                    </Button>
+                    {#snippet trigger(builder)}
+                        <Button builders={[builder]} variant="outline" size="sm" class="h-9 gap-2">
+                            <Box class="h-3.5 w-3.5" />
+                            {selectedProject?.name || 'All Projects'}
+                        </Button>
+                    {/snippet}
+                    {@render trigger(builder)}
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Content align="start" class="w-56">
                     <DropdownMenu.Item onSelect={() => filter.projectId = undefined}>

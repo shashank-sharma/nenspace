@@ -21,6 +21,7 @@ import (
 	"github.com/shashank-sharma/backend/internal/services"
 	"github.com/shashank-sharma/backend/internal/services/ai"
 	"github.com/shashank-sharma/backend/internal/services/calendar"
+	"github.com/shashank-sharma/backend/internal/services/chat"
 	"github.com/shashank-sharma/backend/internal/services/container"
 	"github.com/shashank-sharma/backend/internal/services/credentials"
 	"github.com/shashank-sharma/backend/internal/services/cron"
@@ -57,6 +58,7 @@ type Application struct {
 	NewsletterService *newsletter.Service
 	CronService       *cron.CronService
 	CronScheduler     *cron.Scheduler
+	ChatService       *chat.ChatService
 	postInitHooks     []func()
 }
 
@@ -213,6 +215,10 @@ func (app *Application) initializeAIServices() {
 
 	// Initialize journal service with AI client
 	app.JournalService = journal.NewJournalService(aiClient)
+
+	attachmentService := chat.NewAttachmentService(app.Pb)
+	app.ChatService = chat.NewChatService(nil, attachmentService)
+	logger.LogInfo("Chat service initialized (using user-specific API keys from collection)")
 }
 
 // initializeContainerService initializes the container service
@@ -287,6 +293,12 @@ func (app *Application) configureRoutes(e *core.ServeEvent) {
 	journalRouter := apiRouter.Group("/journal")
 	journalRouter.BindFunc(middleware.AuthMiddleware())
 	routes.RegisterJournalRoutes(journalRouter, "", app.JournalService)
+
+	if app.ChatService != nil {
+		chatRouter := apiRouter.Group("/chat")
+		chatRouter.BindFunc(middleware.AuthMiddleware())
+		routes.RegisterChatRoutes(chatRouter, "", app.ChatService, nil)
+	}
 
 	musicRouter := apiRouter.Group("/music")
 	musicRouter.BindFunc(middleware.AuthMiddleware())

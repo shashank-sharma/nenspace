@@ -199,12 +199,15 @@
 
                     <DropdownMenu.Root>
                         <DropdownMenu.Trigger asChild let:builder>
-                            <Button builders={[builder]} variant="ghost" size="icon" class="h-12 w-12 rounded-full bg-primary/5 hover:bg-primary/10 relative transition-all">
-                                <TagIcon class="h-5 w-5 text-primary/60" />
-                                {#if filter.tags?.length}
-                                    <Badge class="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px] animate-in zoom-in">{filter.tags.length}</Badge>
-                                {/if}
-                            </Button>
+                            {#snippet trigger(builder)}
+                                <Button builders={[builder]} variant="ghost" size="icon" class="h-12 w-12 rounded-full bg-primary/5 hover:bg-primary/10 relative transition-all">
+                                    <TagIcon class="h-5 w-5 text-primary/60" />
+                                    {#if filter.tags?.length}
+                                        <Badge class="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px] animate-in zoom-in">{filter.tags.length}</Badge>
+                                    {/if}
+                                </Button>
+                            {/snippet}
+                            {@render trigger(builder)}
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Content align="start" class="w-56 p-2 bg-background/95 backdrop-blur shadow-2xl border-primary/10">
                             {#if allTags.length === 0}

@@ -126,13 +126,14 @@ export const ENVIRONMENTS = [
 ] as const;
 
 export const SERVICES = [
+	{ value: 'openrouter', label: 'OpenRouter' },
+	{ value: 'openai', label: 'OpenAI' },
 	{ value: 'github', label: 'GitHub' },
 	{ value: 'gitlab', label: 'GitLab' },
 	{ value: 'coolify', label: 'Coolify' },
 	{ value: 'aws', label: 'AWS' },
 	{ value: 'gcp', label: 'Google Cloud' },
 	{ value: 'azure', label: 'Azure' },
-	{ value: 'openai', label: 'OpenAI' },
 	{ value: 'other', label: 'Other' }
 ] as const;
 

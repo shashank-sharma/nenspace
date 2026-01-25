@@ -173,9 +173,12 @@
                             
                             <DropdownMenu.Root>
                                 <DropdownMenu.Trigger asChild let:builder>
-                                    <Button builders={[builder]} variant="ghost" size="icon" class="h-8 w-8 rounded-full">
-                                        <MoreVertical class="h-4 w-4" />
-                                    </Button>
+                                    {#snippet trigger(builder)}
+                                        <Button builders={[builder]} variant="ghost" size="icon" class="h-8 w-8 rounded-full">
+                                            <MoreVertical class="h-4 w-4" />
+                                        </Button>
+                                    {/snippet}
+                                    {@render trigger(builder)}
                                 </DropdownMenu.Trigger>
                                 <DropdownMenu.Content align="end" class="w-48">
                                     <DropdownMenu.Item onclick={() => openEdit(playlist)} class="font-bold">

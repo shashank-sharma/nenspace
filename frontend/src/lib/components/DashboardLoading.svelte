@@ -1,13 +1,13 @@
 <script lang="ts">
-    import { Progress } from "$lib/components/ui/progress";
     import { authService } from "$lib/services/authService.svelte";
     import { SettingsService } from "$lib/services/settings.service.svelte";
     import { RealtimeService } from "$lib/services/realtime.service.svelte";
     import { HealthService } from "$lib/services/health.service.svelte";
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { fade } from "svelte/transition";
-    import { Loader2, CheckCircle2, XCircle, AlertCircle } from "lucide-svelte";
+    import { animate } from "animejs";
     import type { Snippet } from "svelte";
+    import Logo from "$lib/components/Logo.svelte";
 
     interface LoadingStep {
         id: string;
@@ -17,6 +17,10 @@
     }
 
     let { children } = $props<{ children: Snippet }>();
+
+    const TESTING_MODE = false;
+    const TESTING_DELAY = 100000;
+    const NORMAL_DELAY = 300;
 
     let steps = $state<LoadingStep[]>([
         { id: "auth", label: "Checking authentication...", status: "pending" },
@@ -29,6 +33,13 @@
 
     let progress = $state(0);
     let isComplete = $state(false);
+    let glitch = $state(false);
+    let glitchInterval: ReturnType<typeof setInterval> | null = null;
+    let containerElement: HTMLDivElement;
+    let progressBarElement: HTMLDivElement;
+    let progressCircleElement: SVGCircleElement;
+    let logContainerElement: HTMLDivElement;
+    let previousProgress = 0;
 
     function updateStep(id: string, status: LoadingStep["status"], error?: string) {
         const step = steps.find((s) => s.id === id);
@@ -43,15 +54,23 @@
         progress = Math.round((completedSteps / steps.length) * 100);
     }
 
-    async function initializeDashboard() {
-        try {
+    function getCurrentStatusMessage(): string {
+        const loadingStep = steps.find((s) => s.status === "loading");
+        if (loadingStep) {
+            return loadingStep.label.toUpperCase();
+        }
+        return "All done";
+    }
 
+    async function initializeDashboard() {
+        const delay = TESTING_MODE ? TESTING_DELAY : NORMAL_DELAY;
+
+        try {
             updateStep("auth", "loading");
-            await new Promise((resolve) => setTimeout(resolve, 300));
+            await new Promise((resolve) => setTimeout(resolve, delay));
 
             if (!authService.isAuthenticated) {
                 updateStep("auth", "error", "User not authenticated");
-
                 return;
             }
             updateStep("auth", "success");
@@ -59,22 +78,22 @@
             updateStep("settings", "loading");
             try {
                 await SettingsService.ensureLoaded();
+                await new Promise((resolve) => setTimeout(resolve, delay));
                 updateStep("settings", "success");
             } catch (error) {
                 const errorMsg =
                     error instanceof Error ? error.message : "Failed to load settings";
                 updateStep("settings", "error", errorMsg);
-
             }
 
             updateStep("apply-settings", "loading");
-            await new Promise((resolve) => setTimeout(resolve, 200));
-
+            await new Promise((resolve) => setTimeout(resolve, delay));
             updateStep("apply-settings", "success");
 
             updateStep("realtime", "loading");
             try {
                 await RealtimeService.initialize();
+                await new Promise((resolve) => setTimeout(resolve, delay));
                 updateStep("realtime", "success");
             } catch (error) {
                 const errorMsg =
@@ -82,13 +101,11 @@
                         ? error.message
                         : "Failed to initialize realtime service";
                 updateStep("realtime", "error", errorMsg);
-
             }
 
             updateStep("health", "loading");
             try {
-
-                await new Promise((resolve) => setTimeout(resolve, 300));
+                await new Promise((resolve) => setTimeout(resolve, delay));
                 const healthStatus = HealthService.status;
                 if (healthStatus.connected === false && healthStatus.error) {
                     updateStep("health", "error", healthStatus.error);
@@ -99,19 +116,17 @@
                 const errorMsg =
                     error instanceof Error ? error.message : "Health check failed";
                 updateStep("health", "error", errorMsg);
-
             }
 
             updateStep("complete", "loading");
-            await new Promise((resolve) => setTimeout(resolve, 200));
+            await new Promise((resolve) => setTimeout(resolve, delay));
             updateStep("complete", "success");
             progress = 100;
 
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            await new Promise((resolve) => setTimeout(resolve, TESTING_MODE ? delay : 1000));
             isComplete = true;
         } catch (error) {
             console.error("[DashboardLoading] Initialization failed:", error);
-
             steps.forEach((step) => {
                 if (step.status === "pending" || step.status === "loading") {
                     updateStep(
@@ -124,95 +139,170 @@
         }
     }
 
-    onMount(() => {
-        initializeDashboard();
-    });
+    function animateProgress() {
+        if (progressBarElement && progress !== previousProgress) {
+            animate(progressBarElement, {
+                width: `${progress}%`,
+                duration: 75,
+                easing: "linear",
+            });
+        }
+        if (progressCircleElement && progress !== previousProgress) {
+            const circumference = 2 * Math.PI * 70;
+            const offset = circumference - (progress / 100) * circumference;
+            const currentOffset = progressCircleElement.getAttribute("stroke-dashoffset");
+            animate(progressCircleElement, {
+                strokeDashoffset: [currentOffset ? parseFloat(currentOffset) : circumference, offset],
+                duration: 75,
+                easing: "linear",
+            });
+        }
+        previousProgress = progress;
+    }
 
-    function getStepIcon(step: LoadingStep) {
-        switch (step.status) {
-            case "success":
-                return CheckCircle2;
-            case "error":
-                return XCircle;
-            case "loading":
-                return Loader2;
-            default:
-                return AlertCircle;
+    function animateLogEntries() {
+        if (logContainerElement) {
+            const logItems = logContainerElement.querySelectorAll("[data-log-item]:not([data-animated])");
+            if (logItems.length > 0) {
+                Array.from(logItems).forEach((item, i) => {
+                    item.setAttribute("data-animated", "true");
+                    animate(item, {
+                        opacity: [0, 1],
+                        translateY: [10, 0],
+                        duration: 400,
+                        delay: i * 50,
+                        easing: "easeOutCubic",
+                    });
+                });
+            }
         }
     }
+
+    onMount(() => {
+
+        if (containerElement) {
+            animate(containerElement, {
+                opacity: [0, 1],
+                duration: 400,
+                easing: "easeOutCubic",
+            });
+        }
+
+        setTimeout(() => {
+            animateLogEntries();
+        }, 100);
+
+        initializeDashboard();
+
+        glitchInterval = setInterval(() => {
+            if (Math.random() > 0.9) {
+                glitch = true;
+                setTimeout(() => {
+                    glitch = false;
+                }, 150);
+            }
+        }, 500);
+    });
+
+    $effect(() => {
+        animateProgress();
+    });
+
+    onDestroy(() => {
+        if (glitchInterval) {
+            clearInterval(glitchInterval);
+        }
+    });
+
 </script>
 
 {#if !isComplete}
     <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-background"
-        transition:fade={{ duration: 300 }}
+        bind:this={containerElement}
+        class="absolute inset-0 flex items-center justify-center z-50 bg-black"
     >
-        <div class="w-full max-w-md px-6 space-y-8">
+        <div class="relative flex flex-col items-center justify-center w-full max-w-lg">
 
-            <div class="text-center space-y-2">
-                <h1 class="text-2xl font-bold">Loading Dashboard</h1>
-                <p class="text-sm text-muted-foreground">
-                    Initializing services and loading your preferences
-                </p>
+            <div class="relative w-64 h-64 flex items-center justify-center">
+                <Logo
+                    size={256}
+                    progress={progress}
+                    progressCircleRef={(el) => { progressCircleElement = el; }}
+                    animated={true}
+                />
             </div>
 
-            <div class="space-y-2">
-                <Progress value={progress} class="h-2" />
-                <div class="flex justify-between text-xs text-muted-foreground">
-                    <span>{progress}%</span>
-                    <span>
-                        {steps.filter((s) => s.status === "success" || s.status === "error")
-                            .length}
-                        / {steps.length} steps
-                    </span>
-                </div>
-            </div>
+            <div class="mt-12 w-full px-12 text-center space-y-4">
 
-            <div class="space-y-1.5">
-                <div class="text-xs font-medium text-muted-foreground mb-1.5">
-                    Initialization Steps:
-                </div>
-                {#each steps as step (step.id)}
-                    {@const Icon = getStepIcon(step)}
-                    <div
-                        class="flex items-start gap-2 p-1.5 rounded-md transition-colors {step.status ===
-                        "loading"
-                            ? "bg-muted"
-                            : step.status === "success"
-                              ? "bg-green-500/10"
-                              : step.status === "error"
-                                ? "bg-destructive/10"
-                                : ""}"
+                <div class="h-6 overflow-hidden">
+                    <p
+                        class="font-mono text-xs tracking-[0.3em] text-white uppercase {glitch
+                            ? 'opacity-50 blur-[1px]'
+                            : 'opacity-100'}"
                     >
-                        <Icon
-                            class="h-3.5 w-3.5 mt-0.5 flex-shrink-0 {step.status === "loading"
-                                ? "animate-spin text-primary"
-                                : step.status === "success"
-                                  ? "text-green-500"
-                                  : step.status === "error"
-                                    ? "text-destructive"
-                                    : "text-muted-foreground"}"
-                        />
-                        <div class="flex-1 min-w-0">
-                            <div
-                                class="text-xs {step.status === "error"
-                                    ? "text-destructive"
-                                    : step.status === "success"
-                                      ? "text-green-600 dark:text-green-400"
-                                      : ""}"
-                            >
-                                {step.label}
-                            </div>
-                            {#if step.error}
-                                <div class="text-[10px] text-destructive mt-0.5">
-                                    {step.error}
+                        {'>'} {getCurrentStatusMessage()}
+                    </p>
+                </div>
+
+                <div class="relative w-full h-[1px] bg-white/10 overflow-hidden">
+                    <div
+                        bind:this={progressBarElement}
+                        class="absolute left-0 top-0 h-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.5)]"
+                        style="width: {progress}%"
+                    ></div>
+                </div>
+
+                <div
+                    class="flex justify-between text-[8px] font-mono text-white/30 uppercase tracking-widest"
+                >
+                    <span>Mem: {4096 + Math.floor(progress * 12)}MB</span>
+                    <span>Threads: ACTIVE</span>
+                </div>
+
+                <div class="mt-8 w-full max-w-md px-4">
+                    <div
+                        bind:this={logContainerElement}
+                        class="border border-white/10 rounded bg-black/20 p-4 max-h-48 overflow-y-auto"
+                    >
+                        <div class="space-y-1.5">
+                            {#each steps as step (step.id)}
+                                <div
+                                    data-log-item
+                                    class="flex items-start gap-2 text-[10px] font-mono {step.status ===
+                                    "success"
+                                        ? "text-green-400"
+                                        : step.status === "error"
+                                          ? "text-red-400"
+                                          : step.status === "loading"
+                                            ? "text-white"
+                                            : "text-white/40"}"
+                                >
+                                    <span class="text-white/30">
+                                        {step.status === "success"
+                                            ? "[✓]"
+                                            : step.status === "error"
+                                              ? "[✗]"
+                                              : step.status === "loading"
+                                                ? "[→]"
+                                                : "[ ]"}
+                                    </span>
+                                    <span class="flex-1">
+                                        {step.label}
+                                        {#if step.error}
+                                            <span class="text-red-400 ml-2">- {step.error}</span>
+                                        {/if}
+                                    </span>
                                 </div>
-                            {/if}
+                            {/each}
                         </div>
                     </div>
-                {/each}
+                </div>
             </div>
         </div>
+
+        <div
+            class="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06)_50%,rgba(0,0,0,0.25)_50%)] bg-[length:100%_2px,2px_100%] opacity-20"
+        ></div>
     </div>
 {:else}
     <div transition:fade={{ duration: 300 }}>{@render children()}</div>

@@ -318,6 +318,35 @@ export class CredentialsService {
 	}
 
 	static async updateApiKey(id: string, data: Partial<ApiKey>): Promise<ApiKey> {
+		// If activating a key, deactivate other keys for the same service
+		if (data.is_active === true) {
+			const existing = await CredentialsStorageService.getApiKey(id);
+			if (existing) {
+				// Get all keys for the same service and user
+				const allKeys = await this.getApiKeys();
+				const sameServiceKeys = allKeys.filter(
+					key => key.service === existing.service && key.id !== id && key.is_active
+				);
+				
+				// Deactivate other active keys for the same service
+				for (const key of sameServiceKeys) {
+					try {
+						if (NetworkService.isOnline) {
+							await pb.collection(COLLECTION_NAMES.API_KEYS).update(key.id, { is_active: false });
+						}
+						await CredentialsStorageService.saveApiKey({
+							...key,
+							is_active: false,
+							syncStatus: 'pending',
+							lastModified: Date.now(),
+						} as LocalApiKey);
+					} catch (error) {
+						console.error('Failed to deactivate other keys:', error);
+					}
+				}
+			}
+		}
+
 		if (NetworkService.isOnline) {
 			try {
 				const updated = await pb.collection(COLLECTION_NAMES.API_KEYS).update(id, data);
@@ -363,6 +392,35 @@ export class CredentialsService {
 	}
 
 	static async toggleApiKeyStatus(id: string, currentStatus: boolean): Promise<ApiKey> {
+		// If activating, ensure only one key per service is active
+		if (!currentStatus) {
+			const key = await CredentialsStorageService.getApiKey(id);
+			if (key) {
+				// Get all keys for the same service and user
+				const allKeys = await this.getApiKeys();
+				const sameServiceKeys = allKeys.filter(
+					k => k.service === key.service && k.id !== id && k.is_active
+				);
+				
+				// Deactivate other active keys for the same service
+				for (const otherKey of sameServiceKeys) {
+					try {
+						if (NetworkService.isOnline) {
+							await pb.collection(COLLECTION_NAMES.API_KEYS).update(otherKey.id, { is_active: false });
+						}
+						await CredentialsStorageService.saveApiKey({
+							...otherKey,
+							is_active: false,
+							syncStatus: 'pending',
+							lastModified: Date.now(),
+						} as LocalApiKey);
+					} catch (error) {
+						console.error('Failed to deactivate other keys:', error);
+					}
+				}
+			}
+		}
+		
 		return await this.updateApiKey(id, { is_active: !currentStatus });
 	}
 

@@ -110,18 +110,21 @@
         <DropdownMenu.Root>
             <!-- @ts-ignore - bits-ui type definitions issue -->
             <DropdownMenu.Trigger asChild let:builder>
-                <Button
-                    builders={[builder]}
-                    size="sm"
-                    variant="outline"
-                    disabled={isSyncing}
-                    class="h-7"
-                    on:click={(e) => e.stopPropagation()}
-                >
-                    <RefreshCw class={cn("h-3 w-3 mr-1", isSyncing && "animate-spin")} />
-                    {isSyncing ? 'Syncing...' : 'Sync'}
-                    <ChevronDown class="h-3 w-3 ml-1" />
-                </Button>
+                {#snippet trigger(builder)}
+                    <Button
+                        builders={[builder]}
+                        size="sm"
+                        variant="outline"
+                        disabled={isSyncing}
+                        class="h-7"
+                        on:click={(e) => e.stopPropagation()}
+                    >
+                        <RefreshCw class={cn("h-3 w-3 mr-1", isSyncing && "animate-spin")} />
+                        {isSyncing ? 'Syncing...' : 'Sync'}
+                        <ChevronDown class="h-3 w-3 ml-1" />
+                    </Button>
+                {/snippet}
+                {@render trigger(builder)}
             </DropdownMenu.Trigger>
             <DropdownMenu.Content align="end">
                 <DropdownMenu.Item

@@ -149,9 +149,12 @@
                 <div class="flex justify-end">
                     <DropdownMenu.Root>
                         <DropdownMenu.Trigger asChild let:builder>
-                            <Button builders={[builder]} variant="ghost" size="icon" class="h-8 w-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                                <MoreVertical class="h-4 w-4" />
-                            </Button>
+                            {#snippet trigger(builder)}
+                                <Button builders={[builder]} variant="ghost" size="icon" class="h-8 w-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <MoreVertical class="h-4 w-4" />
+                                </Button>
+                            {/snippet}
+                            {@render trigger(builder)}
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Content align="end" class="w-48 bg-background/95 backdrop-blur shadow-2xl border-primary/10">
                             <DropdownMenu.Item onclick={() => handlePlayFromHere(track)} class="font-medium">
